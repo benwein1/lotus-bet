@@ -24,11 +24,18 @@ export default function GroupDetailScreen() {
   const bets = useAsync(() => fetchGroupBets(groupId), [groupId]);
   const balances = useAsync(() => fetchGroupBalances(groupId), [groupId]);
 
+  // Depend on the `reload` functions, not the state objects: `useAsync`
+  // returns a new object every render, which would make `refresh` — and so the
+  // Realtime subscription that keys off it — unstable.
+  const { reload: reloadBets } = bets;
+  const { reload: reloadBalances } = balances;
+  const { reload: reloadGroup } = group;
+
   const refresh = useCallback(() => {
-    void bets.reload({ silent: true });
-    void balances.reload({ silent: true });
-    void group.reload({ silent: true });
-  }, [bets, balances, group]);
+    void reloadBets({ silent: true });
+    void reloadBalances({ silent: true });
+    void reloadGroup({ silent: true });
+  }, [reloadBets, reloadBalances, reloadGroup]);
 
   useGroupRealtime(groupId, refresh);
 

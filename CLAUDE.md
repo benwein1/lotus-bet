@@ -301,6 +301,25 @@ Concrete things worth fixing, roughly by severity:
    that skips it means no one gets notified. A database webhook would be more
    reliable.
 
+### Fixed, but easy to reintroduce
+
+**"cannot add `postgres_changes` callbacks for realtime:… after
+`subscribe()`."** This crashed the group, settle-up and bet screens. Two
+causes, both now guarded in `src/hooks/use-group-realtime.ts`:
+
+- Callers built `refresh` with `useCallback(..., [bets, balances, group])`,
+  but `useAsync` returns a **new object every render**, so the callback's
+  identity changed constantly and the channel was torn down and reopened on
+  every render. `removeChannel` is async, so the reopen raced its own
+  teardown. Depend on `xxx.reload` (a stable `useCallback(..., [])`), never on
+  the state object.
+- Screens stack: settle-up sits on top of group detail and **both** watch the
+  same group, so a channel named only `group:<id>` collided with a live one.
+  Channel names now carry a per-instance `useId()` suffix.
+
+If you add another `useAsync` consumer that feeds a Realtime callback, or a
+third screen watching the same group, keep both properties.
+
 ---
 
 ## 8. Local dev: getting past phone auth without SMS

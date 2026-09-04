@@ -45,9 +45,13 @@ export default function BetDetailScreen() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // See the note in group/[id]/index.tsx: depend on the stable `reload`, not
+  // on the state object, or the Realtime channel reopens every render.
+  const { reload: reloadBet } = bet;
+
   const refresh = useCallback(() => {
-    void bet.reload({ silent: true });
-  }, [bet]);
+    void reloadBet({ silent: true });
+  }, [reloadBet]);
 
   useGroupRealtime(groupId, refresh);
 

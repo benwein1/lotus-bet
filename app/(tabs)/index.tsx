@@ -20,9 +20,12 @@ export default function HomeScreen() {
 
   const feed = useAsync(fetchFeedBets, [userId]);
 
+  // `feed` is a new object every render; `feed.reload` is stable.
+  const { reload: reloadFeed } = feed;
+
   const refresh = useCallback(() => {
-    void feed.reload({ silent: true });
-  }, [feed]);
+    void reloadFeed({ silent: true });
+  }, [reloadFeed]);
 
   useFeedRealtime(Boolean(userId), refresh);
 

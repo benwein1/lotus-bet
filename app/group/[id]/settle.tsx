@@ -38,10 +38,14 @@ export default function SettleUpScreen() {
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Stable `reload` references — see group/[id]/index.tsx.
+  const { reload: reloadBalances } = balances;
+  const { reload: reloadConfirmations } = confirmations;
+
   const refresh = useCallback(() => {
-    void balances.reload({ silent: true });
-    void confirmations.reload({ silent: true });
-  }, [balances, confirmations]);
+    void reloadBalances({ silent: true });
+    void reloadConfirmations({ silent: true });
+  }, [reloadBalances, reloadConfirmations]);
 
   useGroupRealtime(groupId, refresh);
 
