@@ -76,6 +76,12 @@ app/                        Expo Router routes
   group/[id]/               index (detail) · new-bet · settle
   bet/[id].tsx              join a side, resolve, cancel
 src/
+  components/ui.tsx         the shared visual vocabulary — see §4
+  components/icons.tsx      hand-rolled SVG icon set
+  components/animated.ts    NativeWind-registered Animated — import from here
+  components/screen.tsx     ScreenBackdrop + ContentWidth
+  components/skeletons.tsx  screen-shaped loading placeholders
+  components/bet-card.tsx, odds-bar.tsx
   lib/payout.ts             re-export ONLY — see §5
   lib/settlement.ts         balance netting + greedy debt simplification
   lib/queries.ts            every Supabase read/write the app makes
@@ -83,10 +89,9 @@ src/
   lib/database.types.ts     hand-written row types
   lib/supabase.ts           client; `isSupabaseConfigured` guard
   lib/notifications.ts      Expo push registration + announceNewBet
-  components/               ui.tsx (primitives), bet-card.tsx, odds-bar.tsx
   hooks/                    use-async, use-group-realtime, use-settlement
   providers/auth-provider.tsx
-  theme.ts                  re-exports theme-colors.json
+  theme.ts                  colors · motion · elevation · avatarColors
 theme-colors.json           SINGLE SOURCE OF TRUTH for the palette
 supabase/
   migrations/               schema · RLS · RPCs (3 files, apply in order)
@@ -104,33 +109,50 @@ never reads it — which is what makes the RLS surface auditable.
 
 ## 4. Design system — read before any UI work
 
-### The palette
+### Tokens
 
 `theme-colors.json` is the only place colours are defined. `tailwind.config.js`
-requires it; `src/theme.ts` re-exports it as `colors`. **Never hardcode a hex
-value in a component.**
+requires it; `src/theme.ts` re-exports it as `colors` alongside `motion`,
+`elevation` and `avatarColors`. **Never hardcode a hex value in a component**
+(`#fff` on the primary button is the sole exception).
 
 | Token | Use |
 | --- | --- |
-| `ink.950` → `ink.600` | backgrounds (950 darkest) → secondary text |
-| `ink.500` | avatar monograms, brighter secondary text |
-| `lotus.400/500/600` | brand accent, primary buttons, links |
-| `sideA` (green) / `sideB` (orange) | the two sides of a bet |
-| `owed` (green) / `owing` (red) | money you're owed / you owe |
+| `ink.1000` → `ink.850` | page ground → sunken → base → raised surfaces |
+| `ink.800` / `ink.750` / `ink.700` | borders, weakest to strongest |
+| `ink.650` | placeholder and disabled text |
+| `ink.600` / `ink.500` / `ink.400` | secondary → tertiary → near-primary text |
+| `ink.50` | primary text |
+| `lotus.300/400/500/600/900` | accent text · icons · primary button · glow · tint |
+| `sideA` / `sideB` (+ `-bright`, `-deep`, `-shade`) | the two sides of a bet |
+| `owed` / `owing` / `warn` (+ `-shade`) | money you're owed · owe · warnings |
 
-Use `className` everywhere you can. Reach for `colors.*` only where NativeWind
-can't apply a class: React Navigation `screenOptions`, `placeholderTextColor`,
-`RefreshControl` `tintColor`, `Switch` `trackColor`, and animated styles.
+Type: **Space Grotesk** carries every heading, number and label
+(`font-display`, `font-display-medium`, `font-display-bold`); body copy stays
+on the system face. Fonts load in `app/_layout.tsx` and the splash screen is
+held until they land — but a font failure never blocks the app.
+
+Spacing rides a 4pt grid with two named steps, `px-gutter` (20) for screen
+edges and `mb-section` (28) between sections. Motion pulls from `motion.*` in
+`src/theme.ts` so the whole app moves with one personality.
 
 The app is **dark-only and committed to it** — there are no `dark:` variants
 anywhere. That's a design decision, not an omission.
 
 ### NativeWind gotchas (each of these has already bitten once)
 
-1. **`className` does nothing on `Animated.View`** from
-   react-native-reanimated. NativeWind doesn't wrap it. The odds bar shipped
-   invisible because of this. Style animated components with plain `style`
-   objects and `colors.*`. See `src/components/odds-bar.tsx` for the pattern.
+1. **`className` is silently dropped on any component NativeWind doesn't
+   know** — including reanimated's `Animated.View` and anything built with
+   `Animated.createAnimatedComponent`. No error; the styles simply never
+   arrive. This cost a whole redesign pass: the side-picker buttons on the bet
+   screen stacked on top of each other because `flex-row` never applied.
+
+   The fix is registration, not avoidance. `src/components/animated.ts` calls
+   `cssInterop` on `Animated.View`/`Text`/`ScrollView` and re-exports
+   `Animated`; `ui.tsx` does the same for its `AnimatedPressable`.
+   **Import `Animated` from `@/components/animated`, never from
+   `react-native-reanimated` directly** — that is what guarantees the
+   registration has run. If you animate a new component type, register it too.
 
 2. **No dynamic class names.** `` `border-${tone}` `` compiles to nothing —
    Tailwind needs literal strings. Spell both branches out:
@@ -145,31 +167,55 @@ anywhere. That's a design decision, not an omission.
 
 4. `contentContainerClassName` **is** supported on ScrollView. Use it.
 
-5. Emoji ignore `color`. The tab bar dims inactive icons with `opacity`
-   instead — see `TabGlyph` in `app/(tabs)/_layout.tsx`.
+5. **`text-2xs` carries 0.6px tracking** because it is nearly always an
+   uppercase label. Add `tracking-normal` on the rare lowercase use.
+
+6. **Eight-digit hex alpha is not reliable in `LinearGradient`.** A stop that
+   doesn't truly reach zero leaves a hard horizontal seam where the gradient
+   ends. `ScreenBackdrop` builds explicit `rgba()` — follow that.
+
+### Component library
+
+`src/components/ui.tsx` is the shared vocabulary; screens compose it and add
+no bespoke chrome of their own.
+
+- `PressableScale` — every tappable surface springs under the finger. Use it
+  instead of a bare `Pressable`.
+- `Card` (`level`: sunken/base/raised), `Divider`, `Title`, `SectionTitle`,
+  `Overline`, `InfoRow`, `Stat`
+- `Button` (`variant`: primary/secondary/ghost/danger/success ·
+  `size`: sm/md/lg · `icon` · `loading`), `Chip`, `Badge`, `LiveDot`
+- `Avatar` / `AvatarStack` — colour is derived from the user id via
+  `avatarColors`, so the same person is the same colour everywhere.
+- `Skeleton` plus screen-shaped compositions in `skeletons.tsx`.
+  **Loading states use skeletons, not spinners**, anywhere the shape of the
+  content is known.
+- `EmptyState` / `EmptySlot` / `ErrorNotice`
+
+`src/components/icons.tsx` is a hand-rolled SVG set on a 24×24 grid, 1.75
+stroke. Emoji ignore `color` and render differently per platform — use these
+instead. Emoji remain only as user-chosen group avatars.
+
+`src/components/screen.tsx` provides `ScreenBackdrop` (the ambient wash every
+screen sits on; tint it to match the screen's mood) and `ContentWidth` (caps
+content at 560px so tablet and web don't go full-bleed).
 
 ### Where the design currently stands
 
-Screens verified rendering: auth, Home feed, Groups, group detail, bet detail
-(open and resolved), settle-up, Profile.
+Screens verified rendering against a stubbed backend: auth, Home, Groups,
+group detail, bet detail (open and resolved), settle-up, Profile.
 
-Known-thin areas, in rough priority order for a design pass:
+Still thin, in rough priority order:
 
-- **Loading states** are a bare spinner (`Loading` in `ui.tsx`). Skeletons
-  would help most on Home and group detail.
-- **Tab icons are emoji.** Deliberate, to avoid an icon-font dependency at
-  MVP. Swapping to SF Symbols / `expo-symbols` is a one-component change.
-- **Resolution has no moment.** A bet resolving is the emotional peak of the
-  app and currently just re-renders a card. No animation, no celebration.
-- **Empty states** are emoji + two lines of text. Fine, not memorable.
 - **`avatar_url` exists in the schema but has no upload UI** — avatars are
   initials-only everywhere.
-- **Contrast** was already too low once (`ink.600` monograms on `ink.700`).
-  If you darken secondary text, check it against `ink.900` card backgrounds.
-- Group detail is meant to be the most visually engaging screen. It's decent;
-  it isn't yet delightful.
-
----
+- **No haptics on web** (guarded by `Platform.OS !== 'web'`), which is
+  correct, but the web build consequently feels flatter than the device build.
+- The resolution moment animates on the bet screen, but a bet resolving while
+  you are on the feed still just re-renders a card.
+- No pull-to-refresh affordance beyond the platform spinner.
+- Group detail is meant to be the most visually engaging screen. It's good;
+  it isn't yet unforgettable.
 
 ## 5. The money invariants — the highest-risk code in the repo
 

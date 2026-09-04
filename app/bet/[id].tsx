@@ -1,11 +1,25 @@
 import * as Haptics from 'expo-haptics';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
+import Animated, { FadeIn, FadeInDown, ZoomIn } from '@/components/animated';
 
 import { countSides, mySide } from '@/components/bet-card';
+import { AlertIcon, ClockIcon, LockIcon, TrophyIcon } from '@/components/icons';
 import { OddsBar } from '@/components/odds-bar';
-import { Avatar, Badge, Button, Card, ErrorNotice, Loading, SectionTitle } from '@/components/ui';
+import { ContentWidth, ScreenBackdrop } from '@/components/screen';
+import {
+  Avatar,
+  Badge,
+  Button,
+  Card,
+  Divider,
+  ErrorNotice,
+  Loading,
+  Overline,
+  PressableScale,
+  SectionTitle,
+} from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
 import type { BetSide, BetWithPositions, UserRow } from '@/lib/database.types';
@@ -22,7 +36,7 @@ import {
   resolveBet,
 } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
-import { colors } from '@/theme';
+import { colors, elevation, motion } from '@/theme';
 
 export default function BetDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -58,7 +72,7 @@ export default function BetDetailScreen() {
   if (bet.loading) return <Loading label="Loading bet…" />;
   if (!bet.data) {
     return (
-      <View className="flex-1 bg-ink-950 pt-10">
+      <View className="flex-1 bg-ink-950 px-gutter pt-10">
         <ErrorNotice message={bet.error ?? 'This bet is not available.'} />
       </View>
     );
@@ -72,6 +86,7 @@ export default function BetDetailScreen() {
   const deadlinePassed = countdown === 'Closed';
   const canJoin = data.status === 'open' && !deadlinePassed;
   const isResolved = data.status === 'resolved';
+  const isCancelled = data.status === 'cancelled';
 
   const myLedgerAmount =
     (ledger.data ?? []).find((entry) => entry.user_id === userId)?.amount_agorot ?? null;
@@ -94,7 +109,9 @@ export default function BetDetailScreen() {
   }
 
   async function pickSide(next: BetSide) {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== 'web') {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
     await withBusy(async () => {
       // Tapping the side you're already on withdraws you from the bet.
       if (side === next) await leaveBet(betId);
@@ -119,7 +136,9 @@ export default function BetDetailScreen() {
           onPress: () =>
             void withBusy(async () => {
               await resolveBet(betId, winning);
-              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              if (Platform.OS !== 'web') {
+                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              }
             }),
         },
       ]
@@ -140,135 +159,209 @@ export default function BetDetailScreen() {
   return (
     <>
       <Stack.Screen options={{ title: data.group?.name ?? 'Bet' }} />
-      <ScrollView
-        className="flex-1 bg-ink-950"
-        contentContainerClassName="px-4 pb-12 pt-4"
-        refreshControl={
-          <RefreshControl refreshing={bet.refreshing} onRefresh={() => bet.reload()} tintColor={colors.lotus['500']} />
-        }
-      >
-        <View className="mb-4 flex-row items-center gap-2">
-          <Badge label={data.status} tone={data.status} />
-          {countdown && !isResolved && (
-            <Text className="text-xs text-ink-600">{countdown}</Text>
-          )}
-          <Text className="ml-auto text-xs text-ink-600">
-            {formatShortDate(data.created_at)}
-          </Text>
-        </View>
-
-        <Text className="mb-2 text-2xl font-bold leading-7 text-white">{data.title}</Text>
-        {data.description && (
-          <Text className="mb-4 text-base leading-6 text-ink-600">{data.description}</Text>
-        )}
-
-        <Card className="mb-5">
-          <View className="mb-4 flex-row items-baseline justify-between">
-            <Text className="text-2xs uppercase tracking-widest text-ink-600">Total pot</Text>
-            <Text className="text-2xl font-bold text-lotus-400">
-              {formatAgorot(data.total_pot_agorot)}
-            </Text>
-          </View>
-
-          <OddsBar
-            countA={counts.a}
-            countB={counts.b}
-            labelA={data.option_a_label}
-            labelB={data.option_b_label}
-            winningOption={isResolved ? data.winning_option : null}
-          />
-        </Card>
-
-        {actionError && <ErrorNotice message={actionError} />}
-
-        {/* Join / switch sides */}
-        {canJoin && (
-          <View className="mb-6 flex-row gap-3">
-            <SideButton
-              label={data.option_a_label}
-              tone="a"
-              selected={side === 'a'}
-              disabled={busy}
-              // Joining makes the side one bigger, so preview against n+1.
-              shareAgorot={previewShareAgorot(data.total_pot_agorot, side === 'a' ? counts.a : counts.a + 1)}
-              onPress={() => void pickSide('a')}
+      <View className="flex-1 bg-ink-950">
+        <ScreenBackdrop
+          tint={
+            isResolved
+              ? side === data.winning_option
+                ? colors.sideA.DEFAULT
+                : colors.owing.DEFAULT
+              : colors.lotus['600']
+          }
+        />
+        <ScrollView
+          contentContainerClassName="px-gutter pb-12 pt-2"
+          refreshControl={
+            <RefreshControl
+              refreshing={bet.refreshing}
+              onRefresh={() => bet.reload()}
+              tintColor={colors.lotus['400']}
             />
-            <SideButton
-              label={data.option_b_label}
-              tone="b"
-              selected={side === 'b'}
-              disabled={busy}
-              shareAgorot={previewShareAgorot(data.total_pot_agorot, side === 'b' ? counts.b : counts.b + 1)}
-              onPress={() => void pickSide('b')}
-            />
-          </View>
-        )}
+          }
+          showsVerticalScrollIndicator={false}
+        >
+          <ContentWidth>
+            <Animated.View entering={FadeInDown.duration(motion.duration.base)}>
+              <View className="mb-3.5 flex-row items-center gap-2.5">
+                <Badge label={data.status} tone={data.status} />
+                {countdown && !isResolved && !isCancelled && (
+                  <View className="flex-row items-center gap-1.5">
+                    <ClockIcon size={13} color={colors.ink['600']} />
+                    <Text className="text-xs text-ink-600">{countdown}</Text>
+                  </View>
+                )}
+                <Text className="ml-auto text-xs text-ink-650">
+                  {formatShortDate(data.created_at)}
+                </Text>
+              </View>
 
-        {!canJoin && !isResolved && data.status !== 'cancelled' && (
-          <View className="mb-6 rounded-2xl border border-ink-700 bg-ink-900 px-4 py-3">
-            <Text className="text-sm text-ink-600">
-              {deadlinePassed
-                ? 'The join deadline has passed — waiting on the creator to call it.'
-                : 'This bet is locked. No more joining.'}
-            </Text>
-          </View>
-        )}
+              <Text className="font-display-bold text-2xl leading-8 text-ink-50">{data.title}</Text>
+              {data.description && (
+                <Text className="mt-3 text-base leading-6 text-ink-600">{data.description}</Text>
+              )}
+            </Animated.View>
 
-        {isResolved && (
-          <ResolvedSummary bet={data} userId={userId} myAmountAgorot={myLedgerAmount} />
-        )}
+            {/* The market */}
+            <Animated.View
+              entering={FadeInDown.delay(60).duration(motion.duration.base)}
+              className="mt-6"
+            >
+              <Card level="raised">
+                <View className="mb-5 flex-row items-center justify-between">
+                  <Overline>Total pot</Overline>
+                  <Text className="font-display-bold text-3xl text-lotus-300">
+                    {formatAgorot(data.total_pot_agorot)}
+                  </Text>
+                </View>
+                <OddsBar
+                  countA={counts.a}
+                  countB={counts.b}
+                  labelA={data.option_a_label}
+                  labelB={data.option_b_label}
+                  winningOption={isResolved ? data.winning_option : null}
+                  size="lg"
+                />
+              </Card>
+            </Animated.View>
 
-        {/* Who's on which side */}
-        <SectionTitle>Who&apos;s in</SectionTitle>
-        <View className="mb-6 flex-row gap-3">
-          <SideRoster
-            label={data.option_a_label}
-            tone="a"
-            users={(data.positions ?? [])
-              .filter((p) => p.side === 'a')
-              .map((p) => usersById.get(p.user_id)?.display_name ?? 'Someone')}
-          />
-          <SideRoster
-            label={data.option_b_label}
-            tone="b"
-            users={(data.positions ?? [])
-              .filter((p) => p.side === 'b')
-              .map((p) => usersById.get(p.user_id)?.display_name ?? 'Someone')}
-          />
-        </View>
-
-        {/* Creator controls */}
-        {isCreator && !isResolved && data.status !== 'cancelled' && (
-          <View className="gap-3">
-            <SectionTitle>You created this bet</SectionTitle>
-            <Text className="-mt-2 mb-1 text-xs leading-5 text-ink-600">
-              Only you can call it. Bets can&apos;t be edited — only locked, resolved or cancelled.
-            </Text>
-
-            <Button
-              title={`"${data.option_a_label}" won`}
-              variant="secondary"
-              disabled={busy}
-              onPress={() => confirmResolve('a')}
-            />
-            <Button
-              title={`"${data.option_b_label}" won`}
-              variant="secondary"
-              disabled={busy}
-              onPress={() => confirmResolve('b')}
-            />
-            {data.status === 'open' && (
-              <Button
-                title="Lock — no more joining"
-                variant="ghost"
-                disabled={busy}
-                onPress={() => void withBusy(() => lockBet(betId))}
-              />
+            {actionError && (
+              <View className="mt-4">
+                <ErrorNotice message={actionError} />
+              </View>
             )}
-            <Button title="Cancel bet" variant="danger" disabled={busy} onPress={confirmCancel} />
-          </View>
-        )}
-      </ScrollView>
+
+            {/* Pick a side */}
+            {canJoin && (
+              <Animated.View
+                entering={FadeInDown.delay(120).duration(motion.duration.base)}
+                className="mt-5 flex-row gap-3"
+              >
+                <SideButton
+                  label={data.option_a_label}
+                  tone="a"
+                  selected={side === 'a'}
+                  disabled={busy}
+                  // Joining makes the side one bigger, so preview against n+1.
+                  shareAgorot={previewShareAgorot(
+                    data.total_pot_agorot,
+                    side === 'a' ? counts.a : counts.a + 1
+                  )}
+                  onPress={() => void pickSide('a')}
+                />
+                <SideButton
+                  label={data.option_b_label}
+                  tone="b"
+                  selected={side === 'b'}
+                  disabled={busy}
+                  shareAgorot={previewShareAgorot(
+                    data.total_pot_agorot,
+                    side === 'b' ? counts.b : counts.b + 1
+                  )}
+                  onPress={() => void pickSide('b')}
+                />
+              </Animated.View>
+            )}
+
+            {!canJoin && !isResolved && !isCancelled && (
+              <View className="mt-5 flex-row items-center gap-3 rounded-2xl border border-ink-800 bg-ink-900 px-4 py-3.5">
+                <LockIcon size={17} color={colors.ink['600']} />
+                <Text className="flex-1 text-sm leading-5 text-ink-600">
+                  {deadlinePassed
+                    ? 'The join deadline has passed — waiting on the creator to call it.'
+                    : 'This bet is locked. No more joining.'}
+                </Text>
+              </View>
+            )}
+
+            {isCancelled && (
+              <View className="mt-5 flex-row items-center gap-3 rounded-2xl border border-ink-800 bg-ink-900 px-4 py-3.5">
+                <AlertIcon size={17} color={colors.ink['600']} />
+                <Text className="flex-1 text-sm text-ink-600">
+                  This bet was cancelled. Nobody won and nobody owes anything.
+                </Text>
+              </View>
+            )}
+
+            {isResolved && (
+              <ResolvedSummary bet={data} userId={userId} myAmountAgorot={myLedgerAmount} />
+            )}
+
+            {/* Who's in */}
+            <View className="mt-8">
+              <SectionTitle>Who&apos;s in</SectionTitle>
+              <View className="flex-row gap-3">
+                <SideRoster
+                  label={data.option_a_label}
+                  tone="a"
+                  won={isResolved ? data.winning_option === 'a' : null}
+                  people={(data.positions ?? [])
+                    .filter((p) => p.side === 'a')
+                    .map((p) => ({
+                      id: p.user_id,
+                      name: usersById.get(p.user_id)?.display_name ?? 'Someone',
+                    }))}
+                />
+                <SideRoster
+                  label={data.option_b_label}
+                  tone="b"
+                  won={isResolved ? data.winning_option === 'b' : null}
+                  people={(data.positions ?? [])
+                    .filter((p) => p.side === 'b')
+                    .map((p) => ({
+                      id: p.user_id,
+                      name: usersById.get(p.user_id)?.display_name ?? 'Someone',
+                    }))}
+                />
+              </View>
+            </View>
+
+            {/* Creator controls */}
+            {isCreator && !isResolved && !isCancelled && (
+              <View className="mt-8">
+                <SectionTitle>You created this bet</SectionTitle>
+                <Card padded={false} className="overflow-hidden">
+                  <Text className="px-5 pb-4 pt-4 text-xs leading-5 text-ink-600">
+                    Only you can call it. Bets can&apos;t be edited — only locked, resolved or
+                    cancelled.
+                  </Text>
+                  <Divider />
+                  <View className="gap-3 p-4">
+                    <Button
+                      title={`"${data.option_a_label}" won`}
+                      variant="secondary"
+                      disabled={busy}
+                      icon={<TrophyIcon size={16} color={colors.ink['50']} />}
+                      onPress={() => confirmResolve('a')}
+                    />
+                    <Button
+                      title={`"${data.option_b_label}" won`}
+                      variant="secondary"
+                      disabled={busy}
+                      icon={<TrophyIcon size={16} color={colors.ink['50']} />}
+                      onPress={() => confirmResolve('b')}
+                    />
+                    {data.status === 'open' && (
+                      <Button
+                        title="Lock — no more joining"
+                        variant="ghost"
+                        disabled={busy}
+                        icon={<LockIcon size={16} color={colors.ink['500']} />}
+                        onPress={() => void withBusy(() => lockBet(betId))}
+                      />
+                    )}
+                    <Button
+                      title="Cancel bet"
+                      variant="danger"
+                      disabled={busy}
+                      onPress={confirmCancel}
+                    />
+                  </View>
+                </Card>
+              </View>
+            )}
+          </ContentWidth>
+        </ScrollView>
+      </View>
     </>
   );
 }
@@ -292,56 +385,67 @@ function SideButton({
   // the two tones are spelled out rather than interpolated.
   const container = selected
     ? tone === 'a'
-      ? 'border-sideA bg-sideA/15'
-      : 'border-sideB bg-sideB/15'
-    : 'border-ink-700 bg-ink-900';
-  const labelColor = selected ? (tone === 'a' ? 'text-sideA' : 'text-sideB') : 'text-white';
+      ? 'border-sideA bg-sideA-shade'
+      : 'border-sideB bg-sideB-shade'
+    : 'border-ink-750 bg-ink-900';
+  const labelColor = selected ? (tone === 'a' ? 'text-sideA' : 'text-sideB') : 'text-ink-50';
 
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
       disabled={disabled}
+      scaleTo={0.955}
       accessibilityRole="button"
       accessibilityState={{ selected, disabled }}
-      className={`flex-1 rounded-3xl border-2 px-4 py-4 active:opacity-80 ${container} ${
-        disabled ? 'opacity-50' : ''
-      }`}
+      style={selected ? elevation.glow(tone === 'a' ? colors.sideA.deep : colors.sideB.deep) : undefined}
+      className={`flex-1 rounded-3xl border-2 px-4 py-4 ${container} ${disabled ? 'opacity-50' : ''}`}
     >
-      <Text numberOfLines={2} className={`text-base font-bold ${labelColor}`}>
+      <Text numberOfLines={2} className={`font-display text-base leading-5 ${labelColor}`}>
         {label}
       </Text>
-      <Text className="mt-1 text-xs text-ink-600">
+      <Text className="mt-2 text-xs text-ink-600">
         {selected ? 'Tap to withdraw' : `Win ~${formatAgorot(shareAgorot)}`}
       </Text>
-    </Pressable>
+    </PressableScale>
   );
 }
 
 function SideRoster({
   label,
   tone,
-  users,
+  won,
+  people,
 }: {
   label: string;
   tone: 'a' | 'b';
-  users: string[];
+  /** null while unresolved; true/false once a winner is declared. */
+  won: boolean | null;
+  people: { id: string; name: string }[];
 }) {
+  const dimmed = won === false;
+  const labelColor = dimmed ? 'text-ink-650' : tone === 'a' ? 'text-sideA' : 'text-sideB';
+
   return (
-    <View className="flex-1 rounded-3xl border border-ink-700 bg-ink-900 p-3">
-      <Text
-        numberOfLines={1}
-        className={`mb-2 text-xs font-bold ${tone === 'a' ? 'text-sideA' : 'text-sideB'}`}
-      >
-        {label}
-      </Text>
-      {users.length === 0 ? (
-        <Text className="text-xs text-ink-600">Nobody yet</Text>
+    <View
+      className={`flex-1 rounded-3xl border bg-ink-900 p-4 ${
+        won === true ? 'border-owed/35' : 'border-ink-800'
+      }`}
+    >
+      <View className="mb-3 flex-row items-center gap-1.5">
+        <Text numberOfLines={1} className={`flex-1 font-display text-sm ${labelColor}`}>
+          {label}
+        </Text>
+        {won === true && <TrophyIcon size={14} color={colors.owed.DEFAULT} />}
+      </View>
+
+      {people.length === 0 ? (
+        <Text className="text-xs text-ink-650">Nobody yet</Text>
       ) : (
-        users.map((name, index) => (
-          <View key={`${name}-${index}`} className="mb-1.5 flex-row items-center gap-2">
-            <Avatar name={name} size={22} />
-            <Text numberOfLines={1} className="flex-1 text-xs text-white">
-              {name}
+        people.map((person, index) => (
+          <View key={`${person.id}-${index}`} className="mb-2 flex-row items-center gap-2">
+            <Avatar name={person.name} id={person.id} size={24} />
+            <Text numberOfLines={1} className={`flex-1 text-xs ${dimmed ? 'text-ink-600' : 'text-ink-400'}`}>
+              {person.name}
             </Text>
           </View>
         ))
@@ -350,6 +454,10 @@ function SideRoster({
   );
 }
 
+/**
+ * The payoff moment. A bet resolving is the emotional peak of the app, so it
+ * gets a real entrance rather than a quiet re-render.
+ */
 function ResolvedSummary({
   bet,
   userId,
@@ -367,40 +475,72 @@ function ResolvedSummary({
 
   if (winners === 0) {
     return (
-      <View className="mb-6 rounded-2xl border border-ink-700 bg-ink-900 px-4 py-3">
-        <Text className="text-sm font-semibold text-white">
-          {winningLabel} won — but nobody backed it.
-        </Text>
-        <Text className="mt-1 text-xs text-ink-600">
-          No money changes hands on this one.
-        </Text>
-      </View>
+      <Animated.View entering={FadeIn.delay(120).duration(motion.duration.slow)} className="mt-5">
+        <View className="flex-row items-center gap-3 rounded-2xl border border-ink-800 bg-ink-900 px-4 py-4">
+          <AlertIcon size={18} color={colors.ink['600']} />
+          <View className="flex-1">
+            <Text className="font-display text-sm text-ink-50">
+              {winningLabel} won — but nobody backed it.
+            </Text>
+            <Text className="mt-1 text-xs text-ink-600">No money changes hands on this one.</Text>
+          </View>
+        </View>
+      </Animated.View>
     );
   }
 
   const iWon = side !== null && side === bet.winning_option;
+  const watchedOnly = side === null;
 
   return (
-    <View
-      className={`mb-6 rounded-2xl border px-4 py-3 ${
-        side === null
-          ? 'border-ink-700 bg-ink-900'
-          : iWon
-            ? 'border-owed/40 bg-owed/10'
-            : 'border-owing/40 bg-owing/10'
-      }`}
-    >
-      <Text className="text-sm font-semibold text-white">{winningLabel} took it.</Text>
-      {side !== null && myAmountAgorot !== null && (
-        <Text className={`mt-1 text-lg font-bold ${iWon ? 'text-owed' : 'text-owing'}`}>
-          {iWon
-            ? `You're up ${formatAgorot(myAmountAgorot)}`
-            : `You owe ${formatAgorot(Math.abs(myAmountAgorot))}`}
-        </Text>
+    <Animated.View
+      entering={ZoomIn.delay(140).springify().damping(motion.celebrate.damping).stiffness(
+        motion.celebrate.stiffness
       )}
-      <Text className="mt-1 text-xs text-ink-600">
-        Settle it on the group&apos;s settle-up screen when you&apos;re ready.
-      </Text>
-    </View>
+      className="mt-5"
+    >
+      <View
+        className={`items-center rounded-3xl border px-5 py-6 ${
+          watchedOnly
+            ? 'border-ink-800 bg-ink-900'
+            : iWon
+              ? 'border-owed/35 bg-owed-shade'
+              : 'border-owing/35 bg-owing-shade'
+        }`}
+      >
+        {!watchedOnly && (
+          <View
+            className={`mb-3 h-12 w-12 items-center justify-center rounded-2xl ${
+              iWon ? 'bg-owed/15' : 'bg-owing/15'
+            }`}
+          >
+            <TrophyIcon
+              size={22}
+              color={iWon ? colors.owed.DEFAULT : colors.owing.DEFAULT}
+            />
+          </View>
+        )}
+
+        <Text className="font-display text-sm text-ink-500">
+          <Text className="text-ink-50">{winningLabel}</Text> took it
+        </Text>
+
+        {side !== null && myAmountAgorot !== null && (
+          <Text
+            className={`mt-1.5 font-display-bold text-4xl ${iWon ? 'text-owed' : 'text-owing'}`}
+          >
+            {iWon
+              ? formatAgorot(myAmountAgorot, { sign: true })
+              : formatAgorot(myAmountAgorot, { sign: true })}
+          </Text>
+        )}
+
+        <Text className="mt-2.5 text-center text-xs leading-5 text-ink-600">
+          {watchedOnly
+            ? 'You sat this one out.'
+            : 'Settle it on the group’s settle-up screen when you’re ready.'}
+        </Text>
+      </View>
+    </Animated.View>
   );
 }

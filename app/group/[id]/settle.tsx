@@ -1,9 +1,22 @@
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
+import Animated, { FadeInDown } from '@/components/animated';
 
-import { Avatar, Card, EmptyState, ErrorNotice, Loading, SectionTitle } from '@/components/ui';
+import { CheckIcon, HandshakeIcon } from '@/components/icons';
+import { ContentWidth, ScreenBackdrop } from '@/components/screen';
+import { SettleSkeleton } from '@/components/skeletons';
+import {
+  Avatar,
+  Button,
+  Card,
+  EmptySlot,
+  EmptyState,
+  ErrorNotice,
+  Overline,
+  SectionTitle,
+} from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
 import { useSettlement } from '@/hooks/use-settlement';
@@ -16,7 +29,7 @@ import {
 } from '@/lib/queries';
 import { transactionKey } from '@/lib/settlement';
 import { useAuth } from '@/providers/auth-provider';
-import { colors } from '@/theme';
+import { colors, motion } from '@/theme';
 
 /**
  * "Smart Splitwise" for the group.
@@ -53,8 +66,6 @@ export default function SettleUpScreen() {
   // layered on here — the second argument is for optimistic rows only.
   const settlement = useSettlement(balances.data, group.data?.members ?? null, [], userId);
 
-  if (balances.loading || group.loading) return <Loading label="Working out who owes what…" />;
-
   async function markPaid(txn: {
     fromUserId: string;
     toUserId: string;
@@ -73,7 +84,9 @@ export default function SettleUpScreen() {
         amountAgorot: txn.amountAgorot,
         confirmedBy: userId,
       });
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (Platform.OS !== 'web') {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
       refresh();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Could not record that payment.');
@@ -99,131 +112,183 @@ export default function SettleUpScreen() {
     );
   }
 
-  const nameOf = (userId2: string, fallback = 'Someone') =>
-    settlement.balances.find((b) => b.userId === userId2)?.user?.display_name ?? fallback;
+  const nameOf = (lookupId: string, fallback = 'Someone') =>
+    settlement.balances.find((b) => b.userId === lookupId)?.user?.display_name ?? fallback;
+
+  const myBalance = settlement.myBalanceAgorot;
+  const balanceTone = myBalance > 0 ? 'text-owed' : myBalance < 0 ? 'text-owing' : 'text-ink-50';
 
   return (
-    <ScrollView
-      className="flex-1 bg-ink-950"
-      contentContainerClassName="px-4 pb-12 pt-4"
-      refreshControl={
-        <RefreshControl refreshing={balances.refreshing} onRefresh={refresh} tintColor={colors.lotus['500']} />
-      }
-    >
-      <Card className="mb-5 items-center py-6">
-        <Text className="text-2xs uppercase tracking-widest text-ink-600">Your net position</Text>
-        <Text
-          className={`mt-1 text-4xl font-bold ${
-            settlement.myBalanceAgorot > 0
-              ? 'text-owed'
-              : settlement.myBalanceAgorot < 0
-                ? 'text-owing'
-                : 'text-white'
-          }`}
-        >
-          {settlement.myBalanceAgorot === 0
-            ? 'All square'
-            : formatAgorot(settlement.myBalanceAgorot, { sign: true })}
-        </Text>
-      </Card>
-
-      {(balances.error || actionError) && (
-        <ErrorNotice message={actionError ?? balances.error ?? ''} />
-      )}
-
-      <SectionTitle>Suggested payments</SectionTitle>
-      {settlement.transactions.length === 0 ? (
-        <View className="mb-6 rounded-3xl border border-dashed border-ink-700 bg-ink-900/40">
-          <EmptyState
-            emoji="🤝"
-            title="Everyone's square"
-            body="No outstanding balances in this group. Resolve a bet and they'll show up here."
+    <View className="flex-1 bg-ink-950">
+      <ScreenBackdrop
+        tint={myBalance > 0 ? colors.owed.DEFAULT : myBalance < 0 ? colors.owing.DEFAULT : colors.lotus['600']}
+      />
+      <ScrollView
+        contentContainerClassName="px-gutter pb-12 pt-3"
+        refreshControl={
+          <RefreshControl
+            refreshing={balances.refreshing}
+            onRefresh={refresh}
+            tintColor={colors.lotus['400']}
           />
-        </View>
-      ) : (
-        <View className="mb-6">
-          <Text className="mb-3 text-xs leading-5 text-ink-600">
-            The shortest set of payments that clears every balance. Pay each other however you
-            normally do — cash, Bit, bank transfer — then tick it off here.
-          </Text>
+        }
+        showsVerticalScrollIndicator={false}
+      >
+        <ContentWidth>
+          {balances.loading || group.loading ? (
+            <SettleSkeleton />
+          ) : (
+            <>
+              <Animated.View entering={FadeInDown.duration(motion.duration.base)}>
+                <Card level="raised" className="mb-6 items-center py-7">
+                  <Overline>Your net position</Overline>
+                  <Text className={`mt-2 font-display-bold text-5xl ${balanceTone}`}>
+                    {myBalance === 0 ? 'Square' : formatAgorot(myBalance, { sign: true })}
+                  </Text>
+                  <Text className="mt-2 text-xs text-ink-600">
+                    {myBalance > 0
+                      ? 'The group owes you this much'
+                      : myBalance < 0
+                        ? 'You owe this much to the group'
+                        : 'Nothing outstanding here'}
+                  </Text>
+                </Card>
+              </Animated.View>
 
-          {settlement.transactions.map((txn) => {
-            const key = transactionKey(txn);
-            const fromName = txn.fromUser?.display_name ?? nameOf(txn.fromUserId);
-            const toName = txn.toUser?.display_name ?? nameOf(txn.toUserId);
-            const involvesMe = txn.fromUserId === userId || txn.toUserId === userId;
+              {(balances.error || actionError) && (
+                <ErrorNotice message={actionError ?? balances.error ?? ''} />
+              )}
 
-            return (
-              <Card key={key} className={`mb-2 ${involvesMe ? 'border-lotus-500/40' : ''}`}>
-                <View className="flex-row items-center gap-3">
-                  <Avatar name={fromName} size={30} />
-                  <View className="flex-1">
-                    <Text className="text-sm font-semibold text-white">
-                      {txn.fromUserId === userId ? 'You owe' : `${fromName} owes`}{' '}
-                      {txn.toUserId === userId ? 'you' : toName}
-                    </Text>
-                    <Text className="text-lg font-bold text-lotus-400">
-                      {formatAgorot(txn.amountAgorot)}
-                    </Text>
-                  </View>
+              <SectionTitle>Suggested payments</SectionTitle>
+              {settlement.transactions.length === 0 ? (
+                <View className="mb-section">
+                  <EmptySlot>
+                    <EmptyState
+                      icon={<HandshakeIcon size={22} color={colors.sideA.DEFAULT} />}
+                      title="Everyone's square"
+                      body="No outstanding balances in this group. Resolve a bet and they'll show up here."
+                    />
+                  </EmptySlot>
+                </View>
+              ) : (
+                <View className="mb-section">
+                  <Text className="mb-4 text-xs leading-5 text-ink-600">
+                    The shortest set of payments that clears every balance. Pay each other however
+                    you normally do — cash, Bit, bank transfer — then tick it off here.
+                  </Text>
 
-                  <Pressable
-                    onPress={() =>
-                      confirmMarkPaid({
-                        fromUserId: txn.fromUserId,
-                        toUserId: txn.toUserId,
-                        amountAgorot: txn.amountAgorot,
-                        fromName,
-                        toName,
-                      })
-                    }
-                    disabled={!involvesMe || pendingKey === key}
-                    accessibilityRole="button"
-                    className={`rounded-full border px-3 py-2 ${
-                      involvesMe ? 'border-lotus-500 active:bg-lotus-500/15' : 'border-ink-700 opacity-40'
-                    }`}
-                  >
-                    <Text className={`text-xs font-semibold ${involvesMe ? 'text-lotus-400' : 'text-ink-600'}`}>
-                      {pendingKey === key ? 'Saving…' : 'Mark as paid'}
-                    </Text>
-                  </Pressable>
+                  {settlement.transactions.map((txn, i) => {
+                    const key = transactionKey(txn);
+                    const fromName = txn.fromUser?.display_name ?? nameOf(txn.fromUserId);
+                    const toName = txn.toUser?.display_name ?? nameOf(txn.toUserId);
+                    const involvesMe = txn.fromUserId === userId || txn.toUserId === userId;
+                    const iPay = txn.fromUserId === userId;
+
+                    return (
+                      <Animated.View
+                        key={key}
+                        entering={FadeInDown.delay(i * motion.stagger).duration(
+                          motion.duration.base
+                        )}
+                      >
+                        <Card
+                          className={`mb-2.5 ${involvesMe ? 'border-lotus-500/35' : 'opacity-80'}`}
+                        >
+                          <View className="flex-row items-center gap-3">
+                            <Avatar name={fromName} id={txn.fromUserId} size={34} />
+                            <View className="flex-1">
+                              <Text className="text-xs text-ink-600">
+                                {iPay ? 'You pay' : `${fromName} pays`}{' '}
+                                <Text className="text-ink-400">
+                                  {txn.toUserId === userId ? 'you' : toName}
+                                </Text>
+                              </Text>
+                              <Text
+                                className={`mt-0.5 font-display-bold text-xl ${
+                                  iPay ? 'text-owing' : involvesMe ? 'text-owed' : 'text-ink-50'
+                                }`}
+                              >
+                                {formatAgorot(txn.amountAgorot)}
+                              </Text>
+                            </View>
+
+                            <Button
+                              title={pendingKey === key ? 'Saving' : 'Paid'}
+                              size="sm"
+                              variant={involvesMe ? 'success' : 'ghost'}
+                              loading={pendingKey === key}
+                              disabled={!involvesMe}
+                              icon={
+                                pendingKey === key ? undefined : (
+                                  <CheckIcon
+                                    size={15}
+                                    color={involvesMe ? colors.owed.DEFAULT : colors.ink['600']}
+                                  />
+                                )
+                              }
+                              onPress={() =>
+                                confirmMarkPaid({
+                                  fromUserId: txn.fromUserId,
+                                  toUserId: txn.toUserId,
+                                  amountAgorot: txn.amountAgorot,
+                                  fromName,
+                                  toName,
+                                })
+                              }
+                            />
+                          </View>
+                        </Card>
+                      </Animated.View>
+                    );
+                  })}
+                </View>
+              )}
+
+              <SectionTitle>Everyone&apos;s balance</SectionTitle>
+              <Card padded={false}>
+                <View className="px-5 py-2">
+                  {settlement.balances.map((balance, i) => (
+                    <View
+                      key={balance.userId}
+                      className={`flex-row items-center gap-3 py-3 ${
+                        i === settlement.balances.length - 1 ? '' : 'border-b border-ink-800'
+                      }`}
+                    >
+                      <Avatar
+                        name={balance.user?.display_name ?? '?'}
+                        id={balance.userId}
+                        size={32}
+                      />
+                      <Text className="flex-1 text-sm text-ink-50">
+                        {balance.user?.display_name ?? 'Unknown'}
+                        {balance.userId === userId && <Text className="text-ink-600"> · you</Text>}
+                      </Text>
+                      <Text
+                        className={`font-display text-sm ${
+                          balance.amountAgorot > 0
+                            ? 'text-owed'
+                            : balance.amountAgorot < 0
+                              ? 'text-owing'
+                              : 'text-ink-650'
+                        }`}
+                      >
+                        {balance.amountAgorot === 0
+                          ? 'square'
+                          : formatAgorot(balance.amountAgorot, { sign: true })}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
               </Card>
-            );
-          })}
-        </View>
-      )}
 
-      <SectionTitle>Everyone&apos;s balance</SectionTitle>
-      <Card>
-        {settlement.balances.map((balance) => (
-          <View
-            key={balance.userId}
-            className="flex-row items-center gap-3 border-b border-ink-800 py-2.5"
-          >
-            <Avatar name={balance.user?.display_name ?? '?'} size={30} />
-            <Text className="flex-1 text-sm text-white">
-              {balance.user?.display_name ?? 'Unknown'}
-              {balance.userId === userId && <Text className="text-ink-600"> (you)</Text>}
-            </Text>
-            <Text
-              className={`text-sm font-bold ${
-                balance.amountAgorot > 0
-                  ? 'text-owed'
-                  : balance.amountAgorot < 0
-                    ? 'text-owing'
-                    : 'text-ink-600'
-              }`}
-            >
-              {balance.amountAgorot === 0 ? '—' : formatAgorot(balance.amountAgorot, { sign: true })}
-            </Text>
-          </View>
-        ))}
-      </Card>
-
-      <Text className="mt-6 text-center text-2xs leading-4 text-ink-600">
-        Lotus Bet never moves money. Marking a payment as paid only updates the running total here.
-      </Text>
-    </ScrollView>
+              <Text className="mt-7 text-center text-2xs leading-4 tracking-normal text-ink-650">
+                Lotus Bet never moves money.{'\n'}Marking a payment as paid only updates the running
+                total here.
+              </Text>
+            </>
+          )}
+        </ContentWidth>
+      </ScrollView>
+    </View>
   );
 }

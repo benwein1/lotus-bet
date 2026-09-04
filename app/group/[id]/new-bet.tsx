@@ -3,7 +3,6 @@ import { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   Switch,
   Text,
@@ -11,7 +10,8 @@ import {
   View,
 } from 'react-native';
 
-import { Button, ErrorNotice, SectionTitle } from '@/components/ui';
+import { ContentWidth } from '@/components/screen';
+import { Button, Chip, ErrorNotice, Overline, SectionTitle } from '@/components/ui';
 import { formatAgorot, parseIlsToAgorot } from '@/lib/format';
 import { announceNewBet } from '@/lib/notifications';
 import { createBet } from '@/lib/queries';
@@ -26,6 +26,8 @@ const LABEL_PRESETS: [string, string][] = [
   ['Home', 'Away'],
   ['Will', "Won't"],
 ];
+
+const POT_PRESETS = [20, 50, 100, 200];
 
 const DURATION_PRESETS: { label: string; hours: number }[] = [
   { label: '1 hour', hours: 1 },
@@ -47,16 +49,30 @@ export default function NewBetScreen() {
   const [pot, setPot] = useState('');
   const [hasDeadline, setHasDeadline] = useState(false);
   const [deadlineHours, setDeadlineHours] = useState(24);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const potAgorot = parseIlsToAgorot(pot);
+  const labelsClash =
+    labelA.trim().length > 0 && labelA.trim().toLowerCase() === labelB.trim().toLowerCase();
   const canSubmit =
     title.trim().length >= 3 &&
     labelA.trim().length > 0 &&
     labelB.trim().length > 0 &&
-    labelA.trim().toLowerCase() !== labelB.trim().toLowerCase() &&
+    !labelsClash &&
     potAgorot !== null;
+
+  const field = (name: string, tone?: 'a' | 'b') =>
+    `rounded-2xl border bg-ink-900 px-4 ${
+      focusedField === name
+        ? tone === 'a'
+          ? 'border-sideA'
+          : tone === 'b'
+            ? 'border-sideB'
+            : 'border-lotus-500'
+        : 'border-ink-750'
+    }`;
 
   async function submit() {
     if (!canSubmit || !session) return;
@@ -92,125 +108,164 @@ export default function NewBetScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       className="flex-1 bg-ink-950"
     >
-      <ScrollView contentContainerClassName="px-5 pb-10 pt-5" keyboardShouldPersistTaps="handled">
-        <SectionTitle>What&apos;s the bet?</SectionTitle>
-        <TextInput
-          value={title}
-          onChangeText={setTitle}
-          placeholder="Will Yossi actually show up on time?"
-          placeholderTextColor={colors.ink['600']}
-          maxLength={140}
-          multiline
-          className="mb-4 min-h-14 rounded-2xl border border-ink-700 bg-ink-900 px-4 py-3 text-lg leading-6 text-white"
-        />
-
-        <SectionTitle>Details (optional)</SectionTitle>
-        <TextInput
-          value={description}
-          onChangeText={setDescription}
-          placeholder="Ground rules, what counts as a win, that sort of thing."
-          placeholderTextColor={colors.ink['600']}
-          maxLength={500}
-          multiline
-          className="mb-6 min-h-20 rounded-2xl border border-ink-700 bg-ink-900 px-4 py-3 text-base leading-5 text-white"
-        />
-
-        <SectionTitle>The two sides</SectionTitle>
-        <View className="mb-3 flex-row gap-3">
+      <ScrollView
+        contentContainerClassName="px-gutter pb-10 pt-5"
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <ContentWidth>
+          <SectionTitle>What&apos;s the bet?</SectionTitle>
           <TextInput
-            value={labelA}
-            onChangeText={setLabelA}
-            placeholder="Side A"
-            placeholderTextColor={colors.ink['600']}
-            maxLength={40}
-            className="h-12 flex-1 rounded-2xl border border-sideA/40 bg-ink-900 px-4 text-base text-sideA"
+            value={title}
+            onChangeText={setTitle}
+            onFocus={() => setFocusedField('title')}
+            onBlur={() => setFocusedField(null)}
+            placeholder="Will Yossi actually show up on time?"
+            placeholderTextColor={colors.ink['650']}
+            maxLength={140}
+            multiline
+            className={`min-h-[64px] py-3.5 font-display text-lg leading-6 text-ink-50 ${field('title')}`}
           />
+          <Text className="mb-6 mt-2 text-xs text-ink-650">
+            {title.length > 0 ? `${140 - title.length} characters left` : 'Keep it decidable.'}
+          </Text>
+
+          <SectionTitle>Details (optional)</SectionTitle>
           <TextInput
-            value={labelB}
-            onChangeText={setLabelB}
-            placeholder="Side B"
-            placeholderTextColor={colors.ink['600']}
-            maxLength={40}
-            className="h-12 flex-1 rounded-2xl border border-sideB/40 bg-ink-900 px-4 text-base text-sideB"
+            value={description}
+            onChangeText={setDescription}
+            onFocus={() => setFocusedField('desc')}
+            onBlur={() => setFocusedField(null)}
+            placeholder="Ground rules, what counts as a win, that sort of thing."
+            placeholderTextColor={colors.ink['650']}
+            maxLength={500}
+            multiline
+            className={`mb-7 min-h-[88px] py-3.5 text-base leading-6 text-ink-50 ${field('desc')}`}
           />
-        </View>
-        <View className="mb-6 flex-row flex-wrap gap-2">
-          {LABEL_PRESETS.map(([a, b]) => (
-            <Pressable
-              key={`${a}/${b}`}
-              onPress={() => {
-                setLabelA(a);
-                setLabelB(b);
-              }}
-              className="rounded-full border border-ink-700 px-3 py-1.5 active:bg-ink-800"
-            >
-              <Text className="text-xs text-ink-600">
-                {a} / {b}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
 
-        <SectionTitle>Total pot</SectionTitle>
-        <TextInput
-          value={pot}
-          onChangeText={setPot}
-          placeholder="100"
-          placeholderTextColor={colors.ink['600']}
-          keyboardType="decimal-pad"
-          className="h-14 rounded-2xl border border-ink-700 bg-ink-900 px-4 text-2xl font-bold text-white"
-        />
-        <Text className="mb-6 mt-2 text-xs leading-5 text-ink-600">
-          One fixed pot for the whole bet — it doesn&apos;t grow as more people join. The winning
-          side splits {potAgorot ? formatAgorot(potAgorot) : 'it'} between them; the losing side
-          covers the same amount between them.
-        </Text>
-
-        <View className="mb-6 flex-row items-center justify-between rounded-2xl border border-ink-700 bg-ink-900 px-4 py-3">
-          <View className="flex-1 pr-3">
-            <Text className="text-sm font-semibold text-white">Join deadline</Text>
-            <Text className="text-xs text-ink-600">
-              {hasDeadline ? 'Locks itself when time runs out.' : 'You lock it manually instead.'}
-            </Text>
+          <SectionTitle>The two sides</SectionTitle>
+          <View className="mb-3 flex-row gap-3">
+            <View className="flex-1">
+              <Overline className="mb-1.5 text-sideA">Side A</Overline>
+              <TextInput
+                value={labelA}
+                onChangeText={setLabelA}
+                onFocus={() => setFocusedField('a')}
+                onBlur={() => setFocusedField(null)}
+                placeholder="Yes"
+                placeholderTextColor={colors.ink['650']}
+                maxLength={40}
+                className={`h-12 font-display text-base text-sideA ${field('a', 'a')}`}
+              />
+            </View>
+            <View className="flex-1">
+              <Overline className="mb-1.5 text-right text-sideB">Side B</Overline>
+              <TextInput
+                value={labelB}
+                onChangeText={setLabelB}
+                onFocus={() => setFocusedField('b')}
+                onBlur={() => setFocusedField(null)}
+                placeholder="No"
+                placeholderTextColor={colors.ink['650']}
+                maxLength={40}
+                className={`h-12 font-display text-base text-sideB ${field('b', 'b')}`}
+              />
+            </View>
           </View>
-          <Switch
-            value={hasDeadline}
-            onValueChange={setHasDeadline}
-            trackColor={{ false: colors.ink['700'], true: colors.lotus['600'] }}
-            thumbColor="#fff"
-          />
-        </View>
 
-        {hasDeadline && (
-          <View className="mb-6 flex-row flex-wrap gap-2">
-            {DURATION_PRESETS.map((preset) => (
-              <Pressable
-                key={preset.hours}
-                onPress={() => setDeadlineHours(preset.hours)}
-                className={`rounded-full border px-4 py-2 ${
-                  deadlineHours === preset.hours
-                    ? 'border-lotus-500 bg-lotus-500/15'
-                    : 'border-ink-700'
-                }`}
-              >
-                <Text
-                  className={`text-xs ${
-                    deadlineHours === preset.hours ? 'text-lotus-400' : 'text-ink-600'
-                  }`}
-                >
-                  {preset.label}
-                </Text>
-              </Pressable>
+          <View className="mb-3 flex-row flex-wrap gap-2">
+            {LABEL_PRESETS.map(([a, b]) => (
+              <Chip
+                key={`${a}/${b}`}
+                label={`${a} / ${b}`}
+                selected={labelA === a && labelB === b}
+                onPress={() => {
+                  setLabelA(a);
+                  setLabelB(b);
+                }}
+              />
             ))}
           </View>
-        )}
+          {labelsClash && (
+            <Text className="mb-3 text-xs text-owing">The two sides need different labels.</Text>
+          )}
 
-        {error && <ErrorNotice message={error} />}
+          <View className="mb-7" />
 
-        <Button title="Post bet" onPress={submit} loading={busy} disabled={!canSubmit} />
-        <Text className="mt-3 text-center text-2xs leading-4 text-ink-600">
-          No money moves through Lotus Bet. You&apos;re recording a friendly wager, nothing more.
-        </Text>
+          <SectionTitle>Total pot</SectionTitle>
+          <View className={`h-16 flex-row items-center ${field('pot')}`}>
+            <Text className="mr-2 font-display-bold text-2xl text-ink-650">₪</Text>
+            <TextInput
+              value={pot}
+              onChangeText={setPot}
+              onFocus={() => setFocusedField('pot')}
+              onBlur={() => setFocusedField(null)}
+              placeholder="100"
+              placeholderTextColor={colors.ink['650']}
+              keyboardType="decimal-pad"
+              className="h-full flex-1 font-display-bold text-2xl text-ink-50"
+            />
+          </View>
+
+          <View className="mb-3 mt-3 flex-row flex-wrap gap-2">
+            {POT_PRESETS.map((amount) => (
+              <Chip
+                key={amount}
+                label={`₪${amount}`}
+                selected={pot === String(amount)}
+                onPress={() => setPot(String(amount))}
+              />
+            ))}
+          </View>
+
+          <Text className="mb-7 text-xs leading-5 text-ink-600">
+            One fixed pot for the whole bet — it doesn&apos;t grow as more people join. The winning
+            side splits {potAgorot ? formatAgorot(potAgorot) : 'it'} between them; the losing side
+            covers the same amount between them.
+          </Text>
+
+          <View className="mb-4 flex-row items-center justify-between rounded-2xl border border-ink-750 bg-ink-900 px-4 py-3.5">
+            <View className="flex-1 pr-3">
+              <Text className="font-display text-sm text-ink-50">Join deadline</Text>
+              <Text className="mt-0.5 text-xs text-ink-600">
+                {hasDeadline ? 'Locks itself when time runs out.' : 'You lock it manually instead.'}
+              </Text>
+            </View>
+            <Switch
+              value={hasDeadline}
+              onValueChange={setHasDeadline}
+              trackColor={{ false: colors.ink['750'], true: colors.lotus['600'] }}
+              thumbColor="#fff"
+            />
+          </View>
+
+          {hasDeadline && (
+            <View className="mb-7 flex-row flex-wrap gap-2">
+              {DURATION_PRESETS.map((preset) => (
+                <Chip
+                  key={preset.hours}
+                  label={preset.label}
+                  selected={deadlineHours === preset.hours}
+                  onPress={() => setDeadlineHours(preset.hours)}
+                />
+              ))}
+            </View>
+          )}
+
+          {error && <ErrorNotice message={error} />}
+
+          <Button
+            title="Post bet"
+            size="lg"
+            onPress={submit}
+            loading={busy}
+            disabled={!canSubmit}
+          />
+          <Text className="mt-4 text-center text-2xs leading-4 tracking-normal text-ink-650">
+            No money moves through Lotus Bet.{'\n'}You&apos;re recording a friendly wager, nothing
+            more.
+          </Text>
+        </ContentWidth>
       </ScrollView>
     </KeyboardAvoidingView>
   );

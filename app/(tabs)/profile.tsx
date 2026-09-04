@@ -1,13 +1,32 @@
 import { useCallback, useState } from 'react';
-import { Alert, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import { Alert, Platform, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import Animated, { FadeInDown } from '@/components/animated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Avatar, Button, Card, EmptyState, ErrorNotice, Loading, SectionTitle } from '@/components/ui';
+import { LogOutIcon, TrophyIcon } from '@/components/icons';
+import { ContentWidth, ScreenBackdrop } from '@/components/screen';
+import { ProfileSkeleton } from '@/components/skeletons';
+import {
+  Avatar,
+  Button,
+  Card,
+  Divider,
+  EmptySlot,
+  EmptyState,
+  ErrorNotice,
+  InfoRow,
+  Loading,
+  Overline,
+  SectionTitle,
+  Stat,
+  Title,
+} from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { formatAgorot, formatShortDate } from '@/lib/format';
 import { clearPushToken } from '@/lib/notifications';
 import { fetchMyGroups, fetchMyHistory, fetchMyStats, type HistoryEntry } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
-import { colors } from '@/theme';
+import { colors, motion } from '@/theme';
 
 export default function ProfileScreen() {
   const { session, profile, updateProfile, signOut } = useAuth();
@@ -20,15 +39,15 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(() => {
-    void stats.reload({ silent: true });
-    void history.reload({ silent: true });
-  }, [stats, history]);
+  const { reload: reloadStats } = stats;
+  const { reload: reloadHistory } = history;
 
-  async function toggle(
-    key: 'notify_new_bets' | 'notify_resolutions',
-    value: boolean
-  ) {
+  const refresh = useCallback(() => {
+    void reloadStats({ silent: true });
+    void reloadHistory({ silent: true });
+  }, [reloadStats, reloadHistory]);
+
+  async function toggle(key: 'notify_new_bets' | 'notify_resolutions', value: boolean) {
     setError(null);
     setSaving(true);
     try {
@@ -59,164 +78,214 @@ export default function ProfileScreen() {
   const decided = (s?.bets_won ?? 0) + (s?.bets_lost ?? 0);
   const winRate = decided > 0 ? Math.round(((s?.bets_won ?? 0) / decided) * 100) : null;
   const mostActive = (groups.data ?? []).find((g) => g.id === s?.most_active_group_id);
+  const net = Number(s?.total_won_agorot ?? 0) - Number(s?.total_lost_agorot ?? 0);
 
   return (
-    <ScrollView
-      className="flex-1 bg-ink-950"
-      contentContainerClassName="px-4 pb-12 pt-4"
-      refreshControl={
-        <RefreshControl refreshing={stats.refreshing} onRefresh={refresh} tintColor={colors.lotus['500']} />
-      }
-    >
-      <Card className="mb-5 items-center py-6">
-        <Avatar name={profile.display_name} size={72} />
-        <Text className="mt-3 text-xl font-bold text-white">{profile.display_name}</Text>
-        <Text className="mt-0.5 text-sm text-ink-600">{profile.phone}</Text>
-      </Card>
+    <View className="flex-1 bg-ink-950">
+      <ScreenBackdrop />
+      <SafeAreaView edges={['top']} className="flex-1">
+        <ScrollView
+          contentContainerClassName="px-gutter pb-10 pt-2"
+          refreshControl={
+            <RefreshControl
+              refreshing={stats.refreshing}
+              onRefresh={refresh}
+              tintColor={colors.lotus['400']}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+        >
+          <ContentWidth>
+            <View className="mb-6 pt-4">
+              <Title>Profile</Title>
+            </View>
 
-      {error && <ErrorNotice message={error} />}
+            {error && <ErrorNotice message={error} />}
 
-      <SectionTitle>Your record</SectionTitle>
-      <View className="mb-5 flex-row gap-3">
-        <StatTile label="Won" value={formatAgorot(Number(s?.total_won_agorot ?? 0))} tone="owed" />
-        <StatTile label="Lost" value={formatAgorot(Number(s?.total_lost_agorot ?? 0))} tone="owing" />
-        <StatTile label="Win rate" value={winRate === null ? '—' : `${winRate}%`} />
-      </View>
+            <Animated.View entering={FadeInDown.duration(motion.duration.base)}>
+              <Card level="raised" className="mb-6 items-center py-7">
+                <Avatar name={profile.display_name} id={profile.id} size={80} ring />
+                <Text className="mt-4 font-display-bold text-xl text-ink-50">
+                  {profile.display_name}
+                </Text>
+                <Text className="mt-1 text-sm text-ink-600">{profile.phone}</Text>
 
-      <Card className="mb-5">
-        <View className="flex-row justify-between py-1">
-          <Text className="text-sm text-ink-600">Bets settled</Text>
-          <Text className="text-sm font-semibold text-white">{s?.bets_settled ?? 0}</Text>
-        </View>
-        <View className="flex-row items-center justify-between gap-4 py-1">
-          <Text className="text-sm text-ink-600">Most active group</Text>
-          <Text numberOfLines={1} className="flex-1 text-right text-sm font-semibold text-white">
-            {mostActive ? `${mostActive.emoji ?? '🎲'} ${mostActive.name}` : '—'}
-          </Text>
-        </View>
-      </Card>
+                <View className="mt-5 w-full flex-row items-center justify-center gap-2 border-t border-ink-750 pt-4">
+                  <Overline>Lifetime net</Overline>
+                  <Text
+                    className={`font-display-bold text-base ${
+                      net > 0 ? 'text-owed' : net < 0 ? 'text-owing' : 'text-ink-50'
+                    }`}
+                  >
+                    {net === 0 ? '—' : formatAgorot(net, { sign: true })}
+                  </Text>
+                </View>
+              </Card>
+            </Animated.View>
 
-      <SectionTitle>Notifications</SectionTitle>
-      <Card className="mb-5">
-        <ToggleRow
-          label="New bets in my groups"
-          value={profile.notify_new_bets}
-          disabled={saving}
-          onChange={(v) => void toggle('notify_new_bets', v)}
-        />
-        <ToggleRow
-          label="Bets I joined getting resolved"
-          value={profile.notify_resolutions}
-          disabled={saving}
-          onChange={(v) => void toggle('notify_resolutions', v)}
-        />
-        <Text className="mt-2 text-2xs leading-4 text-ink-600">
-          We never notify on every join — that gets noisy fast in an active group.
-        </Text>
-      </Card>
+            {stats.loading ? (
+              <ProfileSkeleton />
+            ) : (
+              <Animated.View entering={FadeInDown.delay(60).duration(motion.duration.base)}>
+                <SectionTitle>Your record</SectionTitle>
+                <View className="mb-4 flex-row gap-3">
+                  <Stat
+                    label="Won"
+                    value={formatAgorot(Number(s?.total_won_agorot ?? 0))}
+                    tone="owed"
+                  />
+                  <Stat
+                    label="Lost"
+                    value={formatAgorot(Number(s?.total_lost_agorot ?? 0))}
+                    tone="owing"
+                  />
+                  <Stat label="Win rate" value={winRate === null ? '—' : `${winRate}%`} />
+                </View>
 
-      <SectionTitle>Bet history</SectionTitle>
-      {history.loading ? (
-        <Loading label="Loading history…" />
-      ) : (history.data ?? []).length === 0 ? (
-        <View className="mb-5 rounded-3xl border border-dashed border-ink-700 bg-ink-900/40">
-          <EmptyState
-            emoji="📜"
-            title="Nothing settled yet"
-            body="Once a bet you joined gets resolved it shows up here, win or lose."
-          />
-        </View>
-      ) : (
-        <View className="mb-5">
-          {(history.data ?? []).map((entry) => (
-            <HistoryRow key={entry.id} entry={entry} />
-          ))}
-        </View>
-      )}
+                <Card className="mb-7" padded={false}>
+                  <View className="px-5">
+                    <InfoRow label="Bets settled" value={String(s?.bets_settled ?? 0)} />
+                    <InfoRow
+                      label="Most active group"
+                      value={mostActive ? `${mostActive.emoji ?? '🎲'} ${mostActive.name}` : '—'}
+                      last
+                    />
+                  </View>
+                </Card>
+              </Animated.View>
+            )}
 
-      <Button title="Sign out" variant="ghost" onPress={confirmSignOut} />
+            <SectionTitle>Notifications</SectionTitle>
+            <Card className="mb-7" padded={false}>
+              <View className="px-5">
+                <ToggleRow
+                  label="New bets in my groups"
+                  hint="One push when someone posts."
+                  value={profile.notify_new_bets}
+                  disabled={saving}
+                  onChange={(v) => void toggle('notify_new_bets', v)}
+                />
+                <Divider />
+                <ToggleRow
+                  label="Bets I joined resolving"
+                  hint="Includes your result and amount."
+                  value={profile.notify_resolutions}
+                  disabled={saving}
+                  onChange={(v) => void toggle('notify_resolutions', v)}
+                  last
+                />
+              </View>
+            </Card>
 
-      <Text className="mt-6 text-center text-2xs leading-4 text-ink-600">
-        Lotus Bet is a tracker. It holds no money, processes no payments, and sells no currency.
-      </Text>
-    </ScrollView>
-  );
-}
+            <SectionTitle>Bet history</SectionTitle>
+            {history.loading ? (
+              <Loading label="Loading history…" />
+            ) : (history.data ?? []).length === 0 ? (
+              <View className="mb-7">
+                <EmptySlot>
+                  <EmptyState
+                    icon={<TrophyIcon size={22} color={colors.lotus['400']} />}
+                    title="Nothing settled yet"
+                    body="Once a bet you joined gets resolved it shows up here, win or lose."
+                  />
+                </EmptySlot>
+              </View>
+            ) : (
+              <View className="mb-7">
+                {(history.data ?? []).map((entry, i) => (
+                  <HistoryRow key={entry.id} entry={entry} index={i} />
+                ))}
+              </View>
+            )}
 
-function StatTile({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: 'owed' | 'owing';
-}) {
-  const color = tone === 'owed' ? 'text-owed' : tone === 'owing' ? 'text-owing' : 'text-white';
+            <Button
+              title="Sign out"
+              variant="ghost"
+              icon={<LogOutIcon size={16} color={colors.ink['500']} />}
+              onPress={confirmSignOut}
+            />
 
-  return (
-    <View className="flex-1 rounded-3xl border border-ink-700/70 bg-ink-900 px-3 py-4">
-      <Text className="text-2xs uppercase tracking-wider text-ink-600">{label}</Text>
-      <Text numberOfLines={1} className={`mt-1 text-lg font-bold ${color}`}>
-        {value}
-      </Text>
+            <Text className="mt-7 text-center text-2xs leading-4 tracking-normal text-ink-650">
+              Lotus Bet is a tracker. It holds no money, processes no payments,{'\n'}and sells no
+              currency.
+            </Text>
+          </ContentWidth>
+        </ScrollView>
+      </SafeAreaView>
     </View>
   );
 }
 
 function ToggleRow({
   label,
+  hint,
   value,
   disabled,
   onChange,
+  last = false,
 }: {
   label: string;
+  hint: string;
   value: boolean;
   disabled: boolean;
   onChange: (value: boolean) => void;
+  last?: boolean;
 }) {
   return (
-    <View className="flex-row items-center justify-between py-2">
-      <Text className="flex-1 pr-3 text-sm text-white">{label}</Text>
+    <View className={`flex-row items-center justify-between gap-4 py-3.5 ${last ? '' : ''}`}>
+      <View className="flex-1">
+        <Text className="text-sm text-ink-50">{label}</Text>
+        <Text className="mt-0.5 text-xs text-ink-600">{hint}</Text>
+      </View>
       <Switch
         value={value}
         disabled={disabled}
         onValueChange={onChange}
-        trackColor={{ false: colors.ink['700'], true: colors.lotus['600'] }}
+        trackColor={{ false: colors.ink['750'], true: colors.lotus['600'] }}
         thumbColor="#fff"
+        ios_backgroundColor={colors.ink['750']}
       />
     </View>
   );
 }
 
-function HistoryRow({ entry }: { entry: HistoryEntry }) {
+function HistoryRow({ entry, index }: { entry: HistoryEntry; index: number }) {
   const won = entry.amount_agorot > 0;
   const winningLabel =
     entry.bet.winning_option === 'a' ? entry.bet.option_a_label : entry.bet.option_b_label;
 
   return (
-    <View className="mb-2 flex-row items-center gap-3 rounded-3xl border border-ink-700/70 bg-ink-900 p-3">
-      <View
-        className={`h-9 w-9 items-center justify-center rounded-full ${
-          won ? 'bg-owed/15' : 'bg-owing/15'
-        }`}
-      >
-        <Text className="text-base">{won ? '🏆' : '💸'}</Text>
-      </View>
+    <Animated.View
+      entering={FadeInDown.delay(Math.min(index, 6) * motion.stagger).duration(
+        motion.duration.base
+      )}
+    >
+      <View className="mb-2.5 flex-row items-center gap-3.5 rounded-2xl border border-ink-800 bg-ink-900 p-4">
+        <View
+          className={`h-10 w-10 items-center justify-center rounded-2xl ${
+            won ? 'bg-owed-shade' : 'bg-owing-shade'
+          }`}
+        >
+          <TrophyIcon
+            size={17}
+            color={won ? colors.owed.DEFAULT : colors.owing.DEFAULT}
+          />
+        </View>
 
-      <View className="flex-1">
-        <Text numberOfLines={1} className="text-sm font-semibold text-white">
-          {entry.bet.title}
-        </Text>
-        <Text numberOfLines={1} className="text-2xs text-ink-600">
-          {entry.group.emoji ?? '🎲'} {entry.group.name} · {winningLabel} won ·{' '}
-          {formatShortDate(entry.created_at)}
+        <View className="flex-1">
+          <Text numberOfLines={1} className="font-display text-sm text-ink-50">
+            {entry.bet.title}
+          </Text>
+          <Text numberOfLines={1} className="mt-0.5 text-xs text-ink-600">
+            {entry.group.emoji ?? '🎲'} {entry.group.name} · {winningLabel} won ·{' '}
+            {formatShortDate(entry.created_at)}
+          </Text>
+        </View>
+
+        <Text className={`font-display-bold text-base ${won ? 'text-owed' : 'text-owing'}`}>
+          {formatAgorot(entry.amount_agorot, { sign: true })}
         </Text>
       </View>
-
-      <Text className={`text-sm font-bold ${won ? 'text-owed' : 'text-owing'}`}>
-        {formatAgorot(entry.amount_agorot, { sign: true })}
-      </Text>
-    </View>
+    </Animated.View>
   );
 }
