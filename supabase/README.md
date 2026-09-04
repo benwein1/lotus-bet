@@ -1,0 +1,87 @@
+# Supabase setup
+
+## 1. Create the project
+
+Create a project at [supabase.com](https://supabase.com), then copy the URL and
+anon key from **Project Settings → API** into `.env` at the repo root:
+
+```
+EXPO_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon key>
+```
+
+Both are safe in the client bundle — every table is protected by RLS.
+
+## 2. Apply the migrations
+
+```bash
+npx supabase link --project-ref <ref>
+npx supabase db push
+```
+
+Or paste the files in `migrations/` into the SQL editor, in filename order:
+
+| File | Contents |
+| --- | --- |
+| `…_init.sql` | Tables: users, groups, group_members, bets, bet_positions, bet_ledger_entries, settlement_confirmations |
+| `…_rls.sql` | Row Level Security policies, membership helpers, Realtime publication |
+| `…_functions.sql` | Signup trigger, invite codes, group/bet/settlement RPCs, stats |
+
+### What the policies guarantee
+
+- You can only read or write rows for a group you have a `group_members` row in.
+  Membership is checked through `SECURITY DEFINER` helpers so the policy on
+  `group_members` does not recurse into itself.
+- Only a bet's `creator_id` can lock, resolve or cancel it.
+- `bet_positions` can only be created, switched or withdrawn while the bet is
+  `open` and before its `close_at` — enforced by a trigger, so it holds no
+  matter which path writes the row.
+- `bet_ledger_entries` is **read-only** for clients. Only the `resolve-bet`
+  Edge Function writes it, using the service role.
+
+## 3. Enable phone auth
+
+**Authentication → Providers → Phone**: enable it and connect an SMS provider
+(Twilio, MessageBird, Vonage…). The `on_auth_user_created` trigger mirrors each
+new `auth.users` row into `public.users` with a placeholder display name; the
+app's profile-setup screen replaces it.
+
+## 4. Deploy the Edge Functions
+
+```bash
+npx supabase functions deploy resolve-bet
+npx supabase functions deploy notify-new-bet
+```
+
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically.
+
+| Function | Called by | Does |
+| --- | --- | --- |
+| `resolve-bet` | The creator, from the bet detail screen | Verifies the caller is the creator, runs `computeBetPayouts`, inserts the ledger rows, flips the bet to `resolved`, pushes each participant their result |
+| `notify-new-bet` | The creator, right after posting a bet | Pushes "new bet" to everyone else in the group who has that toggle on |
+
+Both authenticate the caller from the `Authorization` header — neither will act
+anonymously.
+
+## 5. Push notifications
+
+Push tokens need a development build (they do not work in Expo Go on iOS) and
+an EAS project id:
+
+```bash
+npx eas init          # writes extra.eas.projectId into app.json
+npx eas build --profile development --platform ios
+```
+
+Without one, `registerForPushNotifications()` logs a warning and returns null;
+everything else in the app keeps working.
+
+## Schema notes
+
+- **Money is integer agorot everywhere** (1 ILS = 100 agorot). Never floats.
+- `public.users.id` references `auth.users(id)` so every policy can compare
+  against `auth.uid()` directly.
+- `bet_ledger_entries` has a `unique (bet_id, user_id)` index, which makes a
+  double-resolve a no-op rather than a double payout.
+- A resolved bet always records `winning_option`, even when nobody backed the
+  winning side — that case simply writes no ledger rows.
