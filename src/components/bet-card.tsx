@@ -63,7 +63,7 @@ export function BetCard({
     : iLost
       ? 'border-owing/35'
       : side
-        ? 'border-lotus-500/40'
+        ? 'border-brass-500/40'
         : 'border-ink-800';
 
   const myLabel = side === 'a' ? bet.option_a_label : bet.option_b_label;
@@ -76,7 +76,7 @@ export function BetCard({
           accessibilityRole="button"
           accessibilityLabel={`Bet: ${bet.title}`}
           style={elevation.card}
-          className={`mb-3 overflow-hidden rounded-3xl border bg-ink-900 ${edge} ${
+          className={`mb-3 overflow-hidden rounded-[20px] border bg-ink-900 ${edge} ${
             isCancelled ? 'opacity-55' : ''
           }`}
         >
@@ -106,11 +106,11 @@ export function BetCard({
             </Text>
 
             <View className="mt-2.5 flex-row items-center gap-3">
-              <View className="flex-row items-baseline gap-1.5 rounded-full bg-lotus-900 px-2.5 py-1">
-                <Text className="font-display-bold text-sm text-lotus-300">
+              <View className="flex-row items-baseline gap-1.5 rounded-full bg-brass-900 px-2.5 py-1">
+                <Text className="font-display-bold text-sm text-brass-300">
                   {formatAgorot(bet.total_pot_agorot)}
                 </Text>
-                <Text className="text-2xs uppercase tracking-[0.8px] text-lotus-400/70">pot</Text>
+                <Text className="text-2xs tracking-normal text-brass-400/70">pot</Text>
               </View>
 
               {countdown && (
@@ -142,9 +142,9 @@ export function BetCard({
 
           {/* Footer: only when this bet involves you */}
           {side && !isResolved && !isCancelled && (
-            <View className="flex-row items-center gap-2 border-t border-ink-800 bg-lotus-900/40 px-5 py-3">
-              <View className="h-1.5 w-1.5 rounded-full bg-lotus-400" />
-              <Text className="text-xs text-lotus-300">
+            <View className="flex-row items-center gap-2 border-t border-ink-800 bg-brass-900/40 px-5 py-3">
+              <View className="h-1.5 w-1.5 rounded-full bg-brass-400" />
+              <Text className="text-xs text-brass-300">
                 You&apos;re on <Text className="font-display">{myLabel}</Text>
               </Text>
             </View>

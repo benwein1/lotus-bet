@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui';
 
 export function BetCardSkeleton() {
   return (
-    <View className="mb-3 rounded-3xl border border-ink-800 bg-ink-900 px-5 py-4">
+    <View className="mb-3 rounded-[20px] border border-ink-800 bg-ink-900 px-5 py-4">
       <View className="mb-3 flex-row items-center justify-between">
         <Skeleton width={110} height={11} />
         <Skeleton width={58} height={18} radius={9} />
@@ -47,7 +47,7 @@ export function BetFeedSkeleton({ count = 3 }: { count?: number }) {
 
 export function GroupRowSkeleton() {
   return (
-    <View className="mb-3 rounded-3xl border border-ink-800 bg-ink-900 p-5">
+    <View className="mb-3 rounded-2xl border border-ink-800 bg-ink-900 p-5">
       <View className="flex-row items-center gap-4">
         <Skeleton width={52} height={52} radius={18} />
         <View className="flex-1 gap-2">
@@ -76,7 +76,7 @@ export function GroupListSkeleton({ count = 3 }: { count?: number }) {
 export function SettleSkeleton() {
   return (
     <View>
-      <View className="mb-5 items-center rounded-3xl border border-ink-800 bg-ink-900 py-7">
+      <View className="mb-5 items-center rounded-2xl border border-ink-800 bg-ink-900 py-7">
         <Skeleton width={120} height={11} />
         <View className="mt-3">
           <Skeleton width={160} height={40} radius={12} />
@@ -85,7 +85,7 @@ export function SettleSkeleton() {
       {Array.from({ length: 2 }, (_, i) => (
         <View
           key={i}
-          className="mb-2.5 flex-row items-center gap-3 rounded-3xl border border-ink-800 bg-ink-900 p-5"
+          className="mb-2.5 flex-row items-center gap-3 rounded-2xl border border-ink-800 bg-ink-900 p-5"
         >
           <Skeleton width={38} height={38} radius={14} />
           <View className="flex-1 gap-2">
@@ -102,7 +102,7 @@ export function SettleSkeleton() {
 export function ProfileSkeleton() {
   return (
     <View>
-      <View className="mb-5 items-center rounded-3xl border border-ink-800 bg-ink-900 py-7">
+      <View className="mb-5 items-center rounded-2xl border border-ink-800 bg-ink-900 py-7">
         <Skeleton width={76} height={76} radius={28} />
         <View className="mt-4">
           <Skeleton width={150} height={20} />

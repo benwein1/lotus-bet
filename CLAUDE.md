@@ -116,16 +116,25 @@ requires it; `src/theme.ts` re-exports it as `colors` alongside `motion`,
 `elevation` and `avatarColors`. **Never hardcode a hex value in a component**
 (`#fff` on the primary button is the sole exception).
 
+The palette is **Emerald Ink** (`#064E3B`) and **Champagne** (`#F8E7C9`),
+plus brass and rose. The concept is a card table: deep green felt for the live
+market, warm champagne ink for everything written on it, and brass/rose for
+the two directions money can travel.
+
 | Token | Use |
 | --- | --- |
-| `ink.1000` → `ink.850` | page ground → sunken → base → raised surfaces |
-| `ink.800` / `ink.750` / `ink.700` | borders, weakest to strongest |
+| `ink.1000` → `ink.850` | sunken → page ground → card → raised surface (all emerald) |
+| `ink.800` | Emerald Ink itself — the brand colour, active surfaces |
+| `ink.750` / `ink.700` | borders, weaker to stronger |
 | `ink.650` | placeholder and disabled text |
-| `ink.600` / `ink.500` / `ink.400` | secondary → tertiary → near-primary text |
-| `ink.50` | primary text |
-| `lotus.300/400/500/600/900` | accent text · icons · primary button · glow · tint |
-| `sideA` / `sideB` (+ `-bright`, `-deep`, `-shade`) | the two sides of a bet |
-| `owed` / `owing` / `warn` (+ `-shade`) | money you're owed · owe · warnings |
+| `ink.600` / `ink.500` / `ink.400` | secondary → tertiary → near-primary text (champagne, dimmed) |
+| `ink.50` | Champagne — primary text |
+| `brass.300/400/500/600/900` | accent text, icons, primary button, glow, tint |
+| `sideA` (brass) / `sideB` (rose) (+ `-bright`, `-deep`, `-shade`) | the two sides of a bet |
+| `owed` (brass) / `owing` (rose) / `warn` (+ `-shade`) | money you're owed, owe, warnings |
+
+Side and money colours deliberately share hues: brass is always the up side of
+the ledger, rose always the down side.
 
 Type: **Space Grotesk** carries every heading, number and label
 (`font-display`, `font-display-medium`, `font-display-bold`); body copy stays
@@ -138,6 +147,23 @@ edges and `mb-section` (28) between sections. Motion pulls from `motion.*` in
 
 The app is **dark-only and committed to it** — there are no `dark:` variants
 anywhere. That's a design decision, not an omission.
+
+### Design tells to keep out
+
+`.claude/skills/frontend-design/SKILL.md` lists the traits that make a design
+read as generated. The first pass hit five of them; each is now a standing rule:
+
+- **No tracked ALL-CAPS eyebrows.** `SectionTitle` is sentence case with a
+  short rule; `Overline` is sentence case. Small caps survive only inside
+  `Badge`, where the letterforms make a status word scan as a chip.
+- **No middle-dot meta strings** (`A · B · C`). Write the sentence, or give the
+  parts real structure.
+- **Radius tracks hierarchy.** 20px for the bet card and side buttons, 16px for
+  cards and sections, 12–14px for rows and inputs, full for pills. Skeletons
+  mirror the radius of what they stand in for.
+- **No near-black.** The dark ramp is genuinely emerald, not tinted grey.
+- **One accent, used with meaning** — brass and rose carry ledger direction, not
+  decoration.
 
 ### NativeWind gotchas (each of these has already bitten once)
 

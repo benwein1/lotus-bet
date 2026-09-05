@@ -28,7 +28,7 @@ function withAlpha(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-export function ScreenBackdrop({ tint = colors.lotus['600'] }: { tint?: string }) {
+export function ScreenBackdrop({ tint = colors.ink['700'] }: { tint?: string }) {
   return (
     <LinearGradient
       // Three stops with a long tail, so the wash dissolves instead of ending

@@ -53,9 +53,9 @@ export default function JoinGroupScreen() {
                   key={i}
                   className={`h-16 flex-1 items-center justify-center rounded-2xl border ${
                     char
-                      ? 'border-lotus-500/60 bg-lotus-900'
+                      ? 'border-brass-500/60 bg-brass-900'
                       : isCursor
-                        ? 'border-lotus-500 bg-ink-900'
+                        ? 'border-brass-500 bg-ink-900'
                         : 'border-ink-750 bg-ink-900'
                   }`}
                 >

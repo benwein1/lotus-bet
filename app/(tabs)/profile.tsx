@@ -91,7 +91,7 @@ export default function ProfileScreen() {
             <RefreshControl
               refreshing={stats.refreshing}
               onRefresh={refresh}
-              tintColor={colors.lotus['400']}
+              tintColor={colors.brass['400']}
             />
           }
           showsVerticalScrollIndicator={false}
@@ -186,7 +186,7 @@ export default function ProfileScreen() {
               <View className="mb-7">
                 <EmptySlot>
                   <EmptyState
-                    icon={<TrophyIcon size={22} color={colors.lotus['400']} />}
+                    icon={<TrophyIcon size={22} color={colors.brass['400']} />}
                     title="Nothing settled yet"
                     body="Once a bet you joined gets resolved it shows up here, win or lose."
                   />
@@ -243,7 +243,7 @@ function ToggleRow({
         value={value}
         disabled={disabled}
         onValueChange={onChange}
-        trackColor={{ false: colors.ink['750'], true: colors.lotus['600'] }}
+        trackColor={{ false: colors.ink['750'], true: colors.brass['600'] }}
         thumbColor="#fff"
         ios_backgroundColor={colors.ink['750']}
       />
@@ -279,8 +279,7 @@ function HistoryRow({ entry, index }: { entry: HistoryEntry; index: number }) {
             {entry.bet.title}
           </Text>
           <Text numberOfLines={1} className="mt-0.5 text-xs text-ink-600">
-            {entry.group.emoji ?? '🎲'} {entry.group.name} · {winningLabel} won ·{' '}
-            {formatShortDate(entry.created_at)}
+            {winningLabel} won in {entry.group.name}, {formatShortDate(entry.created_at)}
           </Text>
         </View>
 

@@ -83,7 +83,7 @@ function RootNavigator() {
   if (loading) {
     return (
       <View className="flex-1 items-center justify-center bg-ink-950">
-        <ActivityIndicator color={colors.lotus['400']} />
+        <ActivityIndicator color={colors.brass['400']} />
       </View>
     );
   }
@@ -131,8 +131,8 @@ function SetupRequired() {
       </View>
       <Text className="text-center font-display-bold text-xl text-ink-50">Almost there</Text>
       <Text className="text-center text-sm leading-6 text-ink-600">
-        Copy <Text className="font-display text-lotus-300">.env.example</Text> to{' '}
-        <Text className="font-display text-lotus-300">.env</Text>, fill in your Supabase URL and
+        Copy <Text className="font-display text-brass-300">.env.example</Text> to{' '}
+        <Text className="font-display text-brass-300">.env</Text>, fill in your Supabase URL and
         anon key, then restart the dev server.
       </Text>
 

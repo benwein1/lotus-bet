@@ -71,7 +71,7 @@ export default function CreateGroupScreen() {
             returnKeyType="done"
             onSubmitEditing={submit}
             className={`mb-7 h-14 rounded-2xl border bg-ink-900 px-4 font-display text-lg text-ink-50 ${
-              focused ? 'border-lotus-500' : 'border-ink-750'
+              focused ? 'border-brass-500' : 'border-ink-750'
             }`}
           />
 
@@ -86,7 +86,7 @@ export default function CreateGroupScreen() {
                 accessibilityState={{ selected: emoji === choice }}
                 className={`h-14 w-14 items-center justify-center rounded-2xl border ${
                   emoji === choice
-                    ? 'border-lotus-500 bg-lotus-900'
+                    ? 'border-brass-500 bg-brass-900'
                     : 'border-ink-750 bg-ink-900'
                 }`}
               >

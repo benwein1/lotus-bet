@@ -96,7 +96,7 @@ export default function GroupDetailScreen() {
             <RefreshControl
               refreshing={bets.refreshing}
               onRefresh={refresh}
-              tintColor={colors.lotus['400']}
+              tintColor={colors.brass['400']}
             />
           }
           showsVerticalScrollIndicator={false}
@@ -115,8 +115,8 @@ export default function GroupDetailScreen() {
                     </Text>
                     <Text className="mt-0.5 text-xs text-ink-600">
                       {group.data.members.length}{' '}
-                      {group.data.members.length === 1 ? 'member' : 'members'} ·{' '}
-                      {allBets.length} {allBets.length === 1 ? 'bet' : 'bets'}
+                      {group.data.members.length === 1 ? 'member' : 'members'}, {allBets.length}{' '}
+                      {allBets.length === 1 ? 'bet' : 'bets'}
                     </Text>
                   </View>
                 </View>
@@ -161,7 +161,7 @@ export default function GroupDetailScreen() {
                       <Text className="flex-1 text-sm text-ink-50">
                         {member.user?.display_name ?? 'Unknown'}
                         {member.user_id === userId && (
-                          <Text className="text-ink-600"> · you</Text>
+                          <Text className="text-ink-600"> (you)</Text>
                         )}
                       </Text>
                       {member.role === 'admin' && (
@@ -191,11 +191,11 @@ export default function GroupDetailScreen() {
                       {copied ? (
                         <CheckIcon size={16} color={colors.sideA.DEFAULT} />
                       ) : (
-                        <CopyIcon size={16} color={colors.lotus['300']} />
+                        <CopyIcon size={16} color={colors.brass['300']} />
                       )}
                       <Text
                         className={`font-display text-sm ${
-                          copied ? 'text-sideA' : 'text-lotus-300'
+                          copied ? 'text-sideA' : 'text-brass-300'
                         }`}
                       >
                         {copied ? 'Copied' : 'Copy'}
@@ -226,7 +226,7 @@ export default function GroupDetailScreen() {
               <View className="mb-section">
                 <EmptySlot>
                   <EmptyState
-                    icon={<TicketIcon size={22} color={colors.lotus['400']} />}
+                    icon={<TicketIcon size={22} color={colors.brass['400']} />}
                     title="Nothing running"
                     body="Start the first bet — pick a question with exactly two answers."
                   />

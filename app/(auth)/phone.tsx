@@ -46,7 +46,7 @@ export default function PhoneScreen() {
           >
             <View>
               <Animated.View entering={FadeIn.duration(500)}>
-                <View className="mb-7 h-16 w-16 items-center justify-center rounded-3xl border border-lotus-500/30 bg-lotus-900">
+                <View className="mb-7 h-16 w-16 items-center justify-center rounded-3xl border border-brass-500/30 bg-brass-900">
                   <Text className="text-3xl">🪷</Text>
                 </View>
               </Animated.View>
@@ -64,7 +64,7 @@ export default function PhoneScreen() {
                 </Text>
                 <View
                   className={`h-16 flex-row items-center rounded-2xl border bg-ink-900 px-4 ${
-                    focused ? 'border-lotus-500' : 'border-ink-750'
+                    focused ? 'border-brass-500' : 'border-ink-750'
                   }`}
                 >
                   <Text className="mr-3 font-display text-lg text-ink-600">+972</Text>

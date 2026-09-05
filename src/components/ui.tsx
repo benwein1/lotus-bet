@@ -105,7 +105,7 @@ export function Card({
   return (
     <View
       style={[shadow ? elevation.card : null, style]}
-      className={`rounded-3xl ${SURFACE[level]} ${padded ? 'p-5' : ''} ${className}`}
+      className={`rounded-2xl ${SURFACE[level]} ${padded ? 'p-5' : ''} ${className}`}
       {...props}
     />
   );
@@ -132,12 +132,12 @@ export function SectionTitle({
 }: TextProps & { className?: string; action?: React.ReactNode }) {
   return (
     <View className={`mb-3 flex-row items-center justify-between ${className}`}>
-      <Text
-        className="font-display text-2xs uppercase tracking-[1.4px] text-ink-600"
-        {...props}
-      >
-        {children}
-      </Text>
+      <View className="flex-row items-center gap-2.5">
+        <View className="h-px w-4 bg-ink-750" />
+        <Text className="font-display text-xs text-ink-600" {...props}>
+          {children}
+        </Text>
+      </View>
       {action}
     </View>
   );
@@ -146,10 +146,7 @@ export function SectionTitle({
 /** Small caps label used inside cards, above a value. */
 export function Overline({ className = '', ...props }: TextProps & { className?: string }) {
   return (
-    <Text
-      className={`font-display text-2xs uppercase tracking-[1.2px] text-ink-600 ${className}`}
-      {...props}
-    />
+    <Text className={`font-display text-xs text-ink-600 ${className}`} {...props} />
   );
 }
 
@@ -159,7 +156,7 @@ type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 const BUTTON_VARIANT: Record<ButtonVariant, { container: string; label: string }> = {
-  primary: { container: 'bg-lotus-500', label: 'text-white' },
+  primary: { container: 'bg-brass-500', label: 'text-white' },
   secondary: { container: 'bg-ink-800 border border-ink-700', label: 'text-ink-50' },
   ghost: { container: 'bg-transparent border border-ink-700', label: 'text-ink-500' },
   danger: { container: 'bg-owing-shade border border-owing/30', label: 'text-owing' },
@@ -207,7 +204,7 @@ export const Button = forwardRef<View, ButtonProps>(function Button(
       disabled={isDisabled}
       // The primary button carries a coloured glow so the main action on any
       // screen is findable without reading anything.
-      style={variant === 'primary' && !isDisabled ? elevation.glow(colors.lotus['600']) : undefined}
+      style={variant === 'primary' && !isDisabled ? elevation.glow(colors.brass['600']) : undefined}
       className={`flex-row items-center justify-center gap-2 ${s.container} ${v.container} ${
         isDisabled ? 'opacity-40' : ''
       } ${className}`}
@@ -244,11 +241,11 @@ export function Chip({
       accessibilityRole="radio"
       accessibilityState={{ selected }}
       className={`rounded-full border px-3.5 py-2 ${
-        selected ? 'border-lotus-500 bg-lotus-900' : 'border-ink-700 bg-ink-850'
+        selected ? 'border-brass-500 bg-brass-900' : 'border-ink-700 bg-ink-850'
       } ${className}`}
     >
       <Text
-        className={`font-display text-xs ${selected ? 'text-lotus-300' : 'text-ink-600'}`}
+        className={`font-display text-xs ${selected ? 'text-brass-300' : 'text-ink-600'}`}
       >
         {label}
       </Text>
@@ -262,7 +259,7 @@ type BadgeTone = 'neutral' | 'open' | 'locked' | 'resolved' | 'cancelled' | 'win
 
 const BADGE_TONE: Record<BadgeTone, { wrap: string; text: string; dot: string }> = {
   neutral: { wrap: 'bg-ink-800', text: 'text-ink-600', dot: 'bg-ink-600' },
-  open: { wrap: 'bg-lotus-900', text: 'text-lotus-300', dot: 'bg-lotus-400' },
+  open: { wrap: 'bg-brass-900', text: 'text-brass-300', dot: 'bg-brass-400' },
   locked: { wrap: 'bg-warn-shade', text: 'text-warn', dot: 'bg-warn' },
   resolved: { wrap: 'bg-ink-800', text: 'text-ink-500', dot: 'bg-ink-600' },
   cancelled: { wrap: 'bg-ink-800', text: 'text-ink-600', dot: 'bg-ink-650' },
@@ -444,7 +441,7 @@ export function EmptyState({
 }) {
   return (
     <View className="items-center px-6 py-10">
-      <View className="mb-4 h-14 w-14 items-center justify-center rounded-3xl border border-ink-750 bg-ink-850">
+      <View className="mb-4 h-14 w-14 items-center justify-center rounded-2xl border border-ink-750 bg-ink-850">
         {icon}
       </View>
       <Text className="mb-1.5 text-center font-display text-lg text-ink-50">{title}</Text>
@@ -457,7 +454,7 @@ export function EmptyState({
 /** Dashed container that wraps an EmptyState inside a section. */
 export function EmptySlot({ children }: { children: React.ReactNode }) {
   return (
-    <View className="rounded-3xl border border-dashed border-ink-750 bg-ink-900/40">{children}</View>
+    <View className="rounded-2xl border border-dashed border-ink-750 bg-ink-900/40">{children}</View>
   );
 }
 
@@ -477,7 +474,7 @@ export function ErrorNotice({ message, className = '' }: { message: string; clas
 export function Loading({ label = 'Loading…' }: { label?: string }) {
   return (
     <View className="flex-1 items-center justify-center gap-3 py-16">
-      <ActivityIndicator color={colors.lotus['400']} />
+      <ActivityIndicator color={colors.brass['400']} />
       <Text className="text-sm text-ink-600">{label}</Text>
     </View>
   );
@@ -501,7 +498,7 @@ export function Stat({
       : tone === 'owing'
         ? 'text-owing'
         : tone === 'accent'
-          ? 'text-lotus-300'
+          ? 'text-brass-300'
           : 'text-ink-50';
 
   return (

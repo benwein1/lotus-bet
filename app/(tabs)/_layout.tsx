@@ -126,18 +126,18 @@ function TabButton({
             alone cannot — it reads instantly in peripheral vision. */}
         <View
           className={`h-8 w-14 items-center justify-center rounded-full ${
-            focused ? 'bg-lotus-900' : 'bg-transparent'
+            focused ? 'bg-brass-900' : 'bg-transparent'
           }`}
         >
           <Icon
             size={21}
             active={focused}
-            color={focused ? colors.lotus['300'] : colors.ink['600']}
+            color={focused ? colors.brass['300'] : colors.ink['600']}
           />
         </View>
         <Text
           className={`text-2xs tracking-normal ${
-            focused ? 'font-display text-lotus-300' : 'text-ink-600'
+            focused ? 'font-display text-brass-300' : 'text-ink-600'
           }`}
         >
           {label}

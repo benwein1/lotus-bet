@@ -121,7 +121,7 @@ export default function SettleUpScreen() {
   return (
     <View className="flex-1 bg-ink-950">
       <ScreenBackdrop
-        tint={myBalance > 0 ? colors.owed.DEFAULT : myBalance < 0 ? colors.owing.DEFAULT : colors.lotus['600']}
+        tint={myBalance > 0 ? colors.owed.DEFAULT : myBalance < 0 ? colors.owing.DEFAULT : colors.ink['700']}
       />
       <ScrollView
         contentContainerClassName="px-gutter pb-12 pt-3"
@@ -129,7 +129,7 @@ export default function SettleUpScreen() {
           <RefreshControl
             refreshing={balances.refreshing}
             onRefresh={refresh}
-            tintColor={colors.lotus['400']}
+            tintColor={colors.brass['400']}
           />
         }
         showsVerticalScrollIndicator={false}
@@ -192,7 +192,7 @@ export default function SettleUpScreen() {
                         )}
                       >
                         <Card
-                          className={`mb-2.5 ${involvesMe ? 'border-lotus-500/35' : 'opacity-80'}`}
+                          className={`mb-2.5 ${involvesMe ? 'border-brass-500/35' : 'opacity-80'}`}
                         >
                           <View className="flex-row items-center gap-3">
                             <Avatar name={fromName} id={txn.fromUserId} size={34} />
@@ -261,7 +261,7 @@ export default function SettleUpScreen() {
                       />
                       <Text className="flex-1 text-sm text-ink-50">
                         {balance.user?.display_name ?? 'Unknown'}
-                        {balance.userId === userId && <Text className="text-ink-600"> · you</Text>}
+                        {balance.userId === userId && <Text className="text-ink-600"> (you)</Text>}
                       </Text>
                       <Text
                         className={`font-display text-sm ${

@@ -54,7 +54,7 @@ export default function HomeScreen() {
             <RefreshControl
               refreshing={feed.refreshing}
               onRefresh={() => feed.reload()}
-              tintColor={colors.lotus['400']}
+              tintColor={colors.brass['400']}
             />
           }
           showsVerticalScrollIndicator={false}
@@ -82,7 +82,7 @@ export default function HomeScreen() {
                   <View className="mb-section">
                     <EmptySlot>
                       <EmptyState
-                        icon={<TicketIcon size={22} color={colors.lotus['400']} />}
+                        icon={<TicketIcon size={22} color={colors.brass['400']} />}
                         title="No live bets"
                         body="Pick a side on something below, or start one in a group."
                       />
@@ -106,7 +106,7 @@ export default function HomeScreen() {
                 {open.length === 0 ? (
                   <EmptySlot>
                     <EmptyState
-                      icon={<SparkIcon size={22} color={colors.lotus['400']} />}
+                      icon={<SparkIcon size={22} color={colors.brass['400']} />}
                       title="All caught up"
                       body="Nothing new to join right now. Post a bet and see who bites."
                     />

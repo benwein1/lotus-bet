@@ -72,7 +72,7 @@ export default function ProfileSetupScreen() {
                 returnKeyType="done"
                 onSubmitEditing={submit}
                 className={`h-16 rounded-2xl border bg-ink-900 px-4 text-center font-display text-xl text-ink-50 ${
-                  focused ? 'border-lotus-500' : 'border-ink-750'
+                  focused ? 'border-brass-500' : 'border-ink-750'
                 }`}
               />
               <Text className="mt-2.5 text-center text-xs text-ink-600">

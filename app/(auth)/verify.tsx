@@ -96,9 +96,9 @@ export default function VerifyScreen() {
                         key={i}
                         className={`h-16 flex-1 items-center justify-center rounded-2xl border ${
                           char
-                            ? 'border-lotus-500/60 bg-lotus-900'
+                            ? 'border-brass-500/60 bg-brass-900'
                             : isCursor
-                              ? 'border-lotus-500 bg-ink-900'
+                              ? 'border-brass-500 bg-ink-900'
                               : 'border-ink-750 bg-ink-900'
                         }`}
                       >
@@ -130,7 +130,7 @@ export default function VerifyScreen() {
             )}
 
             <PressableScale onPress={resend} hitSlop={10} className="mt-7 self-center px-4 py-2">
-              <Text className="font-display text-sm text-lotus-300">
+              <Text className="font-display text-sm text-brass-300">
                 {resent ? 'Code sent ✓' : 'Resend code'}
               </Text>
             </PressableScale>

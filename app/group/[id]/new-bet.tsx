@@ -70,7 +70,7 @@ export default function NewBetScreen() {
           ? 'border-sideA'
           : tone === 'b'
             ? 'border-sideB'
-            : 'border-lotus-500'
+            : 'border-brass-500'
         : 'border-ink-750'
     }`;
 
@@ -234,7 +234,7 @@ export default function NewBetScreen() {
             <Switch
               value={hasDeadline}
               onValueChange={setHasDeadline}
-              trackColor={{ false: colors.ink['750'], true: colors.lotus['600'] }}
+              trackColor={{ false: colors.ink['750'], true: colors.brass['600'] }}
               thumbColor="#fff"
             />
           </View>

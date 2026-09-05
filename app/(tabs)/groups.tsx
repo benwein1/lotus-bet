@@ -50,7 +50,7 @@ export default function GroupsScreen() {
             <RefreshControl
               refreshing={groups.refreshing}
               onRefresh={() => groups.reload()}
-              tintColor={colors.lotus['400']}
+              tintColor={colors.brass['400']}
             />
           }
           showsVerticalScrollIndicator={false}
@@ -85,7 +85,7 @@ export default function GroupsScreen() {
             ) : list.length === 0 ? (
               <EmptySlot>
                 <EmptyState
-                  icon={<GroupsIcon size={22} color={colors.lotus['400']} />}
+                  icon={<GroupsIcon size={22} color={colors.brass['400']} />}
                   title="No groups yet"
                   body="Create one for your football chat, your flatmates, whoever — then share the invite code."
                 />
@@ -147,7 +147,7 @@ function GroupRow({
           accessibilityRole="button"
           accessibilityLabel={`Group: ${group.name}`}
           style={elevation.card}
-          className="mb-3 rounded-3xl border border-ink-800 bg-ink-900 p-5"
+          className="mb-3 rounded-2xl border border-ink-800 bg-ink-900 p-5"
         >
           <View className="flex-row items-center gap-4">
             <View className="h-[52px] w-[52px] items-center justify-center rounded-2xl border border-ink-750 bg-ink-850">

@@ -166,7 +166,7 @@ export default function BetDetailScreen() {
               ? side === data.winning_option
                 ? colors.sideA.DEFAULT
                 : colors.owing.DEFAULT
-              : colors.lotus['600']
+              : colors.ink['700']
           }
         />
         <ScrollView
@@ -175,7 +175,7 @@ export default function BetDetailScreen() {
             <RefreshControl
               refreshing={bet.refreshing}
               onRefresh={() => bet.reload()}
-              tintColor={colors.lotus['400']}
+              tintColor={colors.brass['400']}
             />
           }
           showsVerticalScrollIndicator={false}
@@ -209,7 +209,7 @@ export default function BetDetailScreen() {
               <Card level="raised">
                 <View className="mb-5 flex-row items-center justify-between">
                   <Overline>Total pot</Overline>
-                  <Text className="font-display-bold text-3xl text-lotus-300">
+                  <Text className="font-display-bold text-3xl text-brass-300">
                     {formatAgorot(data.total_pot_agorot)}
                   </Text>
                 </View>
@@ -398,7 +398,7 @@ function SideButton({
       accessibilityRole="button"
       accessibilityState={{ selected, disabled }}
       style={selected ? elevation.glow(tone === 'a' ? colors.sideA.deep : colors.sideB.deep) : undefined}
-      className={`flex-1 rounded-3xl border-2 px-4 py-4 ${container} ${disabled ? 'opacity-50' : ''}`}
+      className={`flex-1 rounded-[20px] border-2 px-4 py-4 ${container} ${disabled ? 'opacity-50' : ''}`}
     >
       <Text numberOfLines={2} className={`font-display text-base leading-5 ${labelColor}`}>
         {label}
@@ -427,7 +427,7 @@ function SideRoster({
 
   return (
     <View
-      className={`flex-1 rounded-3xl border bg-ink-900 p-4 ${
+      className={`flex-1 rounded-xl border bg-ink-900 p-4 ${
         won === true ? 'border-owed/35' : 'border-ink-800'
       }`}
     >
@@ -500,7 +500,7 @@ function ResolvedSummary({
       className="mt-5"
     >
       <View
-        className={`items-center rounded-3xl border px-5 py-6 ${
+        className={`items-center rounded-2xl border px-5 py-6 ${
           watchedOnly
             ? 'border-ink-800 bg-ink-900'
             : iWon
