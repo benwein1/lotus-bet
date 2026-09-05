@@ -26,7 +26,13 @@ Or paste the files in `migrations/` into the SQL editor, in filename order:
 | `…_init.sql` | Tables: users, groups, group_members, bets, bet_positions, bet_ledger_entries, settlement_confirmations |
 | `…_rls.sql` | Row Level Security policies, membership helpers, Realtime publication |
 | `…_functions.sql` | Signup trigger, invite codes, group/bet/settlement RPCs, stats |
-| `…_email_auth_and_media.sql` | Email accounts (`users.email`, `profile_completed`), the `bet_media` table, and the private `bet-media` storage bucket with its policies |
+| `…_email_auth.sql` | Email accounts: `users.email`, `users.profile_completed`, a nullable `phone`, and the signup trigger that seeds a named profile |
+| `…_bet_media.sql` | The `bet_media` table and the private `bet-media` storage bucket with its policies |
+
+The last two are separate on purpose: the media one touches `storage.objects`,
+which not every project lets you change from the SQL editor. If it fails, the
+account migration before it still stands and the app runs — you just cannot
+attach photos yet.
 
 ### What the policies guarantee
 
@@ -65,8 +71,8 @@ old phone-OTP flow.
 
 ## 3b. Storage for bet media
 
-The `…_email_auth_and_media.sql` migration creates a **private** `bet-media`
-bucket and its policies. Objects are laid out as
+The `…_bet_media.sql` migration creates a **private** `bet-media` bucket and
+its policies. Objects are laid out as
 `<group_id>/<bet_id>/<file>.<ext>`, so every policy reads the owning group out
 of the first path segment and reuses the same `is_group_member` helper the
 tables use. Nothing is public: the app reads through short-lived signed URLs.
@@ -74,6 +80,14 @@ tables use. Nothing is public: the app reads through short-lived signed URLs.
 If your project blocks `insert into storage.buckets` from the SQL editor,
 create the bucket by hand under **Storage → New bucket** (name `bet-media`,
 *not* public, 50 MB limit) and run only the policy half of that migration.
+
+### Applying by hand
+
+Paste each file into **SQL Editor → New query** and run them in filename
+order. `…_email_auth.sql` is the one the app cannot start without: until it
+runs, naming yourself fails with *"Could not find the 'profile_completed'
+column of 'users' in the schema cache"* — PostgREST is reporting a column that
+genuinely is not there yet.
 
 ## 4. Deploy the Edge Functions
 

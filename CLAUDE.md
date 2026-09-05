@@ -103,7 +103,7 @@ src/
 theme-colors.json           SINGLE SOURCE OF TRUTH for both palettes
 global.css                  GENERATED from it by scripts/build-theme-css.js
 supabase/
-  migrations/               schema · RLS · RPCs · email auth + media (4 files)
+  migrations/               schema · RLS · RPCs · email auth · bet media (5)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/resolve-bet/    the only writer of bet_ledger_entries
   functions/notify-new-bet/
