@@ -21,7 +21,7 @@
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png",
-        "backgroundColor": "#0B0B12"
+        "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true
     },
@@ -38,13 +38,31 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 180,
           "resizeMode": "contain",
-          "backgroundColor": "#0B0B12"
+          "backgroundColor": "#FFFFFF",
+          "dark": {
+            "backgroundColor": "#000000"
+          }
         }
       ],
       [
         "expo-notifications",
         {
-          "color": "#7C5CFF"
+          "color": "#0A84FF"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Lotus Bet uses your photos so you can attach one to a bet.",
+          "cameraPermission": "Lotus Bet uses your camera so you can shoot a photo or clip for a bet.",
+          "microphonePermission": "Lotus Bet uses your microphone when you record a video for a bet."
+        }
+      ],
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": false,
+          "supportsPictureInPicture": false
         }
       ]
     ],

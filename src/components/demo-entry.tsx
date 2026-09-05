@@ -21,10 +21,10 @@ export function DemoEntry({ className = '' }: { className?: string }) {
       scaleTo={0.96}
       accessibilityRole="button"
       accessibilityLabel="Open the app with demo data, without signing in"
-      className={`flex-row items-center justify-center gap-2 self-center rounded-full border border-dashed border-ink-700 px-4 py-2.5 ${className}`}
+      className={`flex-row items-center justify-center gap-2 self-center rounded-full border border-dashed border-hairline-strong px-4 py-2.5 ${className}`}
     >
-      <View className="h-1.5 w-1.5 rounded-full bg-warn" />
-      <Text className="font-display text-xs text-ink-500">Skip sign-in · demo data</Text>
+      <View className="h-1.5 w-1.5 rounded-full bg-accent" />
+      <Text className="text-sm text-secondary">Skip sign-in, use demo data</Text>
     </PressableScale>
   );
 }
@@ -35,9 +35,9 @@ export function DemoBadge() {
   if (!demo) return null;
 
   return (
-    <View className="flex-row items-center gap-1.5 self-start rounded-full bg-warn-shade px-2.5 py-1">
-      <View className="h-1.5 w-1.5 rounded-full bg-warn" />
-      <Text className="font-display text-2xs uppercase tracking-[0.8px] text-warn">Demo data</Text>
+    <View className="flex-row items-center gap-1.5 self-start rounded-full bg-accent-soft px-2.5 py-1">
+      <View className="h-1.5 w-1.5 rounded-full bg-accent" />
+      <Text className="text-xs font-semibold text-accent">Demo data</Text>
     </View>
   );
 }

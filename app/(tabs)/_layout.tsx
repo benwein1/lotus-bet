@@ -1,37 +1,43 @@
 import { Tabs } from 'expo-router';
-import * as Haptics from 'expo-haptics';
 import { Platform, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from '@/components/animated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GroupsIcon, HomeIcon, ProfileIcon, type IconProps } from '@/components/icons';
-import { colors, motion } from '@/theme';
+import { Glass } from '@/components/screen';
+import { selectionTap } from '@/components/ui';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { TAB_BAR_HEIGHT } from '@/hooks/use-tab-bar-inset';
+import { useColors } from '@/providers/theme-provider';
+import { elevation, motion } from '@/theme';
 
 /**
- * Three tabs, no more. Everything else (group detail, bet detail, settle up)
+ * Three tabs, no more. Everything else — group detail, bet detail, settle up —
  * is pushed on top of them from the root stack.
  *
- * The bar is hand-built rather than the default: it gives us a floating
- * surface, a soft-lit active pill, real icons, and a press animation. The
- * default bar is the single most recognisable "unstyled RN app" tell.
+ * The bar floats: a rounded, translucent pill sitting above the home indicator
+ * with content scrolling underneath it, rather than an opaque strip that eats
+ * the bottom of every screen. Screens leave room for it with `useTabBarInset`.
  */
 const TABS: {
   name: string;
   label: string;
   Icon: (props: IconProps) => React.ReactElement;
 }[] = [
-  { name: 'index', label: 'Home', Icon: HomeIcon },
+  { name: 'index', label: 'Feed', Icon: HomeIcon },
   { name: 'groups', label: 'Groups', Icon: GroupsIcon },
-  { name: 'profile', label: 'Profile', Icon: ProfileIcon },
+  { name: 'profile', label: 'You', Icon: ProfileIcon },
 ];
 
 export default function TabsLayout() {
+  const colors = useColors();
+
   return (
     <Tabs
       tabBar={(props) => <FloatingTabBar {...props} />}
       screenOptions={{
         headerShown: false,
-        sceneStyle: { backgroundColor: colors.ink['950'] },
+        sceneStyle: { backgroundColor: colors.canvas },
       }}
     >
       {TABS.map((tab) => (
@@ -57,34 +63,34 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
 
   return (
     <View
-      style={{ paddingBottom: Math.max(insets.bottom, 12) }}
-      className="border-t border-ink-850 bg-ink-1000 px-4 pt-2"
+      pointerEvents="box-none"
+      style={{ paddingBottom: Math.max(insets.bottom, 14) }}
+      className="absolute inset-x-0 bottom-0 items-center px-gutter"
     >
-      <View className="flex-row items-center justify-around">
+      <Glass
+        intensity={Platform.OS === 'web' ? 24 : 60}
+        style={[elevation.floating, { height: TAB_BAR_HEIGHT }]}
+        className="flex-row items-center rounded-full px-2"
+      >
         {state.routes.map((route, index) => {
           const tab = TABS.find((t) => t.name === route.name);
           if (!tab) return null;
-
-          const focused = state.index === index;
 
           return (
             <TabButton
               key={route.key}
               label={tab.label}
               Icon={tab.Icon}
-              focused={focused}
+              focused={state.index === index}
               onPress={() => {
-                if (!focused) {
-                  if (Platform.OS !== 'web') {
-                    void Haptics.selectionAsync();
-                  }
-                  navigation.navigate(route.name);
-                }
+                if (state.index === index) return;
+                selectionTap();
+                navigation.navigate(route.name);
               }}
             />
           );
         })}
-      </View>
+      </Glass>
     </View>
   );
 }
@@ -100,18 +106,22 @@ function TabButton({
   focused: boolean;
   onPress: () => void;
 }) {
+  const colors = useColors();
+  const reduced = useReducedMotion();
   const press = useSharedValue(1);
   const animated = useAnimatedStyle(() => ({ transform: [{ scale: press.value }] }));
 
   return (
-    <Animated.View style={animated} className="flex-1">
+    <Animated.View style={animated}>
       <View
         accessibilityRole="tab"
         accessibilityState={{ selected: focused }}
         accessibilityLabel={label}
+        // Responder handlers rather than a Pressable: the highlight has to
+        // land on touch-down, before the navigation on release.
         onStartShouldSetResponder={() => true}
         onResponderGrant={() => {
-          press.value = withSpring(0.9, motion.press);
+          press.value = reduced ? 1 : withSpring(0.9, motion.press);
         }}
         onResponderRelease={() => {
           press.value = withSpring(1, motion.press);
@@ -120,23 +130,20 @@ function TabButton({
         onResponderTerminate={() => {
           press.value = withSpring(1, motion.press);
         }}
-        className="items-center py-1.5"
+        className={`h-11 min-w-[84px] flex-row items-center justify-center gap-1.5 rounded-full px-4 ${
+          focused ? 'bg-accent-soft' : ''
+        }`}
       >
-        {/* A short rule above the active tab, not a lit pill. The indicator
-            marks position; the icon and label carry the meaning. */}
-        <View
-          className={`h-0.5 w-6 rounded-full ${focused ? 'bg-ink-50' : 'bg-transparent'}`}
+        <Icon
+          size={21}
+          active={focused}
+          color={focused ? colors.accent : colors.textSecondary}
         />
-        <View className="items-center gap-1 pt-2">
-          <Icon size={20} active={focused} color={focused ? colors.ink['50'] : colors.ink['650']} />
-          <Text
-            className={`text-2xs tracking-normal ${
-              focused ? 'font-display text-ink-50' : 'text-ink-650'
-            }`}
-          >
-            {label}
-          </Text>
-        </View>
+        <Text
+          className={`text-sm ${focused ? 'font-semibold text-accent' : 'text-secondary'}`}
+        >
+          {label}
+        </Text>
       </View>
     </Animated.View>
   );

@@ -1,60 +1,98 @@
-// The palette lives in theme-colors.json so that Tailwind and the handful of
-// places that need a raw hex value (navigator options, animated styles that
-// bypass the className pipeline) can never drift apart.
-const colors = require('./theme-colors.json');
+// Colours are semantic and live behind CSS custom properties, so a single
+// class name means the same thing in both schemes and only the value under it
+// changes. `theme-colors.json` holds the two palettes; `global.css` is
+// generated from it by scripts/build-theme-css.js.
+const color = (name) => `var(--c-${name})`;
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: ['./app/**/*.{js,jsx,ts,tsx}', './src/**/*.{js,jsx,ts,tsx}'],
   presets: [require('nativewind/preset')],
-  // The app commits to a single dark palette and uses no `dark:` variants, so
-  // this changes nothing visually. It is required on web: NativeWind's
-  // colour-scheme observer calls `colorScheme.set()` when the stylesheet lands,
-  // and that call throws outright under the default `darkMode: 'media'`.
+  // Required. Under the default `media`, NativeWind's colour-scheme observer
+  // calls `colorScheme.set()` when the stylesheet lands and that throws on the
+  // web dev server. `class` is also what lets the app override the system
+  // scheme from Settings.
   darkMode: 'class',
   theme: {
     extend: {
-      colors,
+      colors: {
+        canvas: color('canvas'),
+        sunken: color('sunken'),
+        surface: color('surface'),
+        surface2: color('surface2'),
+        surface3: color('surface3'),
+        hairline: color('hairline'),
+        'hairline-strong': color('hairline-strong'),
 
-      // Space Grotesk carries every heading, number and label; body copy stays
-      // on the system face, which reads better at small sizes and feels native.
-      // `display` is loaded in app/_layout.tsx.
+        primary: color('text'),
+        secondary: color('text-secondary'),
+        tertiary: color('text-tertiary'),
+        inverse: color('text-inverse'),
+
+        accent: {
+          DEFAULT: color('accent'),
+          strong: color('accent-strong'),
+          soft: color('accent-soft'),
+          ink: color('accent-ink'),
+        },
+
+        positive: { DEFAULT: color('positive'), soft: color('positive-soft') },
+        negative: { DEFAULT: color('negative'), soft: color('negative-soft') },
+
+        sideA: { DEFAULT: color('side-a'), soft: color('side-a-soft') },
+        sideB: { DEFAULT: color('side-b'), soft: color('side-b-soft') },
+
+        chrome: color('chrome'),
+        'chrome-edge': color('chrome-edge'),
+        scrim: color('scrim'),
+        'on-media': {
+          DEFAULT: color('on-media'),
+          soft: color('on-media-soft'),
+          faint: color('on-media-faint'),
+        },
+      },
+
+      // The system face, which on iOS is SF Pro. Apple ships optical sizing,
+      // tracking tables and legibility tuning with it; a webfont would throw
+      // all of that away for a novelty that stops the app feeling native.
       fontFamily: {
-        display: ['SpaceGrotesk_600SemiBold'],
-        'display-medium': ['SpaceGrotesk_500Medium'],
-        'display-bold': ['SpaceGrotesk_700Bold'],
+        sans: ['System', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
       },
 
-      // Extreme scale contrast is what separates a designed page from a laid-out
-      // one: money and screen titles are enormous, body copy stays crisp and
-      // small. Display sizes carry negative tracking — large type set at default
-      // tracking always reads loose.
+      // Apple's type scale, with its tracking. Tracking is size-specific:
+      // large text needs it tightened, small text needs it opened up. A single
+      // letter-spacing value is wrong somewhere.
       fontSize: {
-        '2xs': ['11px', { lineHeight: '14px', letterSpacing: '0.4px' }],
-        xs: ['12px', { lineHeight: '17px' }],
-        sm: ['14px', { lineHeight: '21px' }],
-        base: ['16px', { lineHeight: '24px' }],
-        lg: ['18px', { lineHeight: '26px' }],
-        xl: ['22px', { lineHeight: '28px', letterSpacing: '-0.2px' }],
-        '2xl': ['28px', { lineHeight: '33px', letterSpacing: '-0.5px' }],
-        '3xl': ['36px', { lineHeight: '40px', letterSpacing: '-0.8px' }],
-        '4xl': ['46px', { lineHeight: '48px', letterSpacing: '-1.2px' }],
-        '5xl': ['60px', { lineHeight: '60px', letterSpacing: '-1.8px' }],
-        '6xl': ['76px', { lineHeight: '72px', letterSpacing: '-2.4px' }],
-        '7xl': ['96px', { lineHeight: '88px', letterSpacing: '-3.2px' }],
+        '2xs': ['11px', { lineHeight: '13px', letterSpacing: '0.07px' }], // Caption 2
+        xs: ['12px', { lineHeight: '16px', letterSpacing: '0px' }], // Caption 1
+        sm: ['13px', { lineHeight: '18px', letterSpacing: '-0.08px' }], // Footnote
+        subhead: ['15px', { lineHeight: '20px', letterSpacing: '-0.23px' }],
+        callout: ['16px', { lineHeight: '21px', letterSpacing: '-0.31px' }],
+        base: ['17px', { lineHeight: '22px', letterSpacing: '-0.41px' }], // Body
+        lg: ['20px', { lineHeight: '25px', letterSpacing: '-0.45px' }], // Title 3
+        xl: ['22px', { lineHeight: '28px', letterSpacing: '-0.26px' }], // Title 2
+        '2xl': ['28px', { lineHeight: '34px', letterSpacing: '-0.4px' }], // Title 1
+        '3xl': ['34px', { lineHeight: '41px', letterSpacing: '-0.6px' }], // Large Title
+        '4xl': ['44px', { lineHeight: '48px', letterSpacing: '-1.1px' }],
+        '5xl': ['56px', { lineHeight: '58px', letterSpacing: '-1.6px' }],
+        '6xl': ['72px', { lineHeight: '72px', letterSpacing: '-2.4px' }],
       },
 
-      // 4pt grid. Named steps stop screens drifting into ad-hoc margins.
+      // 4pt grid, with the two named steps screens actually reach for.
       spacing: {
         gutter: '20px',
         section: '28px',
       },
 
+      // Radius says what kind of object something is: chrome and media are
+      // generously rounded, controls sit in the middle, structure is square.
       borderRadius: {
-        xl: '14px',
-        '2xl': '18px',
-        '3xl': '24px',
-        '4xl': '32px',
+        lg: '10px',
+        xl: '12px',
+        '2xl': '16px',
+        '3xl': '22px',
+        '4xl': '28px',
+        '5xl': '34px',
       },
     },
   },

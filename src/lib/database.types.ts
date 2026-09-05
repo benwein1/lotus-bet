@@ -12,8 +12,13 @@ export type GroupRole = 'admin' | 'member';
 
 export interface UserRow {
   id: string;
-  phone: string;
+  /** Set for accounts created with email + password, which is all of them now. */
+  email: string | null;
+  /** Kept for the accounts created under the old phone-OTP flow. */
+  phone: string | null;
   display_name: string;
+  /** False until the user has actually named themselves. */
+  profile_completed: boolean;
   avatar_url: string | null;
   expo_push_token: string | null;
   notify_new_bets: boolean;
@@ -51,6 +56,23 @@ export interface BetRow {
   close_at: string | null;
   created_at: string;
   resolved_at: string | null;
+}
+
+export type BetMediaKind = 'image' | 'video';
+
+export interface BetMediaRow {
+  id: string;
+  bet_id: string;
+  group_id: string;
+  uploaded_by: string;
+  kind: BetMediaKind;
+  /** Path inside the private `bet-media` bucket. Signed on read. */
+  storage_path: string;
+  width: number | null;
+  height: number | null;
+  duration_ms: number | null;
+  position: number;
+  created_at: string;
 }
 
 export interface BetPositionRow {
@@ -103,7 +125,13 @@ export interface GroupSummary extends GroupRow {
   myBalanceAgorot: number;
 }
 
+/** A media row with a short-lived signed URL attached, ready to render. */
+export interface BetMedia extends BetMediaRow {
+  url: string;
+}
+
 export interface BetWithPositions extends BetRow {
   positions: { user_id: string; side: BetSide }[];
+  media?: BetMedia[];
   group?: Pick<GroupRow, 'id' | 'name' | 'emoji'>;
 }

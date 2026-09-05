@@ -1,17 +1,18 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ScreenGround } from '@/components/screen';
-import { Avatar, Button, ErrorNotice } from '@/components/ui';
+import { ContentWidth, Screen } from '@/components/screen';
+import { Avatar, BlockField, Button, ErrorNotice } from '@/components/ui';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useAuth } from '@/providers/auth-provider';
-import { colors } from '@/theme';
+import { motion } from '@/theme';
 
 export default function ProfileSetupScreen() {
   const { updateProfile, session } = useAuth();
+  const reduced = useReducedMotion();
   const [name, setName] = useState('');
-  const [focused, setFocused] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -30,52 +31,44 @@ export default function ProfileSetupScreen() {
     }
   }
 
+  const entering = (delay: number) =>
+    reduced ? FadeIn.duration(motion.duration.fast) : FadeInDown.delay(delay).duration(420);
+
   return (
-    <View className="flex-1 bg-ink-950">
-      <ScreenGround />
+    <Screen ground="sunken">
       <SafeAreaView className="flex-1">
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           className="flex-1 justify-between px-gutter pb-8 pt-14"
         >
-          <View>
-            <Animated.View entering={FadeInDown.duration(420)}>
-              <Text className="font-display-bold text-5xl leading-[54px] text-ink-50">
-                What should{'\n'}we call you?
-              </Text>
-              <Text className="mt-5 text-base leading-7 text-ink-500">
+          <ContentWidth>
+            <Animated.View entering={entering(0)}>
+              <Text className="text-3xl font-bold text-primary">What should we call you?</Text>
+              <Text className="mt-3 text-callout leading-5 text-secondary">
                 This is the name your friends see on every bet.
               </Text>
             </Animated.View>
 
             {/* The avatar previews live as they type — the colour is derived
                 from their user id, so it is the one they will actually get. */}
-            <Animated.View
-              entering={FadeInDown.delay(90).duration(420)}
-              className="my-10"
-            >
-              <Avatar name={trimmed || '?'} id={session?.user.id} size={72} />
+            <Animated.View entering={entering(90)} className="my-9 items-center">
+              <Avatar name={trimmed || '?'} id={session?.user.id} size={84} />
             </Animated.View>
 
-            <Animated.View entering={FadeInDown.delay(150).duration(420)}>
-              <TextInput
+            <Animated.View entering={entering(150)}>
+              <BlockField
+                label="Display name"
                 value={name}
                 onChangeText={setName}
-                onFocus={() => setFocused(true)}
-                onBlur={() => setFocused(false)}
                 placeholder="Dor Levi"
-                placeholderTextColor={colors.ink['650']}
                 autoCapitalize="words"
                 autoComplete="name"
                 maxLength={40}
                 autoFocus
                 returnKeyType="done"
                 onSubmitEditing={submit}
-                className={`h-16 border-b-2 px-1 font-display text-2xl text-ink-50 ${
-                  focused ? 'border-ink-50' : 'border-ink-750'
-                }`}
               />
-              <Text className="mt-3 text-xs text-ink-600">
+              <Text className="mt-2 px-1 text-sm text-secondary">
                 {trimmed.length < 2
                   ? 'At least two characters.'
                   : `${40 - trimmed.length} characters left`}
@@ -83,21 +76,23 @@ export default function ProfileSetupScreen() {
             </Animated.View>
 
             {error && (
-              <Animated.View entering={FadeIn.duration(200)} className="mt-5">
+              <Animated.View entering={FadeIn.duration(180)} className="mt-5">
                 <ErrorNotice message={error} />
               </Animated.View>
             )}
-          </View>
+          </ContentWidth>
 
-          <Button
-            title="Start betting"
-            size="lg"
-            onPress={submit}
-            loading={busy}
-            disabled={trimmed.length < 2}
-          />
+          <ContentWidth>
+            <Button
+              title="Start betting"
+              size="lg"
+              onPress={submit}
+              loading={busy}
+              disabled={trimmed.length < 2}
+            />
+          </ContentWidth>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </View>
+    </Screen>
   );
 }

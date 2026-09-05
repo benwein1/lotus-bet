@@ -1,22 +1,23 @@
 import { useEffect } from 'react';
 import { Text, View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from '@/components/animated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from '@/components/animated';
 
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { positionPercentages } from '@/lib/format';
-import { colors, motion, tabular } from '@/theme';
+import { useColors } from '@/providers/theme-provider';
+import { motion, tabular } from '@/theme';
 
 /**
  * The market bar — the app's signature element.
  *
  * Percentages are headcount, not money: "how many friends think this" is the
- * number people actually care about, and it is the loudest thing on the card.
+ * number people actually care about.
  *
- * The split animates on `scaleX` with a fixed-width track underneath, never on
- * width or flex. Animating a layout property forces a re-layout of the whole
- * row on every frame; a transform is composited and costs nothing. This is the
- * one place in the app where a value changes while the user is watching, so it
- * is the one place where that distinction is visible.
+ * The split animates on `scaleX` over a fixed-width track, never on width or
+ * flex. Animating a layout property re-lays-out the whole row every frame; a
+ * transform is composited and costs nothing. This is the one value in the app
+ * that changes while the user is watching, so it is the one place where that
+ * distinction is visible.
  */
 export function OddsBar({
   countA,
@@ -25,6 +26,7 @@ export function OddsBar({
   labelB,
   winningOption = null,
   size = 'md',
+  onMedia = false,
 }: {
   countA: number;
   countB: number;
@@ -33,19 +35,20 @@ export function OddsBar({
   /** Once resolved, the losing side falls back to a rule. */
   winningOption?: 'a' | 'b' | null;
   size?: 'sm' | 'md' | 'lg';
+  /** Over a photo or video, where the palette has to ignore the scheme. */
+  onMedia?: boolean;
 }) {
+  const colors = useColors();
   const { a, b } = positionPercentages(countA, countB);
   const reduced = useReducedMotion();
 
-  // Both segments are full-width and scale down from their own edge, so the
-  // seam between them lands exactly at the split.
   const fillA = useSharedValue(a / 100);
   const fillB = useSharedValue(b / 100);
 
   useEffect(() => {
     if (reduced) {
-      fillA.value = withTiming(a / 100, { duration: 0 });
-      fillB.value = withTiming(b / 100, { duration: 0 });
+      fillA.value = a / 100;
+      fillB.value = b / 100;
       return;
     }
     fillA.value = withSpring(a / 100, motion.settle);
@@ -58,35 +61,43 @@ export function OddsBar({
   const lostA = winningOption === 'b';
   const lostB = winningOption === 'a';
 
-  const barHeight = size === 'sm' ? 3 : size === 'lg' ? 6 : 4;
-  const pctClass = size === 'lg' ? 'text-4xl' : size === 'sm' ? 'text-xl' : 'text-2xl';
+  const barHeight = size === 'sm' ? 4 : size === 'lg' ? 8 : 6;
+  const pctClass = size === 'lg' ? 'text-2xl' : size === 'sm' ? 'text-lg' : 'text-xl';
+
+  const label = onMedia ? 'text-on-media-soft' : 'text-secondary';
+  const muted = onMedia ? 'text-on-media-faint' : 'text-tertiary';
+  const trackColor = onMedia ? 'rgba(255,255,255,0.22)' : colors.surface3;
+  const colorA = lostA ? trackColor : onMedia ? colors.onMedia : colors.sideA;
+  const colorB = lostB ? trackColor : onMedia ? 'rgba(255,255,255,0.45)' : colors.sideB;
 
   return (
-    <View className={size === 'sm' ? 'gap-2' : 'gap-3'}>
+    <View className={size === 'sm' ? 'gap-2' : 'gap-2.5'}>
       <View className="flex-row items-end justify-between gap-4">
         <View className="flex-1">
-          <Text numberOfLines={1} className={`text-xs ${lostA ? 'text-ink-650' : 'text-ink-500'}`}>
+          <Text numberOfLines={1} className={`text-sm ${lostA ? muted : label}`}>
             {labelA}
           </Text>
           <Text
             style={tabular}
-            className={`font-display-bold ${pctClass} ${lostA ? 'text-ink-650' : 'text-sideA'}`}
+            className={`font-bold ${pctClass} ${
+              lostA ? muted : onMedia ? 'text-on-media' : 'text-sideA'
+            }`}
           >
-            {a}
-            <Text className={`text-base ${lostA ? 'text-ink-650' : 'text-sideA/50'}`}>%</Text>
+            {a}%
           </Text>
         </View>
 
         <View className="flex-1 items-end">
-          <Text numberOfLines={1} className={`text-xs ${lostB ? 'text-ink-650' : 'text-ink-500'}`}>
+          <Text numberOfLines={1} className={`text-sm ${lostB ? muted : label}`}>
             {labelB}
           </Text>
           <Text
             style={tabular}
-            className={`font-display-bold ${pctClass} ${lostB ? 'text-ink-650' : 'text-sideB'}`}
+            className={`font-bold ${pctClass} ${
+              lostB ? muted : onMedia ? 'text-on-media-soft' : 'text-sideB'
+            }`}
           >
-            {b}
-            <Text className={`text-base ${lostB ? 'text-ink-650' : 'text-sideB/50'}`}>%</Text>
+            {b}%
           </Text>
         </View>
       </View>
@@ -94,7 +105,10 @@ export function OddsBar({
       {/* One full-width track. Both bars span it and scale from opposite edges,
           so they meet exactly at the split — scaling each inside its own half
           would show a third of a half, not a third of the whole. */}
-      <View style={{ height: barHeight, width: '100%' }}>
+      <View
+        style={{ height: barHeight, width: '100%', borderRadius: barHeight / 2, backgroundColor: trackColor }}
+        className="overflow-hidden"
+      >
         <Animated.View
           style={[
             styleA,
@@ -103,8 +117,9 @@ export function OddsBar({
               left: 0,
               height: barHeight,
               width: '100%',
+              borderRadius: barHeight / 2,
               transformOrigin: 'left',
-              backgroundColor: lostA ? colors.ink['750'] : colors.sideA.DEFAULT,
+              backgroundColor: colorA,
             },
           ]}
         />
@@ -116,18 +131,19 @@ export function OddsBar({
               right: 0,
               height: barHeight,
               width: '100%',
+              borderRadius: barHeight / 2,
               transformOrigin: 'right',
-              backgroundColor: lostB ? colors.ink['750'] : colors.sideB.DEFAULT,
+              backgroundColor: colorB,
             },
           ]}
         />
       </View>
 
       <View className="flex-row items-center justify-between">
-        <Text style={tabular} className="text-2xs tracking-normal text-ink-600">
+        <Text style={tabular} className={`text-xs ${muted}`}>
           {countA} {countA === 1 ? 'person' : 'people'}
         </Text>
-        <Text style={tabular} className="text-2xs tracking-normal text-ink-600">
+        <Text style={tabular} className={`text-xs ${muted}`}>
           {countB} {countB === 1 ? 'person' : 'people'}
         </Text>
       </View>

@@ -1,48 +1,64 @@
 {
-  "ink": {
-    "1000": "#010D0A",
-    "950": "#02150F",
-    "900": "#063527",
-    "850": "#084232",
-    "800": "#064E3B",
-    "750": "#0B6249",
-    "700": "#107A5A",
-    "650": "#4C7D6C",
-    "600": "#A8A08C",
-    "500": "#D2C6AE",
-    "400": "#EADCC3",
-    "50": "#F8E7C9"
+  "light": {
+    "canvas": "#FFFFFF",
+    "sunken": "#F2F2F7",
+    "surface": "#FFFFFF",
+    "surface2": "#F5F5F8",
+    "surface3": "#EAEAEF",
+    "hairline": "#E2E2E7",
+    "hairlineStrong": "#C9C9D0",
+    "text": "#000000",
+    "textSecondary": "#6C6C74",
+    "textTertiary": "#A2A2AA",
+    "textInverse": "#FFFFFF",
+    "accent": "#0A84FF",
+    "accentStrong": "#0062D6",
+    "accentSoft": "#E8F2FF",
+    "accentInk": "#FFFFFF",
+    "positive": "#1E9E52",
+    "positiveSoft": "#E4F6EB",
+    "negative": "#DC3A40",
+    "negativeSoft": "#FDECEC",
+    "sideA": "#0A84FF",
+    "sideASoft": "#E8F2FF",
+    "sideB": "#1C1C1E",
+    "sideBSoft": "#EDEDF1",
+    "chrome": "rgba(255, 255, 255, 0.88)",
+    "chromeEdge": "rgba(0, 0, 0, 0.07)",
+    "scrim": "rgba(0, 0, 0, 0.45)",
+    "onMedia": "#FFFFFF",
+    "onMediaSoft": "rgba(255, 255, 255, 0.78)",
+    "onMediaFaint": "rgba(255, 255, 255, 0.55)"
   },
-  "brass": {
-    "300": "#F2CE84",
-    "400": "#EABA59",
-    "500": "#E3A83C",
-    "600": "#C58D26",
-    "700": "#9A6D1B",
-    "900": "#2B2411"
-  },
-  "sideA": {
-    "DEFAULT": "#E3A83C",
-    "bright": "#F2CE84",
-    "deep": "#9A6D1B",
-    "shade": "#2B2411"
-  },
-  "sideB": {
-    "DEFAULT": "#E2596B",
-    "bright": "#F08596",
-    "deep": "#A32E3F",
-    "shade": "#2E141A"
-  },
-  "owed": {
-    "DEFAULT": "#E3A83C",
-    "shade": "#2B2411"
-  },
-  "owing": {
-    "DEFAULT": "#E2596B",
-    "shade": "#2E141A"
-  },
-  "warn": {
-    "DEFAULT": "#EABA59",
-    "shade": "#2B2411"
+  "dark": {
+    "canvas": "#000000",
+    "sunken": "#000000",
+    "surface": "#0E0E11",
+    "surface2": "#17171C",
+    "surface3": "#212128",
+    "hairline": "#26262D",
+    "hairlineStrong": "#3B3B45",
+    "text": "#FFFFFF",
+    "textSecondary": "#9B9BA4",
+    "textTertiary": "#6A6A74",
+    "textInverse": "#000000",
+    "accent": "#4DA6FF",
+    "accentStrong": "#8CC6FF",
+    "accentSoft": "#0D2136",
+    "accentInk": "#00060F",
+    "positive": "#34D07A",
+    "positiveSoft": "#0D2418",
+    "negative": "#FF5E63",
+    "negativeSoft": "#2A1112",
+    "sideA": "#4DA6FF",
+    "sideASoft": "#0D2136",
+    "sideB": "#E8E8ED",
+    "sideBSoft": "#1C1C22",
+    "chrome": "rgba(18, 18, 21, 0.86)",
+    "chromeEdge": "rgba(255, 255, 255, 0.08)",
+    "scrim": "rgba(0, 0, 0, 0.6)",
+    "onMedia": "#FFFFFF",
+    "onMediaSoft": "rgba(255, 255, 255, 0.78)",
+    "onMediaFaint": "rgba(255, 255, 255, 0.55)"
   }
 }

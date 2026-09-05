@@ -80,16 +80,18 @@ export function initials(displayName: string): string {
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
-/** Digits-only phone entry -> E.164, defaulting to Israel. */
-export function normalisePhone(input: string, defaultCountryCode = '+972'): string | null {
-  const trimmed = input.trim().replace(/[\s()-]/g, '');
+/** Loose email check: enough to catch a typo, not a validation engine. */
+export function isValidEmail(input: string): boolean {
+  const trimmed = input.trim();
+  return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(trimmed) && trimmed.length <= 254;
+}
 
-  if (trimmed.startsWith('+')) {
-    return /^\+\d{8,15}$/.test(trimmed) ? trimmed : null;
+/** The one password rule the app enforces, in one place. */
+export const MIN_PASSWORD_LENGTH = 8;
+
+export function passwordProblem(password: string): string | null {
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return `At least ${MIN_PASSWORD_LENGTH} characters.`;
   }
-
-  const local = trimmed.replace(/^0+/, '');
-  if (!/^\d{7,14}$/.test(local)) return null;
-
-  return `${defaultCountryCode}${local}`;
+  return null;
 }

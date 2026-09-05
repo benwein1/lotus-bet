@@ -3,9 +3,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import type { UserRow } from '@/lib/database.types';
 import { demo, demoProfile, demoSession, disableDemoMode, enableDemoMode, isDemoMode } from '@/lib/demo';
-import { normalisePhone } from '@/lib/format';
 import { registerForPushNotifications } from '@/lib/notifications';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+
+export interface SignUpResult {
+  /** True when the project has email confirmation on and no session was issued. */
+  needsEmailConfirmation: boolean;
+}
 
 interface AuthContextValue {
   session: Session | null;
@@ -14,9 +18,14 @@ interface AuthContextValue {
   loading: boolean;
   /** A signed-in user who has not picked a display name yet. */
   needsProfileSetup: boolean;
-  sendOtp: (phone: string) => Promise<{ phone: string }>;
-  verifyOtp: (phone: string, token: string) => Promise<void>;
-  updateProfile: (patch: Partial<Pick<UserRow, 'display_name' | 'avatar_url' | 'notify_new_bets' | 'notify_resolutions'>>) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, displayName: string) => Promise<SignUpResult>;
+  sendPasswordReset: (email: string) => Promise<void>;
+  updateProfile: (
+    patch: Partial<
+      Pick<UserRow, 'display_name' | 'avatar_url' | 'notify_new_bets' | 'notify_resolutions'>
+    >
+  ) => Promise<void>;
   refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
   /** TEMPORARY: sign in against in-memory data, with no backend. */
@@ -84,14 +93,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       session,
       profile,
       loading,
-      // The signup trigger seeds a placeholder name; anything starting with
-      // "Player " means the user has not introduced themselves yet.
       demo: demoActive,
+      // A real column, not a guess at the shape of a placeholder name. The
+      // signup trigger sets it when the sign-up form supplied a name, and the
+      // profile-setup screen sets it otherwise.
       needsProfileSetup:
-        !demoActive &&
-        Boolean(session) &&
-        Boolean(profile) &&
-        /^Player \d{0,4}$/.test(profile!.display_name),
+        !demoActive && Boolean(session) && Boolean(profile) && !profile!.profile_completed,
 
       enterDemo() {
         enableDemoMode();
@@ -101,23 +108,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
       },
 
-      async sendOtp(rawPhone: string) {
-        const phone = normalisePhone(rawPhone);
-        if (!phone) throw new Error('That does not look like a phone number.');
-
-        const { error } = await supabase.auth.signInWithOtp({ phone });
-        if (error) throw new Error(error.message);
-
-        return { phone };
+      async signIn(email: string, password: string) {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: email.trim().toLowerCase(),
+          password,
+        });
+        if (error) throw new Error(friendlyAuthError(error.message));
       },
 
-      async verifyOtp(phone: string, token: string) {
-        const { error } = await supabase.auth.verifyOtp({
-          phone,
-          token: token.trim(),
-          type: 'sms',
+      async signUp(email: string, password: string, displayName: string) {
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim().toLowerCase(),
+          password,
+          // The signup trigger reads this to seed public.users, so a new
+          // account arrives with its name already set.
+          options: { data: { display_name: displayName.trim() } },
         });
-        if (error) throw new Error(error.message);
+        if (error) throw new Error(friendlyAuthError(error.message));
+
+        return { needsEmailConfirmation: data.session === null };
+      },
+
+      async sendPasswordReset(email: string) {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase());
+        if (error) throw new Error(friendlyAuthError(error.message));
       },
 
       async updateProfile(patch) {
@@ -129,7 +143,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const { data, error } = await supabase
           .from('users')
-          .update(patch)
+          .update(
+            // Naming yourself is what completes the profile, so the two always
+            // move together.
+            patch.display_name ? { ...patch, profile_completed: true } : patch
+          )
           .eq('id', session.user.id)
           .select()
           .single<UserRow>();
@@ -162,6 +180,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+/**
+ * Supabase returns accurate but unfriendly strings. These are the three a user
+ * actually hits; everything else passes through unchanged.
+ */
+function friendlyAuthError(message: string): string {
+  const lower = message.toLowerCase();
+  if (lower.includes('invalid login credentials')) {
+    return 'That email and password do not match an account.';
+  }
+  if (lower.includes('already registered') || lower.includes('already been registered')) {
+    return 'There is already an account with that email. Try signing in.';
+  }
+  if (lower.includes('email not confirmed')) {
+    return 'Confirm your email address first — check your inbox for the link.';
+  }
+  return message;
 }
 
 export function useAuth(): AuthContextValue {

@@ -1,8 +1,8 @@
 # CLAUDE.md — Lotus Bet
 
 Guidance for Claude Code working in this repo. Read this before touching
-anything; the NativeWind and money-invariant sections in particular encode
-mistakes already made and fixed once.
+anything; the NativeWind, colour-scheme and money-invariant sections in
+particular encode mistakes already made and fixed once.
 
 ---
 
@@ -27,7 +27,8 @@ Other standing scope boundaries:
 - **Two outcomes only.** The `bets` table has `option_a_label` /
   `option_b_label` and is shaped so a future `bet_options` table can
   supersede them. Don't build >2-option UI yet.
-- **No public or global discovery.** Bets are always scoped to a group.
+- **No public or global discovery.** Bets are always scoped to a group; the
+  Home feed shows only bets from groups you are in.
 - **No editing a bet after creation.** The creator can lock, resolve or
   cancel. That's the whole surface.
 
@@ -43,9 +44,10 @@ npm start                 # Expo dev server; press "i" for iOS simulator
 npm run web               # fastest loop for design work — no Xcode needed
 npm run ios / android
 
-npm test                  # jest — 48 tests, all pure logic, no backend
+npm test                  # jest — 50 tests, pure logic + a theme drift check
 npm run typecheck         # tsc --noEmit
 npm run lint
+npm run theme             # regenerate global.css from theme-colors.json
 ```
 
 Always run `npm run typecheck && npm test` before claiming a change works.
@@ -65,13 +67,14 @@ npx expo export --platform ios --output-dir /tmp/export-check
 
 Expo SDK 57 · React Native 0.86 · Expo Router · TypeScript (strict, with
 `noUncheckedIndexedAccess`) · NativeWind 4 · Supabase (Postgres, Auth,
-Realtime, RLS, Edge Functions).
+Storage, Realtime, RLS, Edge Functions) · expo-image / expo-video /
+expo-image-picker for bet media.
 
 ```
 app/                        Expo Router routes
   _layout.tsx               root stack + the single auth redirect gate
-  (auth)/                   phone → verify → profile-setup
-  (tabs)/                   index (Home feed) · groups · profile
+  (auth)/                   sign-in · sign-up · profile-setup
+  (tabs)/                   index (the feed) · groups · profile
   group/create.tsx, join.tsx
   group/[id]/               index (detail) · new-bet · settle
   bet/[id].tsx              join a side, resolve, cancel
@@ -79,26 +82,32 @@ src/
   components/ui.tsx         the shared visual vocabulary — see §4
   components/icons.tsx      hand-rolled SVG icon set
   components/animated.ts    NativeWind-registered Animated — import from here
-  components/screen.tsx     ScreenBackdrop + ContentWidth
+  components/screen.tsx     Screen · Glass · ContentWidth
   components/skeletons.tsx  screen-shaped loading placeholders
-  components/bet-card.tsx, odds-bar.tsx
+  components/bet-card.tsx   FeedCard (full-screen) + BetCard (compact)
+  components/bet-media.tsx  photo/video renderer and pager
+  components/odds-bar.tsx
   lib/payout.ts             re-export ONLY — see §5
   lib/settlement.ts         balance netting + greedy debt simplification
   lib/queries.ts            every Supabase read/write the app makes
-  lib/format.ts             agorot ↔ shekels, countdowns, initials, phone
+  lib/media.ts              picking, uploading and signing bet media
+  lib/format.ts             agorot ↔ shekels, countdowns, initials, email
   lib/database.types.ts     hand-written row types
   lib/supabase.ts           client; `isSupabaseConfigured` guard
   lib/notifications.ts      Expo push registration + announceNewBet
-  hooks/                    use-async, use-group-realtime, use-settlement
+  hooks/                    use-async · use-group-realtime · use-settlement ·
+                            use-reduced-motion · use-tab-bar-inset
   providers/auth-provider.tsx
-  theme.ts                  colors · motion · elevation · avatarColors
-theme-colors.json           SINGLE SOURCE OF TRUTH for the palette
+  providers/theme-provider.tsx   owns the colour scheme
+  theme.ts                  palettes · motion · elevation · avatarColors
+theme-colors.json           SINGLE SOURCE OF TRUTH for both palettes
+global.css                  GENERATED from it by scripts/build-theme-css.js
 supabase/
-  migrations/               schema · RLS · RPCs (3 files, apply in order)
+  migrations/               schema · RLS · RPCs · email auth + media (4 files)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/resolve-bet/    the only writer of bet_ledger_entries
   functions/notify-new-bet/
-__tests__/                  payout · settlement · format
+__tests__/                  payout · settlement · format · theme
 ```
 
 **All Supabase access goes through `src/lib/queries.ts`.** Screens never
@@ -109,125 +118,161 @@ never reads it — which is what makes the RLS surface auditable.
 
 ## 4. Design system — read before any UI work
 
-### Tokens
+The direction is **Apple**: the platform's own type scale and metrics, system
+font, translucent floating chrome, spring-driven motion, and colour used
+sparingly and semantically. `.claude/skills/apple-design/SKILL.md` is the
+reference; the rules below are what it means in this codebase.
 
-`theme-colors.json` is the only place colours are defined. `tailwind.config.js`
-requires it; `src/theme.ts` re-exports it as `colors` alongside `motion`,
-`elevation` and `avatarColors`. **Never hardcode a hex value in a component**
-(`#fff` on the primary button is the sole exception).
+### Colour: semantic tokens, two schemes
 
-The palette is **Emerald Ink** (`#064E3B`) and **Champagne** (`#F8E7C9`),
-plus brass and rose. The concept is a card table: deep green felt for the live
-market, warm champagne ink for everything written on it, and brass/rose for
-the two directions money can travel.
+`theme-colors.json` holds **two complete palettes**, `light` and `dark`, with
+identical key sets. `scripts/build-theme-css.js` generates `global.css` from
+it as CSS custom properties under `:root` and `.dark:root`; `tailwind.config.js`
+maps every colour class to `var(--c-*)`. `__tests__/theme.test.ts` fails if
+`global.css` drifts from the JSON — run `npm run theme` after editing it.
+
+The consequence, and the point: **one class name is correct in both schemes.**
+There is not a single `dark:` variant anywhere in the app, and there should
+never need to be.
 
 | Token | Use |
 | --- | --- |
-| `ink.1000` → `ink.850` | sunken → page ground → card → raised surface (all emerald) |
-| `ink.800` | Emerald Ink itself — the brand colour, active surfaces |
-| `ink.750` / `ink.700` | borders, weaker to stronger |
-| `ink.650` | placeholder and disabled text |
-| `ink.600` / `ink.500` / `ink.400` | secondary → tertiary → near-primary text (champagne, dimmed) |
-| `ink.50` | Champagne — primary text |
-| `brass.300/400/500/600/900` | accent text, icons, primary button, glow, tint |
-| `sideA` (brass) / `sideB` (rose) (+ `-bright`, `-deep`, `-shade`) | the two sides of a bet |
-| `owed` (brass) / `owing` (rose) / `warn` (+ `-shade`) | money you're owed, owe, warnings |
+| `canvas` | the page ground — white on light, black on dark |
+| `sunken` | grouped-list ground, the tone inset cards sit on |
+| `surface` / `surface2` / `surface3` | card → raised → control fill |
+| `hairline` / `hairline-strong` | 1px rules and borders |
+| `primary` / `secondary` / `tertiary` | label → secondary label → placeholder |
+| `inverse` | text on an inverted surface |
+| `accent` (+ `-strong`, `-soft`, `-ink`) | the one decisive colour |
+| `positive` / `negative` (+ `-soft`) | money owed to you / that you owe |
+| `sideA` / `sideB` (+ `-soft`) | the two sides of a bet |
+| `chrome` / `chrome-edge` | translucent floating material and its lit edge |
+| `scrim` | dim layer over media |
+| `on-media` (+ `-soft`, `-faint`) | text over a photo or video, both schemes |
 
-Side and money colours deliberately share hues: brass is always the up side of
-the ledger, rose always the down side.
+**Black and white are the app's colours; light blue is the only accent.** Side
+A is that blue, side B is ink (near-black on light, near-white on dark) — the
+two sides of a bet are literally the two colours the product is made of.
+`positive`/`negative` stay green/red because ledger direction is the one place
+where a learned colour convention beats a house style.
 
-Type: **Space Grotesk** carries every heading, number and label
-(`font-display`, `font-display-medium`, `font-display-bold`); body copy stays
-on the system face. Fonts load in `app/_layout.tsx` and the splash screen is
-held until they land — but a font failure never blocks the app.
+**Never hardcode a hex in a component.** Reach for `useColors()` only where a
+class cannot go: navigator options, `placeholderTextColor`, `Switch`,
+`RefreshControl`, SVG, gradients, animated styles. `#FFFFFF` on a scrim over
+media is the sole literal, because white-on-media does not follow the scheme.
 
-Spacing rides a 4pt grid with two named steps, `px-gutter` (20) for screen
-edges and `mb-section` (28) between sections. Motion pulls from `motion.*` in
-`src/theme.ts` so the whole app moves with one personality.
+### Colour scheme plumbing (this bit has already bitten)
 
-The app is **dark-only and committed to it** — there are no `dark:` variants
-anywhere. That's a design decision, not an omission.
+- `darkMode: 'class'` in `tailwind.config.js` **must stay**. Under the default
+  `'media'`, NativeWind's web colour-scheme observer calls `colorScheme.set()`
+  when the stylesheet lands and that function throws outright. Every
+  `npm start` on web crashed until this was set.
+- Because it is `'class'`, **nothing follows the OS setting on the web on its
+  own.** `ThemeProvider` resolves the preference (`system` | `light` | `dark`)
+  against React Native's `useColorScheme()` and always hands NativeWind a
+  *concrete* scheme. Passing `'system'` to `setColorScheme` leaves the web
+  build stuck in light mode — verified, then fixed.
+- The user's choice lives in AsyncStorage under `lotusbet.appearance` and is
+  changed from the Appearance control on Profile.
 
-### The direction: "The Ledger"
+### Type
 
-Editorial structure warmed by the felt-and-paper metaphor. Three rules decide
-almost every question:
+The **system font** — SF Pro on iOS. Apple ships optical sizing, tracking
+tables and legibility tuning with it, and a downloaded face throws all of that
+away for a novelty that stops the app feeling native. There is no webfont and
+nothing to wait on at launch.
 
-1. **Type carries the hierarchy, not chrome.** The scale runs 11px → 96px, and
-   money and screen titles live at the top of it. If something needs emphasis,
-   it gets bigger, not a box.
-2. **Rules and space replace containers.** `Panel` (a hairline, a label, and
-   room) is the default grouping. `Card` with a shadow is reserved for the bet
-   card — the one object meant to feel physical.
-3. **Radius signals whether a thing is an object.** 18px on the bet card and
-   side buttons; 12px on inputs and rows; zero on structure. A hairline is
-   never rounded.
+The scale in `tailwind.config.js` is Apple's, with Apple's tracking: `text-2xs`
+11 → `text-sm` 13 (Footnote) → `text-subhead` 15 → `text-callout` 16 →
+`text-base` 17 (Body) → `text-lg` 20 (Title 3) → `text-xl` 22 → `text-2xl` 28
+→ `text-3xl` 34 (Large Title) → 44 / 56 / 72 for display moments. **Tracking is
+size-specific** — large text tightens, small text opens up; a single
+`letter-spacing` value is wrong somewhere.
 
-Money always goes through `<Money>`: it is tabular (`fontVariant`) so digits
-don't shift as a balance changes, and it colours itself by direction.
+Hierarchy comes from weight + size together, not size alone: `font-semibold`
+for a headline at body size is a real step.
 
-### Motion rules
+### Layout and shape
 
-- **Animate `transform` and `opacity` only.** Never width, height, flex or
-  margin — those re-layout the subtree every frame. `OddsBar` is the app's one
-  continuously-changing value, and it animates `scaleX` on a full-width track
-  with `transformOrigin` at each end, so the two bars meet exactly at the
-  split. Scaling each bar inside its own half shows a third of a half.
+- 4pt grid, `px-gutter` (20) at screen edges, `mb-section` (28) between blocks.
+- Radius says what kind of object something is: `rounded-4xl` (28) for feed
+  cards and media, `rounded-3xl` (22) for cards, `rounded-2xl` (16) for
+  controls and inset groups, `rounded-xl` (12) for small controls, `full` for
+  pills and avatars. Hairlines are never rounded.
+- The inset grouped list (`ListGroup` + `Row`, `FieldGroup` + `TextField`) is
+  the default container. It is the most familiar shape on the platform and
+  needs no chrome of its own.
+
+### Motion
+
+Motion tokens live in `src/theme.ts` in **Apple's two parameters**, not the
+physics triplet: `duration` is the *response* (how fast the value reaches the
+target) and `dampingRatio` controls overshoot. `motion.press` and
+`motion.settle` are critically damped (1.0); `motion.momentum` (0.8) and
+`motion.celebrate` (0.62) are the only places overshoot is allowed, and only
+because a gesture or a payoff earned it.
+
+- **Feedback lands on press-in, never on release.** `PressableScale` springs
+  the instant a finger touches it. A control that only reacts once you let go
+  reads as broken.
+- **Animate `transform` and `opacity` only.** Never width, height, flex,
+  margin or `left` — those re-layout the subtree every frame. `OddsBar`
+  animates `scaleX` on a full-width track with `transformOrigin` at each end so
+  the two bars meet exactly at the split; `Segmented`'s thumb travels on
+  `translateX` off a measured width.
 - **`useReducedMotion()` gates every entrance and spring.** Motion is
   neutralised, never removed: content still arrives and presses still respond,
   they just stop travelling.
 
+### Materials
+
+`Glass` (in `screen.tsx`) is a registered `BlurView` over the `chrome` token
+with a lit `chrome-edge` border. Floating chrome — the tab bar — lets content
+scroll underneath it rather than consuming a strip. Bigger surfaces read as
+thicker: the tab bar takes a much higher blur intensity than a chip would.
+
 ### Design tells to keep out
 
-`.claude/skills/frontend-design/SKILL.md` lists the traits that make a design
-read as generated. The first pass hit five of them; each is now a standing rule:
-
-- **No tracked ALL-CAPS eyebrows.** `SectionTitle` is sentence case with a
-  short rule; `Overline` is sentence case. Small caps survive only inside
-  `Badge`, where the letterforms make a status word scan as a chip.
-- **No middle-dot meta strings** (`A · B · C`). Write the sentence, or give the
-  parts real structure.
-- **Radius tracks hierarchy.** 20px for the bet card and side buttons, 16px for
-  cards and sections, 12–14px for rows and inputs, full for pills. Skeletons
-  mirror the radius of what they stand in for.
-- **No near-black.** The dark ramp is genuinely emerald, not tinted grey.
-- **One accent, used with meaning** — brass and rose carry ledger direction, not
-  decoration.
+- **No tracked ALL-CAPS eyebrows.** `SectionTitle` is sentence case at Title 3.
+- **No middle-dot meta strings** (`A · B · C`). Write the sentence.
+- **No near-black-as-grey.** The dark ramp is genuinely black-first.
+- **One accent, used with meaning** — blue carries side A and every action;
+  green and red carry ledger direction. Nothing is coloured for decoration.
+- **Loading states are skeletons, not spinners**, anywhere the shape of the
+  content is known.
 
 ### NativeWind gotchas (each of these has already bitten once)
 
 1. **`className` is silently dropped on any component NativeWind doesn't
-   know** — including reanimated's `Animated.View` and anything built with
+   know** — including reanimated's `Animated.View`, `expo-blur`'s `BlurView`,
+   `expo-image`'s `Image`, `expo-video`'s `VideoView`, and anything built with
    `Animated.createAnimatedComponent`. No error; the styles simply never
-   arrive. This cost a whole redesign pass: the side-picker buttons on the bet
-   screen stacked on top of each other because `flex-row` never applied.
+   arrive. This cost a whole redesign pass once.
 
    The fix is registration, not avoidance. `src/components/animated.ts` calls
    `cssInterop` on `Animated.View`/`Text`/`ScrollView` and re-exports
-   `Animated`; `ui.tsx` does the same for its `AnimatedPressable`.
+   `Animated`; `ui.tsx` does the same for `AnimatedPressable`, `screen.tsx`
+   for `BlurView`, `bet-media.tsx` for `Image` and `VideoView`.
    **Import `Animated` from `@/components/animated`, never from
-   `react-native-reanimated` directly** — that is what guarantees the
-   registration has run. If you animate a new component type, register it too.
+   `react-native-reanimated` directly.** If you animate or style a new
+   component type, register it too.
 
 2. **No dynamic class names.** `` `border-${tone}` `` compiles to nothing —
    Tailwind needs literal strings. Spell both branches out:
-   `tone === 'a' ? 'border-sideA' : 'border-sideB'`. See `SideButton` in
-   `app/bet/[id].tsx`.
+   `tone === 'a' ? 'border-sideA' : 'border-sideB'`. See `SidePick` in
+   `bet-card.tsx` and `SideButton` in `app/bet/[id].tsx`.
 
-3. **`darkMode: 'class'` in `tailwind.config.js` must stay.** Under the
-   default `'media'`, NativeWind's web colour-scheme observer calls
-   `colorScheme.set()` when the stylesheet lands and that function throws
-   outright. Every `npm start` on web crashed until this was set. Production
-   `expo export` builds don't reproduce it — only the dev server does.
+3. **No opacity modifiers on the semantic colours.** They resolve to
+   `var(--c-*)`, and Tailwind cannot compute an alpha of a `var()`, so
+   `text-primary/60` silently produces no class at all. If you need a
+   translucent token, add it to `theme-colors.json` as its own value — that is
+   what `on-media-soft` and `chrome` are.
 
 4. `contentContainerClassName` **is** supported on ScrollView. Use it.
 
-5. **`text-2xs` carries 0.6px tracking** because it is nearly always an
-   uppercase label. Add `tracking-normal` on the rare lowercase use.
-
-6. **Eight-digit hex alpha is not reliable in `LinearGradient`.** A stop that
-   doesn't truly reach zero leaves a hard horizontal seam where the gradient
-   ends. `ScreenBackdrop` builds explicit `rgba()` — follow that.
+5. **Eight-digit hex alpha is not reliable in `LinearGradient`.** A stop that
+   doesn't truly reach zero leaves a hard horizontal seam. The feed card's
+   scrim builds explicit `rgba()` — follow that.
 
 ### Component library
 
@@ -235,42 +280,39 @@ read as generated. The first pass hit five of them; each is now a standing rule:
 no bespoke chrome of their own.
 
 - `PressableScale` — every tappable surface springs under the finger. Use it
-  instead of a bare `Pressable`.
-- `Card` (`level`: sunken/base/raised), `Divider`, `Title`, `SectionTitle`,
-  `Overline`, `InfoRow`, `Stat`
-- `Button` (`variant`: primary/secondary/ghost/danger/success ·
-  `size`: sm/md/lg · `icon` · `loading`), `Chip`, `Badge`, `LiveDot`
+  instead of a bare `Pressable`. `tap()` / `selectionTap()` are the haptics,
+  already no-ops on web.
+- `Card`, `ListGroup` + `Row`, `Divider`, `Title`, `SectionTitle`, `Overline`,
+  `InfoRow`, `Stat`
+- `FieldGroup` + `TextField` (leading label, iOS form row) and `BlockField`
+  (label above, for long text)
+- `Button` (`variant`: primary/secondary/tinted/plain/destructive ·
+  `size`: sm/md/lg · `icon` · `loading`), `Chip`, `Segmented`, `Badge`,
+  `LiveDot`
+- `Money` — tabular figures, coloured by direction. All money goes through it.
 - `Avatar` / `AvatarStack` — colour is derived from the user id via
-  `avatarColors`, so the same person is the same colour everywhere.
-- `Skeleton` plus screen-shaped compositions in `skeletons.tsx`.
-  **Loading states use skeletons, not spinners**, anywhere the shape of the
-  content is known.
-- `EmptyState` / `EmptySlot` / `ErrorNotice`
+  `avatarColors`, per scheme, so the same person is the same colour everywhere.
+- `Skeleton` plus screen-shaped compositions in `skeletons.tsx`
+- `EmptyState` / `ErrorNotice` / `Loading`
 
 `src/components/icons.tsx` is a hand-rolled SVG set on a 24×24 grid, 1.75
-stroke. Emoji ignore `color` and render differently per platform — use these
-instead. Emoji remain only as user-chosen group avatars.
+stroke, defaulting to the active scheme's secondary label colour. Emoji ignore
+`color` and render differently per platform — use these instead. Emoji remain
+only as user-chosen group avatars.
 
-`src/components/screen.tsx` provides `ScreenBackdrop` (the ambient wash every
-screen sits on; tint it to match the screen's mood) and `ContentWidth` (caps
-content at 560px so tablet and web don't go full-bleed).
+### The feed
 
-### Where the design currently stands
+`app/(tabs)/index.tsx` is the centre of the app: a `FlatList` of `FeedCard`s,
+one per screenful, snapping so a flick always lands on a whole bet. There is
+no greeting and no stats block — the bet is the content. A card with media
+puts the photo or video full-bleed with everything else over a scrim; a card
+without media gives the question the space the media would have had. Sides can
+be picked straight from the card. Only the card actually on screen plays its
+video (`active` prop, driven by `onViewableItemsChanged`).
 
-Screens verified rendering against a stubbed backend: auth, Home, Groups,
-group detail, bet detail (open and resolved), settle-up, Profile.
+Screens leave room for the floating tab bar with `useTabBarInset()`.
 
-Still thin, in rough priority order:
-
-- **`avatar_url` exists in the schema but has no upload UI** — avatars are
-  initials-only everywhere.
-- **No haptics on web** (guarded by `Platform.OS !== 'web'`), which is
-  correct, but the web build consequently feels flatter than the device build.
-- The resolution moment animates on the bet screen, but a bet resolving while
-  you are on the feed still just re-renders a card.
-- No pull-to-refresh affordance beyond the platform spinner.
-- Group detail is meant to be the most visually engaging screen. It's good;
-  it isn't yet unforgettable.
+---
 
 ## 5. The money invariants — the highest-risk code in the repo
 
@@ -307,10 +349,23 @@ make a change pass, stop and reconsider.
 
 ## 6. Backend model
 
+### Auth
+
+**Email + password.** `signUp` sends the display name in `raw_user_meta_data`,
+and the `handle_new_auth_user` trigger uses it to seed `public.users` with
+`profile_completed = true`; an account without one gets a placeholder name and
+the app routes it to profile-setup. There is no phone OTP and no SMS provider
+any more — `users.phone` stays on the table, nullable, for accounts created
+under the old flow.
+
+If the project has email confirmation on, `signUp` returns no session and the
+sign-up screen shows a "check your inbox" state. Both configurations work.
+
 ### Roles and who may write what
 
 - **Clients** (anon key + RLS): read anything in their groups; write their
-  own `bet_positions` and `settlement_confirmations`; create groups and bets.
+  own `bet_positions` and `settlement_confirmations`; create groups, bets and
+  bet media.
 - **`bet_ledger_entries` is read-only for clients.** Only the `resolve-bet`
   Edge Function writes it, using the service role.
 - Membership is checked through `SECURITY DEFINER` helpers
@@ -318,10 +373,23 @@ make a change pass, stop and reconsider.
   so the policy on `group_members` doesn't recurse into itself. **If you add
   a policy that queries `group_members` directly, you will create infinite
   recursion.** Use the helpers.
-- Only a bet's `creator_id` can lock, resolve or cancel it.
+- Only a bet's `creator_id` can lock, resolve or cancel it, and only the
+  creator can attach media, only while the bet is `open`.
 - `bet_positions` can only be created, switched or withdrawn while the bet is
   `open` and before `close_at` — enforced by the `enforce_bet_open` trigger,
   so it holds no matter which path writes the row.
+
+### Media
+
+`bet_media` rows hold a `storage_path` into the **private** `bet-media`
+bucket, laid out as `<group_id>/<bet_id>/<file>`. The storage policies read
+the group out of the first path segment and reuse `is_group_member`, so the
+bucket and the table enforce exactly the same rule.
+
+Nothing is public. `src/lib/media.ts` signs URLs on read, and `queries.ts`
+batches the signing across a whole result — a feed of ten bets with photos
+costs one round trip, not ten. Uploads happen *after* the bet row exists,
+because its id is part of the path.
 
 ### RPC surface (`20260904090200_functions.sql`)
 
@@ -345,9 +413,8 @@ transactions.**
 ### bigint coercion
 
 `group_balances` and `my_stats` return `bigint`, which PostgREST may hand
-back as a string. Every read site wraps with `Number(...)`
-(`use-settlement.ts:40`, `group/[id]/index.tsx:54`, `groups.tsx:82`,
-`profile.tsx:81-82`). Keep doing that on any new consumer.
+back as a string. Every read site wraps with `Number(...)`. Keep doing that on
+any new consumer.
 
 ---
 
@@ -356,39 +423,37 @@ back as a string. Every read site wraps with `Number(...)`
 **The single most important caveat: none of the SQL in `supabase/migrations/`
 has ever been run against a live Postgres by Claude.** It was written and
 reviewed but never applied during the build — only the TypeScript was
-typechecked and tested. Treat the schema, RLS policies and RPCs as
-*unverified*. When a backend bug surfaces, the migration is a likely suspect.
+typechecked and tested. Treat the schema, RLS policies, storage policies and
+RPCs as *unverified*. When a backend bug surfaces, the migration is a likely
+suspect.
 
 Concrete things worth fixing, roughly by severity:
 
 1. **`resolve-bet` can strand a bet permanently.**
-   `supabase/functions/resolve-bet/index.ts` inserts the ledger rows (line 76)
-   and *then* flips the bet's status (line 90). If the process dies between
-   the two, the ledger rows exist but the bet is still `open`. A retry hits
-   the `unique (bet_id, user_id)` index, throws, and the bet can never
-   resolve. The two writes should be one transaction — most likely a
-   `SECURITY DEFINER` RPC the function calls, or an upsert that ignores
-   duplicates.
+   `supabase/functions/resolve-bet/index.ts` inserts the ledger rows and
+   *then* flips the bet's status. If the process dies between the two, the
+   ledger rows exist but the bet is still `open`. A retry hits the
+   `unique (bet_id, user_id)` index, throws, and the bet can never resolve.
+   The two writes should be one transaction — most likely a `SECURITY DEFINER`
+   RPC the function calls, or an upsert that ignores duplicates.
 
-2. **`needsProfileSetup` traps a legitimate name.**
-   `src/providers/auth-provider.tsx:84` decides setup is incomplete with
-   `/^Player \d{0,4}$/`. A user who genuinely names themselves "Player 7"
-   is redirected to profile-setup forever. Wants a real column
-   (`profile_completed boolean`) rather than pattern-matching a placeholder.
+2. **Media upload is not transactional with the bet.** `createBet` inserts the
+   bet, uploads each file, then inserts the `bet_media` rows. A failure part
+   way leaves a posted bet with some or none of its attachments, and orphaned
+   objects in the bucket. That is the better of the two failure modes — the
+   bet survives — but it wants a cleanup path.
 
-3. **Signup trigger's phone fallback is unverified.**
-   `handle_new_auth_user` uses `coalesce(new.phone, new.id::text)`. If
-   `auth.users.phone` isn't populated at insert time for phone OTP signups,
-   every user gets a UUID as their phone and a nonsense default display name.
-   Check this first against a real signup.
+3. **Signed URLs expire after an hour.** A feed left open longer than that
+   shows broken media until the next refresh. Realtime and pull-to-refresh
+   both re-sign, so it is only visible on a screen left untouched.
 
 4. **One push token per user.** `users.expo_push_token` is a single column,
    so a second device silently overwrites the first. Needs its own table when
    multi-device matters.
 
-5. **`useFocusEffect` in `app/(tabs)/groups.tsx:19-24` has empty deps** with
-   an eslint-disable. It works because `reload` is stable, but it's fragile —
-   a refactor of `useAsync` could silently stop refreshing the group list.
+5. **`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps** with an
+   eslint-disable. It works because `reload` is stable, but it's fragile — a
+   refactor of `useAsync` could silently stop refreshing the group list.
 
 6. **Realtime subscribes to `bet_positions` unfiltered** (in both
    `useGroupRealtime` and `useFeedRealtime`) because that table has no
@@ -418,103 +483,62 @@ causes, both now guarded in `src/hooks/use-group-realtime.ts`:
   same group, so a channel named only `group:<id>` collided with a live one.
   Channel names now carry a per-instance `useId()` suffix.
 
-If you add another `useAsync` consumer that feeds a Realtime callback, or a
-third screen watching the same group, keep both properties.
-
 ---
 
-## 8. Local dev: getting past phone auth without SMS
-
-Hosted Supabase has **no** "test phone numbers" feature — that's self-hosted
-only. To sign in without a paid SMS provider, the project uses a **Send SMS
-Hook** implemented as a Postgres function that writes the OTP to a table.
-
-Set up by hand in the SQL editor (deliberately **not** a migration — it must
-never reach production):
-
-```sql
-create schema if not exists dev;
-
-create table if not exists dev.sms_outbox (
-  id bigint generated always as identity primary key,
-  phone text not null, otp text not null,
-  created_at timestamptz not null default now()
-);
-
-create or replace function dev.send_sms(event jsonb)
-returns jsonb language plpgsql
-security definer set search_path = dev, pg_temp
-as $$
-begin
-  insert into dev.sms_outbox (phone, otp)
-  values (event->'user'->>'phone', event->'sms'->>'otp');
-  return '{}'::jsonb;
-end;
-$$;
-
-alter function dev.send_sms(jsonb) owner to postgres;
-grant usage on schema dev to supabase_auth_admin;
-grant execute on function dev.send_sms(jsonb) to supabase_auth_admin;
-revoke execute on function dev.send_sms(jsonb) from authenticated, anon, public;
-```
-
-`security definer` is required — `supabase_auth_admin` is locked down and
-cannot reach outside the `auth` schema on grants alone. Enable it at
-**Authentication → Hooks → Send SMS** (Postgres type, schema `dev`, function
-`send_sms`). This disables the SMS provider settings, so Twilio fields become
-irrelevant.
-
-Then sign in with any number and read the code:
-
-```sql
-select otp from dev.sms_outbox order by created_at desc limit 1;
-```
-
-Raise **SMS OTP Expiry** to 300s — the 60s default is tight when copying a
-code out of the SQL editor.
-
-**This is a login backdoor.** Anyone who can read that table can sign in as
-anyone. Drop the schema before production.
-
-### TEMPORARY: offline demo mode
+## 8. TEMPORARY: offline demo mode
 
 `src/lib/demo.ts` is an in-memory fake of the whole backend, so the app can be
-opened and clicked through with no Supabase project, no SMS provider and no
-network. The way in is a small "Skip sign-in · demo data" button on the
+opened and clicked through with no Supabase project, no email provider and no
+network. The way in is a small "Skip sign-in, use demo data" button on the
 sign-in screen and on the setup screen (`src/components/demo-entry.tsx`).
 
-It is scaffolding, not a feature. Two properties keep it safe:
+It is scaffolding, not a feature. Three properties keep it honest:
 
 - The entry point renders only when `DEMO_AVAILABLE` — `__DEV__`, or an
   explicit `EXPO_PUBLIC_ENABLE_DEMO=1` for testing an exported bundle. It
   cannot reach a production build.
-- Resolving a bet in demo mode runs the real `computeBetPayouts`, so the demo
-  cannot drift into a second implementation of the money maths.
+- Resolving a bet runs the real `computeBetPayouts`, so the demo cannot drift
+  into a second implementation of the money maths.
+- Demo media is inlined as SVG data URIs rather than fetched, so the offline
+  claim stays true.
 
-**To remove it:** delete `src/lib/demo.ts` and
-`src/components/demo-entry.tsx`, then grep for `isDemoMode`, `DemoEntry` and
-`DemoBadge` — every call site is a one-line guard.
+**To remove it:** delete `src/lib/demo.ts` and `src/components/demo-entry.tsx`,
+then grep for `isDemoMode`, `DemoEntry` and `DemoBadge` — every call site is a
+one-line guard.
 
 ---
 
 ## 9. How to verify UI work without a backend
 
-There is no committed E2E harness. The technique that found two real bugs
-during the build, worth rebuilding when doing design work:
+There is no committed E2E harness. This loop has found several real bugs and
+is worth rebuilding whenever doing design work:
 
-1. `npx expo export --platform web --output-dir /tmp/web-check`
+1. Export with demo mode and a placeholder project, so the sign-in screen
+   renders and the demo button is available:
+
+   ```bash
+   EXPO_PUBLIC_ENABLE_DEMO=1 \
+   EXPO_PUBLIC_SUPABASE_URL=https://demo.supabase.co \
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=demo-anon-key \
+   npx expo export --platform web --output-dir /tmp/web-demo
+   ```
+
+   Metro caches the inlined `process.env.EXPO_PUBLIC_*` values — if a flag
+   doesn't take, re-export with `--clear`.
+
 2. Serve it with SPA fallback so deep links resolve:
-   `npx http-server /tmp/web-check -p 8124 -P "http://127.0.0.1:8124?"`
-3. Drive it with Playwright (Chromium is preinstalled at
-   `/opt/pw-browsers/chromium`; use `--no-sandbox`), intercepting
-   `**/*.supabase.co/**` to return canned PostgREST JSON, and seeding a fake
-   session into `localStorage` under `sb-<project-ref>-auth-token`.
+   `npx http-server /tmp/web-demo -p 8124 -P "http://127.0.0.1:8124?"`
+3. Drive it with Playwright (Chromium is preinstalled under
+   `/opt/pw-browsers/`; use `--no-sandbox`), with `colorScheme: 'light'` and
+   `'dark'` contexts so **both schemes** get walked.
 4. Screenshot each route and read the console for errors.
 
-Two caveats learned the hard way: the **dev server and the export build
-differ** (the `darkMode` crash only reproduces on the dev server), and
-**colours in a downscaled screenshot mislead** — verify computed styles
-rather than eyeballing a PNG.
+Three things learned the hard way: the **dev server and the export build
+differ** (the `darkMode` crash only reproduces on the dev server);
+**colours in a downscaled screenshot mislead** — verify computed styles rather
+than eyeballing a PNG; and when a scheme looks wrong, probe
+`document.documentElement.className` and `getPropertyValue('--c-canvas')`
+before touching any component.
 
 ---
 
@@ -527,6 +551,8 @@ rather than eyeballing a PNG.
 - New Supabase access goes in `src/lib/queries.ts`, not inline in a screen.
 - Migrations are append-only: add a new timestamped file, never edit an
   applied one.
+- Route files under `app/` export their screen and nothing else — shared
+  helpers live in `src/` (see `use-tab-bar-inset.ts`).
 - Don't add a dependency without a reason the existing stack can't cover.
   `useAsync` is deliberately tiny — an MVP with eight screens doesn't need a
   query cache when Realtime already says when to refetch.

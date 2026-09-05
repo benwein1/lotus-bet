@@ -2,12 +2,12 @@
  * TEMPORARY: offline demo mode.
  *
  * Lets you open the app and click through every screen without a Supabase
- * project, an SMS provider, or a network connection. Nothing here touches the
+ * project, an email provider, or a network connection. Nothing here touches the
  * backend — it is an in-memory fake that mirrors the shape of `queries.ts`.
  *
  * This is scaffolding for looking at the UI, not a product feature. To remove
- * it: delete this file, delete `app/(auth)/phone.tsx`'s demo button, and grep
- * for `isDemoMode` — every call site is a one-line guard.
+ * it: delete this file and `src/components/demo-entry.tsx`, then grep for
+ * `isDemoMode`, `DemoEntry` and `DemoBadge` — every call site is a one-liner.
  *
  * Two things keep it honest:
  * - Resolving a bet runs the real `computeBetPayouts`, so the demo exercises
@@ -17,6 +17,7 @@
 import { computeBetPayouts } from './payout';
 import type {
   BetLedgerEntryRow,
+  BetMedia,
   BetRow,
   BetSide,
   BetWithPositions,
@@ -59,11 +60,13 @@ const DOR = 'demo-0000-0000-0000-000000000002';
 const NOA = 'demo-0000-0000-0000-000000000003';
 const YOSSI = 'demo-0000-0000-0000-000000000004';
 
-function user(id: string, name: string, phone: string): UserRow {
+function user(id: string, name: string, email: string): UserRow {
   return {
     id,
-    phone,
+    email,
+    phone: null,
     display_name: name,
+    profile_completed: true,
     avatar_url: null,
     expo_push_token: null,
     notify_new_bets: true,
@@ -73,10 +76,10 @@ function user(id: string, name: string, phone: string): UserRow {
 }
 
 const USERS: Record<string, UserRow> = {
-  [DEMO_USER_ID]: user(DEMO_USER_ID, 'You', '+972500000000'),
-  [DOR]: user(DOR, 'Dor Levi', '+972500000002'),
-  [NOA]: user(NOA, 'Noa Bar', '+972500000003'),
-  [YOSSI]: user(YOSSI, 'Yossi Cohen', '+972500000004'),
+  [DEMO_USER_ID]: user(DEMO_USER_ID, 'You', 'you@lotusbet.demo'),
+  [DOR]: user(DOR, 'Dor Levi', 'dor@lotusbet.demo'),
+  [NOA]: user(NOA, 'Noa Bar', 'noa@lotusbet.demo'),
+  [YOSSI]: user(YOSSI, 'Yossi Cohen', 'yossi@lotusbet.demo'),
 };
 
 export const demoProfile: UserRow = USERS[DEMO_USER_ID]!;
@@ -96,7 +99,7 @@ export const demoSession = {
     id: DEMO_USER_ID,
     aud: 'authenticated',
     role: 'authenticated',
-    phone: demoProfile.phone,
+    email: demoProfile.email,
     app_metadata: {},
     user_metadata: {},
     created_at: demoProfile.created_at,
@@ -105,10 +108,38 @@ export const demoSession = {
 
 // --- Mutable world ----------------------------------------------------------
 
+/**
+ * Demo media is inlined as SVG data URIs rather than fetched: demo mode has to
+ * work with no network at all, and a broken image tile would say more about
+ * the demo than about the design.
+ */
+const DEMO_IMAGE = {
+  pitch: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjAwIDE1MDAiPjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0iZyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPjxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzBCM0IyRSIvPjxzdG9wIG9mZnNldD0iMC41NSIgc3RvcC1jb2xvcj0iIzBBMkE0NiIvPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzA1MDgwRiIvPjwvbGluZWFyR3JhZGllbnQ+PHJhZGlhbEdyYWRpZW50IGlkPSJyIiBjeD0iMC4zIiBjeT0iMC4yNSIgcj0iMC44Ij48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZmZmZmYiIHN0b3Atb3BhY2l0eT0iMC4yMiIvPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI2ZmZmZmZiIgc3RvcC1vcGFjaXR5PSIwIi8+PC9yYWRpYWxHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjEyMDAiIGhlaWdodD0iMTUwMCIgZmlsbD0idXJsKCNnKSIvPjxyZWN0IHdpZHRoPSIxMjAwIiBoZWlnaHQ9IjE1MDAiIGZpbGw9InVybCgjcikiLz48Y2lyY2xlIGN4PSI2MjAiIGN5PSI3MDAiIHI9IjMwMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2Utb3BhY2l0eT0iMC4xNCIgc3Ryb2tlLXdpZHRoPSI2Ii8+PHJlY3QgeD0iMTgwIiB5PSIxMDgwIiB3aWR0aD0iODQwIiBoZWlnaHQ9IjMyMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2Utb3BhY2l0eT0iMC4xMiIgc3Ryb2tlLXdpZHRoPSI2Ii8+PHBhdGggZD0iTTAgMzAwIEwxMjAwIDEyMCIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2Utb3BhY2l0eT0iMC4wOCIgc3Ryb2tlLXdpZHRoPSI0Ii8+PHRleHQgeD0iNjAwIiB5PSI4MjAiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEhlbHZldGljYSxBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjM2MCIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iI2ZmZmZmZiIgZmlsbC1vcGFjaXR5PSIwLjE2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5GUkk8L3RleHQ+PC9zdmc+',
+  boiler: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjAwIDE1MDAiPjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0iZyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPjxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzJCMjAzNiIvPjxzdG9wIG9mZnNldD0iMC41IiBzdG9wLWNvbG9yPSIjM0EyMTMwIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMTIwQzE2Ii8+PC9saW5lYXJHcmFkaWVudD48cmFkaWFsR3JhZGllbnQgaWQ9InIiIGN4PSIwLjMiIGN5PSIwLjI1IiByPSIwLjgiPjxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2ZmZmZmZiIgc3RvcC1vcGFjaXR5PSIwLjIyIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZmZmZmIiBzdG9wLW9wYWNpdHk9IjAiLz48L3JhZGlhbEdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iMTIwMCIgaGVpZ2h0PSIxNTAwIiBmaWxsPSJ1cmwoI2cpIi8+PHJlY3Qgd2lkdGg9IjEyMDAiIGhlaWdodD0iMTUwMCIgZmlsbD0idXJsKCNyKSIvPjxjaXJjbGUgY3g9Ijg4MCIgY3k9IjM2MCIgcj0iMjMwIiBmaWxsPSIjZmZmZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDciLz48Y2lyY2xlIGN4PSIzMDAiIGN5PSIxMTgwIiByPSIzNDAiIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSIvPjxwYXRoIGQ9Ik0yNDAgNjQwIGg3MjAiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLW9wYWNpdHk9IjAuMTIiIHN0cm9rZS13aWR0aD0iOCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PHRleHQgeD0iNjAwIiB5PSI4MjAiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEhlbHZldGljYSxBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjM2MCIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iI2ZmZmZmZiIgZmlsbC1vcGFjaXR5PSIwLjE2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj40QjwvdGV4dD48L3N2Zz4=',
+} as const;
+
+function demoMedia(id: string, betId: string, groupId: string, url: string): BetMedia {
+  return {
+    id,
+    bet_id: betId,
+    group_id: groupId,
+    uploaded_by: DEMO_USER_ID,
+    kind: 'image',
+    storage_path: url,
+    url,
+    width: 1200,
+    height: 1500,
+    duration_ms: null,
+    position: 0,
+    created_at: '2026-09-01T10:00:00Z',
+  };
+}
+
 interface DemoState {
   groups: GroupRow[];
   members: GroupMemberRow[];
   bets: BetRow[];
+  media: BetMedia[];
   positions: { bet_id: string; user_id: string; side: BetSide }[];
   ledger: BetLedgerEntryRow[];
   settlements: SettlementConfirmationRow[];
@@ -216,6 +247,10 @@ function seed(): DemoState {
         resolved_at: iso(-24 * 5),
       },
     ],
+    media: [
+      demoMedia('demo-media-1', 'demo-bet-1', groupId, DEMO_IMAGE.pitch),
+      demoMedia('demo-media-2', 'demo-bet-3', 'demo-group-2', DEMO_IMAGE.boiler),
+    ],
     positions: [
       { bet_id: 'demo-bet-1', user_id: DEMO_USER_ID, side: 'a' },
       { bet_id: 'demo-bet-1', user_id: DOR, side: 'b' },
@@ -281,6 +316,9 @@ function withPositions(bet: BetRow, includeGroup = false): BetWithPositions {
     positions: state.positions
       .filter((p) => p.bet_id === bet.id)
       .map((p) => ({ user_id: p.user_id, side: p.side })),
+    media: state.media
+      .filter((m) => m.bet_id === bet.id)
+      .sort((a, b) => a.position - b.position),
     ...(includeGroup && group
       ? { group: { id: group.id, name: group.name, emoji: group.emoji } }
       : {}),
@@ -387,6 +425,26 @@ export const demo = {
       resolved_at: null,
     };
     state.bets.push(bet);
+
+    // The picked file URIs render straight from the device, so a bet posted in
+    // demo mode shows its attachments the same way a real one would.
+    (input.media ?? []).forEach((item, index) => {
+      state.media.push({
+        id: `demo-media-${bet.id}-${index}`,
+        bet_id: bet.id,
+        group_id: bet.group_id,
+        uploaded_by: DEMO_USER_ID,
+        kind: item.kind,
+        storage_path: item.uri,
+        url: item.uri,
+        width: item.width,
+        height: item.height,
+        duration_ms: item.durationMs,
+        position: index,
+        created_at: bet.created_at,
+      });
+    });
+
     return clone(bet);
   },
 

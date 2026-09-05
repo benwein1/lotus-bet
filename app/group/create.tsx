@@ -1,11 +1,10 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
 
-import { ContentWidth } from '@/components/screen';
-import { Button, ErrorNotice, PressableScale, SectionTitle } from '@/components/ui';
+import { ContentWidth, Screen } from '@/components/screen';
+import { BlockField, Button, ErrorNotice, PressableScale, SectionTitle } from '@/components/ui';
 import { createGroup } from '@/lib/queries';
-import { colors } from '@/theme';
 
 const EMOJI_CHOICES = ['🎲', '⚽️', '🏀', '🍻', '🏠', '💼', '🎬', '🃏', '🎾', '🏆', '🎮', '🍕'];
 
@@ -13,7 +12,6 @@ export default function CreateGroupScreen() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState<string>('🎲');
-  const [focused, setFocused] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -32,10 +30,11 @@ export default function CreateGroupScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      className="flex-1 bg-ink-950"
-    >
+    <Screen ground="sunken">
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        className="flex-1"
+      >
       <ScrollView
         contentContainerClassName="px-gutter pb-8 pt-6"
         keyboardShouldPersistTaps="handled"
@@ -43,37 +42,33 @@ export default function CreateGroupScreen() {
       >
         <ContentWidth>
           {/* Live preview of the row they'll see on the Groups tab. */}
-          <View className="mb-7 flex-row items-center gap-4 rounded-3xl border border-ink-800 bg-ink-900 p-5">
-            <View className="h-[52px] w-[52px] items-center justify-center rounded-2xl border border-ink-750 bg-ink-850">
+          <View className="mb-7 flex-row items-center gap-4 rounded-3xl border border-hairline bg-surface p-4">
+            <View className="h-[52px] w-[52px] items-center justify-center rounded-2xl bg-surface2">
               <Text className="text-2xl">{emoji}</Text>
             </View>
             <View className="flex-1">
               <Text
                 numberOfLines={1}
-                className={`font-display text-base ${trimmed ? 'text-ink-50' : 'text-ink-650'}`}
+                className={`text-base font-semibold ${trimmed ? 'text-primary' : 'text-tertiary'}`}
               >
                 {trimmed || 'Your group name'}
               </Text>
-              <Text className="mt-0.5 text-xs text-ink-600">1 member · just you, for now</Text>
+              <Text className="mt-0.5 text-sm text-secondary">Just you, for now</Text>
             </View>
           </View>
 
-          <SectionTitle>Group name</SectionTitle>
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            placeholder="Sunday League Degenerates"
-            placeholderTextColor={colors.ink['650']}
-            maxLength={60}
-            autoFocus
-            returnKeyType="done"
-            onSubmitEditing={submit}
-            className={`mb-7 h-14 rounded-2xl border bg-ink-900 px-4 font-display text-lg text-ink-50 ${
-              focused ? 'border-brass-500' : 'border-ink-750'
-            }`}
-          />
+          <View className="mb-7">
+            <BlockField
+              label="Group name"
+              value={name}
+              onChangeText={setName}
+              placeholder="Sunday League Degenerates"
+              maxLength={60}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={submit}
+            />
+          </View>
 
           <SectionTitle>Pick an icon</SectionTitle>
           <View className="mb-8 flex-row flex-wrap gap-2.5">
@@ -86,8 +81,8 @@ export default function CreateGroupScreen() {
                 accessibilityState={{ selected: emoji === choice }}
                 className={`h-14 w-14 items-center justify-center rounded-2xl border ${
                   emoji === choice
-                    ? 'border-brass-500 bg-brass-900'
-                    : 'border-ink-750 bg-ink-900'
+                    ? 'border-accent bg-accent-soft'
+                    : 'border-hairline bg-surface'
                 }`}
               >
                 <Text className="text-2xl">{choice}</Text>
@@ -104,11 +99,12 @@ export default function CreateGroupScreen() {
             loading={busy}
             disabled={trimmed.length < 2}
           />
-          <Text className="mt-3.5 text-center text-xs text-ink-600">
+          <Text className="mt-3.5 text-center text-sm text-secondary">
             You&apos;ll get an invite code to share once it&apos;s made.
           </Text>
         </ContentWidth>
       </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </Screen>
   );
 }

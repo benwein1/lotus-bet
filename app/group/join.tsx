@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from 'react-native';
 
-import { ContentWidth } from '@/components/screen';
+import { ContentWidth, Screen } from '@/components/screen';
 import { Button, ErrorNotice, SectionTitle } from '@/components/ui';
 import { joinGroupWithCode } from '@/lib/queries';
 
@@ -35,10 +35,11 @@ export default function JoinGroupScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      className="flex-1 bg-ink-950 px-gutter pt-6"
-    >
+    <Screen ground="sunken">
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        className="flex-1 px-gutter pt-6"
+      >
       <ContentWidth>
         <SectionTitle>Invite code</SectionTitle>
 
@@ -53,13 +54,13 @@ export default function JoinGroupScreen() {
                   key={i}
                   className={`h-16 flex-1 items-center justify-center rounded-2xl border ${
                     char
-                      ? 'border-brass-500/60 bg-brass-900'
+                      ? 'border-accent bg-accent-soft'
                       : isCursor
-                        ? 'border-brass-500 bg-ink-900'
-                        : 'border-ink-750 bg-ink-900'
+                        ? 'border-accent bg-surface'
+                        : 'border-hairline bg-surface'
                   }`}
                 >
-                  <Text className="font-display-bold text-2xl text-ink-50">{char ?? ''}</Text>
+                  <Text className="text-2xl font-bold text-primary">{char ?? ''}</Text>
                 </View>
               );
             })}
@@ -89,10 +90,11 @@ export default function JoinGroupScreen() {
           />
         </View>
 
-        <Text className="mt-4 text-center text-xs leading-5 text-ink-600">
+        <Text className="mt-4 text-center text-sm leading-5 text-secondary">
           Ask whoever set the group up — the code is on their group screen.
         </Text>
       </ContentWidth>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </Screen>
   );
 }

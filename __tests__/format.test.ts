@@ -2,7 +2,8 @@ import {
   formatAgorot,
   formatCountdown,
   initials,
-  normalisePhone,
+  isValidEmail,
+  passwordProblem,
   parseIlsToAgorot,
   positionPercentages,
 } from '@/lib/format';
@@ -85,17 +86,23 @@ describe('initials', () => {
   });
 });
 
-describe('normalisePhone', () => {
-  it('expands a local Israeli number', () => {
-    expect(normalisePhone('054-123-4567')).toBe('+972541234567');
+describe('isValidEmail', () => {
+  it('accepts ordinary addresses', () => {
+    expect(isValidEmail('dor@example.com')).toBe(true);
+    expect(isValidEmail('  dor.levi+bets@mail.co.il ')).toBe(true);
   });
 
-  it('passes through an already international number', () => {
-    expect(normalisePhone('+44 7700 900123')).toBe('+447700900123');
+  it('rejects anything without a domain', () => {
+    expect(isValidEmail('dor@example')).toBe(false);
+    expect(isValidEmail('dor')).toBe(false);
+    expect(isValidEmail('dor @example.com')).toBe(false);
+    expect(isValidEmail('')).toBe(false);
   });
+});
 
-  it('rejects junk', () => {
-    expect(normalisePhone('123')).toBeNull();
-    expect(normalisePhone('not a phone')).toBeNull();
+describe('passwordProblem', () => {
+  it('requires eight characters', () => {
+    expect(passwordProblem('short')).toContain('8');
+    expect(passwordProblem('longenough')).toBeNull();
   });
 });

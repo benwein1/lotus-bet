@@ -7,8 +7,8 @@ import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 
 import { BetCard } from '@/components/bet-card';
 import { CheckIcon, CopyIcon, HandshakeIcon, PlusIcon, TicketIcon } from '@/components/icons';
-import { ContentWidth, ScreenGround } from '@/components/screen';
-import { BetFeedSkeleton } from '@/components/skeletons';
+import { ContentWidth, Screen } from '@/components/screen';
+import { BetCardSkeleton } from '@/components/skeletons';
 import {
   Avatar,
   Button,
@@ -16,21 +16,22 @@ import {
   ErrorNotice,
   Loading,
   Money,
-  Panel,
   PressableScale,
+  SectionTitle,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
-import { formatAgorot } from '@/lib/format';
 import { fetchGroup, fetchGroupBalances, fetchGroupBets } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
-import { colors, motion } from '@/theme';
+import { useColors } from '@/providers/theme-provider';
+import { motion } from '@/theme';
 
 export default function GroupDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const groupId = id ?? '';
   const router = useRouter();
   const { session } = useAuth();
+  const colors = useColors();
   const userId = session?.user.id ?? '';
 
   const group = useAsync(() => fetchGroup(groupId), [groupId]);
@@ -67,9 +68,9 @@ export default function GroupDetailScreen() {
   if (group.loading) return <Loading label="Loading group…" />;
   if (!group.data) {
     return (
-      <View className="flex-1 bg-ink-950 px-gutter pt-10">
+      <Screen className="px-gutter pt-10">
         <ErrorNotice message={group.error ?? 'This group is not available.'} />
-      </View>
+      </Screen>
     );
   }
 
@@ -80,21 +81,17 @@ export default function GroupDetailScreen() {
   const openBets = allBets.filter((b) => b.status !== 'resolved' && b.status !== 'cancelled');
   const pastBets = allBets.filter((b) => b.status === 'resolved' || b.status === 'cancelled');
 
-  const balanceTone =
-    myBalance > 0 ? 'text-owed' : myBalance < 0 ? 'text-owing' : 'text-ink-50';
-
   return (
     <>
       <Stack.Screen options={{ title: group.data.name }} />
-      <View className="flex-1 bg-ink-950">
-        <ScreenGround />
+      <Screen ground="sunken">
         <ScrollView
           contentContainerClassName="px-gutter pb-12 pt-2"
           refreshControl={
             <RefreshControl
               refreshing={bets.refreshing}
               onRefresh={refresh}
-              tintColor={colors.brass['400']}
+              tintColor={colors.textTertiary}
             />
           }
           showsVerticalScrollIndicator={false}
@@ -102,14 +99,16 @@ export default function GroupDetailScreen() {
           <ContentWidth>
             {/* Identity + your position, the two things you open a group for */}
             <Animated.View entering={FadeInDown.duration(motion.duration.base)}>
-              <View className="mb-9 pt-4">
+              <View className="mb-7 pt-4">
                 <View className="flex-row items-start gap-3">
-                  <Text className="text-2xl leading-8">{group.data.emoji ?? '🎲'}</Text>
+                  <View className="h-12 w-12 items-center justify-center rounded-2xl bg-surface2">
+                    <Text className="text-xl">{group.data.emoji ?? '🎲'}</Text>
+                  </View>
                   <View className="flex-1">
-                    <Text numberOfLines={2} className="font-display-bold text-3xl leading-9 text-ink-50">
+                    <Text numberOfLines={2} className="text-2xl font-bold text-primary">
                       {group.data.name}
                     </Text>
-                    <Text className="mt-2 text-sm text-ink-600">
+                    <Text className="mt-1 text-subhead text-secondary">
                       {group.data.members.length}{' '}
                       {group.data.members.length === 1 ? 'member' : 'members'}, {allBets.length}{' '}
                       {allBets.length === 1 ? 'bet' : 'bets'}
@@ -117,22 +116,22 @@ export default function GroupDetailScreen() {
                   </View>
                 </View>
 
-                <View className="mt-7 flex-row items-end justify-between">
+                <View className="mt-5 flex-row items-end justify-between rounded-3xl border border-hairline bg-surface p-4">
                   <View>
-                    <Text className="font-display text-xs text-ink-600">Your position here</Text>
-                    <View className="mt-2">
+                    <Text className="text-sm text-secondary">Your position here</Text>
+                    <View className="mt-1">
                       {myBalance === 0 ? (
-                        <Text className="font-display-bold text-4xl text-ink-50">Square</Text>
+                        <Text className="text-2xl font-bold text-primary">Square</Text>
                       ) : (
-                        <Money agorot={myBalance} size="xl" sign />
+                        <Money agorot={myBalance} size="lg" sign />
                       )}
                     </View>
                   </View>
                   <Button
                     title="Settle up"
-                    variant="secondary"
+                    variant="tinted"
                     size="sm"
-                    icon={<HandshakeIcon size={15} color={colors.ink['50']} />}
+                    icon={<HandshakeIcon size={15} color={colors.accent} />}
                     onPress={() =>
                       router.push({ pathname: '/group/[id]/settle', params: { id: groupId } })
                     }
@@ -143,13 +142,14 @@ export default function GroupDetailScreen() {
 
             {/* Members + invite */}
             <Animated.View entering={FadeInDown.delay(60).duration(motion.duration.base)}>
-              <Panel title="Members" className="mb-8">
-                <View>
+              <View className="mb-7">
+                <SectionTitle>Members</SectionTitle>
+                <View className="overflow-hidden rounded-3xl border border-hairline bg-surface px-4">
                   {group.data.members.map((member, i) => (
                     <View
                       key={member.user_id}
-                      className={`flex-row items-center gap-3 py-2.5 ${
-                        i === group.data!.members.length - 1 ? '' : 'border-b border-ink-800'
+                      className={`flex-row items-center gap-3 py-3 ${
+                        i === group.data!.members.length - 1 ? '' : 'border-b border-hairline'
                       }`}
                     >
                       <Avatar
@@ -157,44 +157,42 @@ export default function GroupDetailScreen() {
                         id={member.user_id}
                         size={34}
                       />
-                      <Text className="flex-1 text-sm text-ink-50">
+                      <Text className="flex-1 text-base text-primary">
                         {member.user?.display_name ?? 'Unknown'}
                         {member.user_id === userId && (
-                          <Text className="text-ink-600"> (you)</Text>
+                          <Text className="text-secondary"> (you)</Text>
                         )}
                       </Text>
                       {member.role === 'admin' && (
-                        <Text className="font-display text-2xs uppercase tracking-[0.8px] text-ink-600">
-                          admin
-                        </Text>
+                        <Text className="text-sm text-secondary">Admin</Text>
                       )}
                     </View>
                   ))}
                 </View>
 
-                <View className="mt-5">
+                <View className="mt-3">
                   <PressableScale
                     onPress={copyInvite}
                     scaleTo={0.985}
                     accessibilityRole="button"
                     accessibilityLabel="Copy invite code"
-                    className="flex-row items-center justify-between rounded-xl bg-ink-1000 px-4 py-4"
+                    className="flex-row items-center justify-between rounded-3xl border border-hairline bg-surface px-4 py-4"
                   >
                     <View>
-                      <Text className="font-display text-xs text-ink-600">Invite code</Text>
-                      <Text className="mt-1 font-display-bold text-2xl tracking-[4px] text-ink-50">
+                      <Text className="text-sm text-secondary">Invite code</Text>
+                      <Text className="mt-0.5 text-xl font-bold tracking-[4px] text-primary">
                         {group.data.invite_code}
                       </Text>
                     </View>
                     <View className="flex-row items-center gap-1.5">
                       {copied ? (
-                        <CheckIcon size={16} color={colors.sideA.DEFAULT} />
+                        <CheckIcon size={16} color={colors.positive} />
                       ) : (
-                        <CopyIcon size={16} color={colors.brass['300']} />
+                        <CopyIcon size={16} color={colors.accent} />
                       )}
                       <Text
-                        className={`font-display text-sm ${
-                          copied ? 'text-sideA' : 'text-brass-300'
+                        className={`text-subhead font-semibold ${
+                          copied ? 'text-positive' : 'text-accent'
                         }`}
                       >
                         {copied ? 'Copied' : 'Copy'}
@@ -202,13 +200,13 @@ export default function GroupDetailScreen() {
                     </View>
                   </PressableScale>
                 </View>
-              </Panel>
+              </View>
             </Animated.View>
 
             <Animated.View entering={FadeIn.delay(120).duration(motion.duration.base)}>
               <Button
                 title="New bet"
-                icon={<PlusIcon size={18} color="#fff" />}
+                icon={<PlusIcon size={18} color={colors.accentInk} />}
                 onPress={() =>
                   router.push({ pathname: '/group/[id]/new-bet', params: { id: groupId } })
                 }
@@ -218,34 +216,41 @@ export default function GroupDetailScreen() {
 
             {bets.error && <ErrorNotice message={bets.error} />}
 
-            <Panel title="Live bets" className="mb-8">
-            {bets.loading ? (
-              <BetFeedSkeleton count={2} />
-            ) : openBets.length === 0 ? (
-              <EmptyState
-                icon={<TicketIcon size={26} color={colors.ink['500']} />}
-                title="Nothing running"
-                body="Start the first bet — pick a question with exactly two answers."
-              />
-            ) : (
+            <View className="mb-7">
+              <SectionTitle>Live bets</SectionTitle>
+              {bets.loading ? (
+                <>
+                  <BetCardSkeleton />
+                  <BetCardSkeleton />
+                </>
+              ) : openBets.length === 0 ? (
+                <View className="rounded-3xl border border-hairline bg-surface">
+                  <EmptyState
+                    icon={<TicketIcon size={26} color={colors.textSecondary} />}
+                    title="Nothing running"
+                    body="Start the first bet — pick a question with exactly two answers."
+                  />
+                </View>
+              ) : (
+                <View>
+                  {openBets.map((bet, i) => (
+                    <BetCard key={bet.id} bet={bet} currentUserId={userId} index={i} />
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {pastBets.length > 0 && (
               <View>
-                {openBets.map((bet, i) => (
+                <SectionTitle>Settled and cancelled</SectionTitle>
+                {pastBets.map((bet, i) => (
                   <BetCard key={bet.id} bet={bet} currentUserId={userId} index={i} />
                 ))}
               </View>
             )}
-            </Panel>
-
-            {pastBets.length > 0 && (
-              <Panel title="Settled and cancelled">
-                {pastBets.map((bet, i) => (
-                  <BetCard key={bet.id} bet={bet} currentUserId={userId} index={i} />
-                ))}
-              </Panel>
-            )}
           </ContentWidth>
         </ScrollView>
-      </View>
+      </Screen>
     </>
   );
 }

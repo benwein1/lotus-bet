@@ -26,6 +26,7 @@ Or paste the files in `migrations/` into the SQL editor, in filename order:
 | `…_init.sql` | Tables: users, groups, group_members, bets, bet_positions, bet_ledger_entries, settlement_confirmations |
 | `…_rls.sql` | Row Level Security policies, membership helpers, Realtime publication |
 | `…_functions.sql` | Signup trigger, invite codes, group/bet/settlement RPCs, stats |
+| `…_email_auth_and_media.sql` | Email accounts (`users.email`, `profile_completed`), the `bet_media` table, and the private `bet-media` storage bucket with its policies |
 
 ### What the policies guarantee
 
@@ -39,12 +40,40 @@ Or paste the files in `migrations/` into the SQL editor, in filename order:
 - `bet_ledger_entries` is **read-only** for clients. Only the `resolve-bet`
   Edge Function writes it, using the service role.
 
-## 3. Enable phone auth
+## 3. Enable email auth
 
-**Authentication → Providers → Phone**: enable it and connect an SMS provider
-(Twilio, MessageBird, Vonage…). The `on_auth_user_created` trigger mirrors each
-new `auth.users` row into `public.users` with a placeholder display name; the
-app's profile-setup screen replaces it.
+**Authentication → Providers → Email**: enable it. Nothing else is required —
+there is no SMS provider, no OAuth app, no third-party service.
+
+Two settings worth a decision:
+
+- **Confirm email.** On by default. With it on, `signUp` returns no session and
+  the app shows a "check your inbox" screen; with it off the user is signed in
+  immediately. Either works — the app handles both.
+- **Site URL / redirect URLs** (Authentication → URL Configuration). The
+  confirmation and password-reset links point here. For local development add
+  `http://localhost:8081`; for a device build add the app's scheme,
+  `lotusbet://`.
+
+The `on_auth_user_created` trigger mirrors each new `auth.users` row into
+`public.users`. The sign-up form sends the display name in the user metadata,
+so a new account arrives already named and `profile_completed` is true; without
+one it gets a placeholder and the app's profile-setup screen takes over.
+
+`users.phone` is still on the table, nullable, for accounts created under the
+old phone-OTP flow.
+
+## 3b. Storage for bet media
+
+The `…_email_auth_and_media.sql` migration creates a **private** `bet-media`
+bucket and its policies. Objects are laid out as
+`<group_id>/<bet_id>/<file>.<ext>`, so every policy reads the owning group out
+of the first path segment and reuses the same `is_group_member` helper the
+tables use. Nothing is public: the app reads through short-lived signed URLs.
+
+If your project blocks `insert into storage.buckets` from the SQL editor,
+create the bucket by hand under **Storage → New bucket** (name `bet-media`,
+*not* public, 50 MB limit) and run only the policy half of that migration.
 
 ## 4. Deploy the Edge Functions
 
@@ -85,3 +114,6 @@ everything else in the app keeps working.
   double-resolve a no-op rather than a double payout.
 - A resolved bet always records `winning_option`, even when nobody backed the
   winning side — that case simply writes no ledger rows.
+- `bet_media` carries a denormalised `group_id` so its RLS policy and the
+  Realtime filter can both work without joining back to `bets`. Only the bet's
+  creator can attach media, and only while the bet is still `open`.

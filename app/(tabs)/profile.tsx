@@ -1,34 +1,42 @@
 import { useCallback, useState } from 'react';
-import { Alert, Platform, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
-import Animated, { FadeInDown } from '@/components/animated';
+import { Alert, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { DemoBadge } from '@/components/demo-entry';
 import { LogOutIcon, TrophyIcon } from '@/components/icons';
-import { ContentWidth, ScreenGround } from '@/components/screen';
+import { ContentWidth, Screen } from '@/components/screen';
 import { ProfileSkeleton } from '@/components/skeletons';
 import {
   Avatar,
   Button,
-  Divider,
   EmptyState,
   ErrorNotice,
-  InfoRow,
+  ListGroup,
   Loading,
   Money,
-  Panel,
+  Row,
+  SectionTitle,
+  Segmented,
   Stat,
   Title,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import { formatAgorot, formatShortDate } from '@/lib/format';
 import { clearPushToken } from '@/lib/notifications';
 import { fetchMyGroups, fetchMyHistory, fetchMyStats, type HistoryEntry } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
-import { colors, motion } from '@/theme';
+import { useAppearance, useColors } from '@/providers/theme-provider';
+import { motion } from '@/theme';
 
 export default function ProfileScreen() {
   const { session, profile, updateProfile, signOut } = useAuth();
+  const colors = useColors();
+  const reduced = useReducedMotion();
+  const tabInset = useTabBarInset();
+  const { preference, setPreference } = useAppearance();
   const userId = session?.user.id ?? '';
 
   const stats = useAsync(fetchMyStats, [userId]);
@@ -79,46 +87,49 @@ export default function ProfileScreen() {
   const mostActive = (groups.data ?? []).find((g) => g.id === s?.most_active_group_id);
   const net = Number(s?.total_won_agorot ?? 0) - Number(s?.total_lost_agorot ?? 0);
 
+  const entering = (delay: number) =>
+    reduced
+      ? FadeIn.duration(motion.duration.fast)
+      : FadeInDown.delay(delay).duration(motion.duration.base);
+
   return (
-    <View className="flex-1 bg-ink-950">
-      <ScreenGround />
+    <Screen ground="sunken">
       <SafeAreaView edges={['top']} className="flex-1">
         <ScrollView
-          contentContainerClassName="px-gutter pb-10 pt-2"
+          contentContainerStyle={{ paddingBottom: tabInset }}
+          contentContainerClassName="px-gutter pt-2"
           refreshControl={
             <RefreshControl
               refreshing={stats.refreshing}
               onRefresh={refresh}
-              tintColor={colors.brass['400']}
+              tintColor={colors.textTertiary}
             />
           }
           showsVerticalScrollIndicator={false}
         >
           <ContentWidth>
-            <View className="mb-8 flex-row items-center justify-between pt-6">
-              <Title>Profile</Title>
+            <View className="mb-6 flex-row items-center justify-between pt-4">
+              <Title>You</Title>
               <DemoBadge />
             </View>
 
             {error && <ErrorNotice message={error} />}
 
-            <Animated.View entering={FadeInDown.duration(motion.duration.base)}>
-              <View className="mb-9">
-                <View className="flex-row items-center gap-4">
-                  <Avatar name={profile.display_name} id={profile.id} size={56} />
-                  <View className="flex-1">
-                    <Text numberOfLines={1} className="font-display text-lg text-ink-50">
-                      {profile.display_name}
-                    </Text>
-                    <Text className="mt-0.5 text-sm text-ink-600">{profile.phone}</Text>
-                  </View>
-                </View>
+            <Animated.View entering={entering(0)}>
+              <View className="mb-7 items-center rounded-3xl border border-hairline bg-surface px-5 py-7">
+                <Avatar name={profile.display_name} id={profile.id} size={72} />
+                <Text numberOfLines={1} className="mt-3.5 text-xl font-bold text-primary">
+                  {profile.display_name}
+                </Text>
+                <Text numberOfLines={1} className="mt-0.5 text-subhead text-secondary">
+                  {profile.email ?? profile.phone ?? ''}
+                </Text>
 
-                <View className="mt-8">
-                  <Text className="font-display text-xs text-ink-600">Lifetime net</Text>
-                  <View className="mt-2">
+                <View className="mt-6 items-center">
+                  <Text className="text-sm text-secondary">Lifetime net</Text>
+                  <View className="mt-1">
                     {net === 0 ? (
-                      <Text className="font-display-bold text-5xl text-ink-50">Even</Text>
+                      <Text className="text-4xl font-bold text-primary">Even</Text>
                     ) : (
                       <Money agorot={net} size="xl" sign />
                     )}
@@ -130,36 +141,54 @@ export default function ProfileScreen() {
             {stats.loading ? (
               <ProfileSkeleton />
             ) : (
-              <Animated.View entering={FadeInDown.delay(60).duration(motion.duration.base)}>
-                <Panel title="Your record" className="mb-8">
-                <View className="flex-row gap-5">
+              <Animated.View entering={entering(60)} className="mb-7">
+                <SectionTitle>Your record</SectionTitle>
+                <View className="flex-row gap-3">
                   <Stat
                     label="Won"
                     value={formatAgorot(Number(s?.total_won_agorot ?? 0))}
-                    tone="owed"
+                    tone="positive"
                   />
                   <Stat
                     label="Lost"
                     value={formatAgorot(Number(s?.total_lost_agorot ?? 0))}
-                    tone="owing"
+                    tone="negative"
                   />
                   <Stat label="Win rate" value={winRate === null ? '—' : `${winRate}%`} />
                 </View>
 
-                <View className="mt-8">
-                  <InfoRow label="Bets settled" value={String(s?.bets_settled ?? 0)} />
-                  <InfoRow
+                <ListGroup className="mt-3">
+                  <Row label="Bets settled" value={String(s?.bets_settled ?? 0)} />
+                  <Row
                     label="Most active group"
                     value={mostActive ? `${mostActive.emoji ?? '🎲'} ${mostActive.name}` : '—'}
                     last
                   />
-                </View>
-                </Panel>
+                </ListGroup>
               </Animated.View>
             )}
 
-            <Panel title="Notifications" className="mb-8">
-              <View>
+            <View className="mb-7">
+              <SectionTitle>Appearance</SectionTitle>
+              <View className="rounded-2xl border border-hairline bg-surface p-3">
+                <Segmented
+                  value={preference}
+                  onChange={setPreference}
+                  options={[
+                    { value: 'system', label: 'System' },
+                    { value: 'light', label: 'Light' },
+                    { value: 'dark', label: 'Dark' },
+                  ]}
+                />
+                <Text className="mt-2.5 px-1 text-sm text-secondary">
+                  System follows your device between light and dark.
+                </Text>
+              </View>
+            </View>
+
+            <View className="mb-7">
+              <SectionTitle>Notifications</SectionTitle>
+              <ListGroup>
                 <ToggleRow
                   label="New bets in my groups"
                   hint="One push when someone posts."
@@ -167,7 +196,6 @@ export default function ProfileScreen() {
                   disabled={saving}
                   onChange={(v) => void toggle('notify_new_bets', v)}
                 />
-                <Divider />
                 <ToggleRow
                   label="Bets I joined resolving"
                   hint="Includes your result and amount."
@@ -176,42 +204,50 @@ export default function ProfileScreen() {
                   onChange={(v) => void toggle('notify_resolutions', v)}
                   last
                 />
-              </View>
-            </Panel>
+              </ListGroup>
+            </View>
 
-            <Panel title="Bet history" className="mb-8">
-            {history.loading ? (
-              <Loading label="Loading history…" />
-            ) : (history.data ?? []).length === 0 ? (
-              <EmptyState
-                icon={<TrophyIcon size={26} color={colors.ink['500']} />}
-                title="Nothing settled yet"
-                body="Once a bet you joined gets resolved it shows up here, win or lose."
-              />
-            ) : (
-              <View>
-                {(history.data ?? []).map((entry, i) => (
-                  <HistoryRow key={entry.id} entry={entry} index={i} />
-                ))}
-              </View>
-            )}
-            </Panel>
+            <View className="mb-7">
+              <SectionTitle>Bet history</SectionTitle>
+              {history.loading ? (
+                <Loading label="Loading history…" />
+              ) : (history.data ?? []).length === 0 ? (
+                <View className="rounded-3xl border border-hairline bg-surface">
+                  <EmptyState
+                    icon={<TrophyIcon size={26} color={colors.textSecondary} />}
+                    title="Nothing settled yet"
+                    body="Once a bet you joined gets resolved it shows up here, win or lose."
+                  />
+                </View>
+              ) : (
+                <View className="overflow-hidden rounded-3xl border border-hairline bg-surface">
+                  {(history.data ?? []).map((entry, i) => (
+                    <HistoryRow
+                      key={entry.id}
+                      entry={entry}
+                      index={i}
+                      last={i === (history.data ?? []).length - 1}
+                    />
+                  ))}
+                </View>
+              )}
+            </View>
 
             <Button
               title="Sign out"
-              variant="ghost"
-              icon={<LogOutIcon size={16} color={colors.ink['500']} />}
+              variant="destructive"
+              icon={<LogOutIcon size={16} color={colors.negative} />}
               onPress={confirmSignOut}
             />
 
-            <Text className="mt-7 text-center text-2xs leading-4 tracking-normal text-ink-650">
-              Lotus Bet is a tracker. It holds no money, processes no payments,{'\n'}and sells no
+            <Text className="mt-7 text-center text-xs leading-4 text-tertiary">
+              Lotus Bet is a tracker. It holds no money, processes no payments, and sells no
               currency.
             </Text>
           </ContentWidth>
         </ScrollView>
       </SafeAreaView>
-    </View>
+    </Screen>
   );
 }
 
@@ -230,49 +266,62 @@ function ToggleRow({
   onChange: (value: boolean) => void;
   last?: boolean;
 }) {
+  const colors = useColors();
+
   return (
-    <View className={`flex-row items-center justify-between gap-4 py-3.5 ${last ? '' : ''}`}>
-      <View className="flex-1">
-        <Text className="text-sm text-ink-50">{label}</Text>
-        <Text className="mt-0.5 text-xs text-ink-600">{hint}</Text>
+    <View>
+      <View className="flex-row items-center justify-between gap-4 px-4 py-3">
+        <View className="flex-1">
+          <Text className="text-base text-primary">{label}</Text>
+          <Text className="mt-0.5 text-sm text-secondary">{hint}</Text>
+        </View>
+        <Switch
+          value={value}
+          disabled={disabled}
+          onValueChange={onChange}
+          trackColor={{ false: colors.surface3, true: colors.accent }}
+          thumbColor="#FFFFFF"
+          ios_backgroundColor={colors.surface3}
+        />
       </View>
-      <Switch
-        value={value}
-        disabled={disabled}
-        onValueChange={onChange}
-        trackColor={{ false: colors.ink['750'], true: colors.brass['600'] }}
-        thumbColor="#fff"
-        ios_backgroundColor={colors.ink['750']}
-      />
+      {!last && <View className="ml-4 h-px bg-hairline" />}
     </View>
   );
 }
 
-function HistoryRow({ entry, index }: { entry: HistoryEntry; index: number }) {
-  const won = entry.amount_agorot > 0;
+function HistoryRow({
+  entry,
+  index,
+  last,
+}: {
+  entry: HistoryEntry;
+  index: number;
+  last: boolean;
+}) {
+  const reduced = useReducedMotion();
   const winningLabel =
     entry.bet.winning_option === 'a' ? entry.bet.option_a_label : entry.bet.option_b_label;
 
   return (
     <Animated.View
-      entering={FadeInDown.delay(Math.min(index, 6) * motion.stagger).duration(
-        motion.duration.base
-      )}
+      entering={
+        reduced
+          ? FadeIn.duration(motion.duration.fast)
+          : FadeInDown.delay(Math.min(index, 6) * motion.stagger).duration(motion.duration.base)
+      }
     >
-      <View className="py-4">
-        <View className="h-px bg-ink-800" />
-        <View className="mt-4 flex-row items-start gap-4">
-          <View className="flex-1">
-            <Text numberOfLines={2} className="font-display text-sm leading-5 text-ink-50">
-              {entry.bet.title}
-            </Text>
-            <Text numberOfLines={1} className="mt-1 text-xs text-ink-600">
-              {winningLabel} won in {entry.group.name}, {formatShortDate(entry.created_at)}
-            </Text>
-          </View>
-          <Money agorot={entry.amount_agorot} size="md" sign />
+      <View className="flex-row items-start gap-4 px-4 py-3.5">
+        <View className="flex-1">
+          <Text numberOfLines={2} className="text-subhead text-primary">
+            {entry.bet.title}
+          </Text>
+          <Text numberOfLines={1} className="mt-0.5 text-sm text-secondary">
+            {winningLabel} won in {entry.group.name}, {formatShortDate(entry.created_at)}
+          </Text>
         </View>
+        <Money agorot={entry.amount_agorot} size="sm" sign />
       </View>
+      {!last && <View className="ml-4 h-px bg-hairline" />}
     </Animated.View>
   );
 }

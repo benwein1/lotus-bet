@@ -7,6 +7,7 @@
  */
 import type {
   BetLedgerEntryRow,
+  BetMediaRow,
   BetRow,
   BetSide,
   BetWithPositions,
@@ -18,6 +19,7 @@ import type {
   UserRow,
 } from './database.types';
 import { demo, isDemoMode } from './demo';
+import { signMedia, uploadBetMedia, type PickedMedia } from './media';
 import { supabase } from './supabase';
 
 function unwrap<T>(result: { data: T | null; error: { message: string } | null }): T {
@@ -81,8 +83,31 @@ export async function leaveGroup(groupId: string, userId: string): Promise<void>
 
 // --- Bets ------------------------------------------------------------------
 
-const BET_SELECT = '*, positions:bet_positions(user_id, side)';
+const BET_SELECT = '*, positions:bet_positions(user_id, side), media:bet_media(*)';
 const BET_SELECT_WITH_GROUP = `${BET_SELECT}, group:groups(id, name, emoji)`;
+
+/**
+ * Media rows arrive as storage paths; the bucket is private, so they have to be
+ * signed before anything can render them. Signing is batched across the whole
+ * result — a feed of ten bets with photos costs one round trip, not ten.
+ */
+async function attachSignedMedia<T extends { media?: BetMediaRow[] | null }>(
+  bets: T[]
+): Promise<T[]> {
+  const rows = bets.flatMap((bet) => bet.media ?? []);
+  if (rows.length === 0) return bets.map((bet) => ({ ...bet, media: [] }));
+
+  const signed = await signMedia(rows);
+  const byId = new Map(signed.map((row) => [row.id, row]));
+
+  return bets.map((bet) => ({
+    ...bet,
+    media: (bet.media ?? [])
+      .map((row) => byId.get(row.id))
+      .filter((row) => row !== undefined)
+      .sort((a, b) => a.position - b.position),
+  }));
+}
 
 export async function fetchGroupBets(groupId: string): Promise<BetWithPositions[]> {
   if (isDemoMode()) return demo.fetchGroupBets(groupId);
@@ -93,7 +118,7 @@ export async function fetchGroupBets(groupId: string): Promise<BetWithPositions[
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
-  return (data ?? []) as unknown as BetWithPositions[];
+  return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
 }
 
 /** Every bet across every group the user is in — the Home feed's raw input. */
@@ -107,14 +132,17 @@ export async function fetchFeedBets(): Promise<BetWithPositions[]> {
     .limit(100);
 
   if (error) throw new Error(error.message);
-  return (data ?? []) as unknown as BetWithPositions[];
+  return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
 }
 
 export async function fetchBet(betId: string): Promise<BetWithPositions> {
   if (isDemoMode()) return demo.fetchBet(betId);
-  return unwrap(
+  const bet = unwrap(
     await supabase.from('bets').select(BET_SELECT_WITH_GROUP).eq('id', betId).single()
   ) as unknown as BetWithPositions;
+
+  const [withMedia] = await attachSignedMedia([bet]);
+  return withMedia ?? bet;
 }
 
 export interface NewBetInput {
@@ -126,11 +154,14 @@ export interface NewBetInput {
   optionBLabel: string;
   totalPotAgorot: number;
   closeAt: string | null;
+  /** Photos and videos picked on the new-bet screen, uploaded after insert. */
+  media?: PickedMedia[];
 }
 
 export async function createBet(input: NewBetInput): Promise<BetRow> {
   if (isDemoMode()) return demo.createBet(input);
-  return unwrap(
+
+  const bet = unwrap(
     await supabase
       .from('bets')
       .insert({
@@ -146,6 +177,52 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
       .select()
       .single()
   ) as BetRow;
+
+  // Media is uploaded after the bet exists: its id is part of the storage
+  // path, which is what lets the bucket policy check group membership. A
+  // failure here leaves the bet posted without its attachments rather than
+  // losing the bet, which is the better of the two failures.
+  if (input.media?.length) {
+    await attachMediaToBet(bet, input.media, input.creatorId);
+  }
+
+  return bet;
+}
+
+async function attachMediaToBet(
+  bet: BetRow,
+  media: PickedMedia[],
+  uploaderId: string
+): Promise<void> {
+  const uploaded = [] as {
+    bet_id: string;
+    group_id: string;
+    uploaded_by: string;
+    kind: string;
+    storage_path: string;
+    width: number | null;
+    height: number | null;
+    duration_ms: number | null;
+    position: number;
+  }[];
+
+  for (const [index, item] of media.entries()) {
+    const result = await uploadBetMedia(bet.group_id, bet.id, item);
+    uploaded.push({
+      bet_id: bet.id,
+      group_id: bet.group_id,
+      uploaded_by: uploaderId,
+      kind: result.kind,
+      storage_path: result.storagePath,
+      width: result.width,
+      height: result.height,
+      duration_ms: result.durationMs,
+      position: index,
+    });
+  }
+
+  const { error } = await supabase.from('bet_media').insert(uploaded);
+  if (error) throw new Error(error.message);
 }
 
 export async function joinBet(betId: string, side: BetSide): Promise<void> {
