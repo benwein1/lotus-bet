@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
@@ -52,6 +52,12 @@ export default function FeedScreen() {
   }, [reloadFeed]);
 
   useFeedRealtime(Boolean(userId), refresh);
+
+  // Tab screens stay mounted, so without this the feed would still be showing
+  // whatever it loaded at launch — a bet you just posted would not appear
+  // until you pulled to refresh. Realtime covers other people's changes; this
+  // covers your own.
+  useFocusEffect(refresh);
 
   // The card is most of the screen, not all of it: the sliver of the next one
   // is what tells you there is more below.
