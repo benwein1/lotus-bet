@@ -148,6 +148,35 @@ edges and `mb-section` (28) between sections. Motion pulls from `motion.*` in
 The app is **dark-only and committed to it** — there are no `dark:` variants
 anywhere. That's a design decision, not an omission.
 
+### The direction: "The Ledger"
+
+Editorial structure warmed by the felt-and-paper metaphor. Three rules decide
+almost every question:
+
+1. **Type carries the hierarchy, not chrome.** The scale runs 11px → 96px, and
+   money and screen titles live at the top of it. If something needs emphasis,
+   it gets bigger, not a box.
+2. **Rules and space replace containers.** `Panel` (a hairline, a label, and
+   room) is the default grouping. `Card` with a shadow is reserved for the bet
+   card — the one object meant to feel physical.
+3. **Radius signals whether a thing is an object.** 18px on the bet card and
+   side buttons; 12px on inputs and rows; zero on structure. A hairline is
+   never rounded.
+
+Money always goes through `<Money>`: it is tabular (`fontVariant`) so digits
+don't shift as a balance changes, and it colours itself by direction.
+
+### Motion rules
+
+- **Animate `transform` and `opacity` only.** Never width, height, flex or
+  margin — those re-layout the subtree every frame. `OddsBar` is the app's one
+  continuously-changing value, and it animates `scaleX` on a full-width track
+  with `transformOrigin` at each end, so the two bars meet exactly at the
+  split. Scaling each bar inside its own half shows a third of a half.
+- **`useReducedMotion()` gates every entrance and spring.** Motion is
+  neutralised, never removed: content still arrives and presses still respond,
+  they just stop travelling.
+
 ### Design tells to keep out
 
 `.claude/skills/frontend-design/SKILL.md` lists the traits that make a design

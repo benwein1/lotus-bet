@@ -25,19 +25,23 @@ module.exports = {
         'display-bold': ['SpaceGrotesk_700Bold'],
       },
 
-      // A real type scale. Sizes are deliberately few — six steps cover the
-      // whole app, which is what keeps screens looking like one product.
+      // Extreme scale contrast is what separates a designed page from a laid-out
+      // one: money and screen titles are enormous, body copy stays crisp and
+      // small. Display sizes carry negative tracking — large type set at default
+      // tracking always reads loose.
       fontSize: {
-        '2xs': ['11px', { lineHeight: '14px', letterSpacing: '0.6px' }],
-        xs: ['12px', { lineHeight: '16px' }],
-        sm: ['14px', { lineHeight: '20px' }],
-        base: ['16px', { lineHeight: '23px' }],
-        lg: ['18px', { lineHeight: '25px' }],
-        xl: ['21px', { lineHeight: '27px' }],
-        '2xl': ['26px', { lineHeight: '32px' }],
-        '3xl': ['32px', { lineHeight: '37px' }],
-        '4xl': ['40px', { lineHeight: '44px' }],
-        '5xl': ['52px', { lineHeight: '56px' }],
+        '2xs': ['11px', { lineHeight: '14px', letterSpacing: '0.4px' }],
+        xs: ['12px', { lineHeight: '17px' }],
+        sm: ['14px', { lineHeight: '21px' }],
+        base: ['16px', { lineHeight: '24px' }],
+        lg: ['18px', { lineHeight: '26px' }],
+        xl: ['22px', { lineHeight: '28px', letterSpacing: '-0.2px' }],
+        '2xl': ['28px', { lineHeight: '33px', letterSpacing: '-0.5px' }],
+        '3xl': ['36px', { lineHeight: '40px', letterSpacing: '-0.8px' }],
+        '4xl': ['46px', { lineHeight: '48px', letterSpacing: '-1.2px' }],
+        '5xl': ['60px', { lineHeight: '60px', letterSpacing: '-1.8px' }],
+        '6xl': ['76px', { lineHeight: '72px', letterSpacing: '-2.4px' }],
+        '7xl': ['96px', { lineHeight: '88px', letterSpacing: '-3.2px' }],
       },
 
       // 4pt grid. Named steps stop screens drifting into ad-hoc margins.

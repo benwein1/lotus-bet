@@ -4,7 +4,7 @@ import { KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ScreenBackdrop } from '@/components/screen';
+import { ScreenGround } from '@/components/screen';
 import { Button, ErrorNotice, PressableScale } from '@/components/ui';
 import { ChevronLeftIcon } from '@/components/icons';
 import { useAuth } from '@/providers/auth-provider';
@@ -59,7 +59,7 @@ export default function VerifyScreen() {
 
   return (
     <View className="flex-1 bg-ink-950">
-      <ScreenBackdrop />
+      <ScreenGround />
       <SafeAreaView className="flex-1">
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -77,9 +77,9 @@ export default function VerifyScreen() {
             </PressableScale>
 
             <Animated.View entering={FadeInDown.duration(420)}>
-              <Text className="font-display-bold text-3xl text-ink-50">Enter the code</Text>
-              <Text className="mt-2.5 text-base text-ink-600">
-                Sent to <Text className="font-display text-ink-400">{phone}</Text>
+              <Text className="font-display-bold text-4xl text-ink-50">Enter the code</Text>
+              <Text className="mt-4 text-base text-ink-500">
+                Sent to <Text className="font-display text-ink-50">{phone}</Text>
               </Text>
             </Animated.View>
 
@@ -94,15 +94,11 @@ export default function VerifyScreen() {
                     return (
                       <View
                         key={i}
-                        className={`h-16 flex-1 items-center justify-center rounded-2xl border ${
-                          char
-                            ? 'border-brass-500/60 bg-brass-900'
-                            : isCursor
-                              ? 'border-brass-500 bg-ink-900'
-                              : 'border-ink-750 bg-ink-900'
+                        className={`h-16 flex-1 items-center justify-center border-b-2 ${
+                          char ? 'border-ink-50' : isCursor ? 'border-ink-500' : 'border-ink-800'
                         }`}
                       >
-                        <Text className="font-display-bold text-2xl text-ink-50">{char ?? ''}</Text>
+                        <Text className="font-display-bold text-3xl text-ink-50">{char ?? ''}</Text>
                       </View>
                     );
                   })}
@@ -130,7 +126,7 @@ export default function VerifyScreen() {
             )}
 
             <PressableScale onPress={resend} hitSlop={10} className="mt-7 self-center px-4 py-2">
-              <Text className="font-display text-sm text-brass-300">
+              <Text className="font-display text-sm text-ink-400">
                 {resent ? 'Code sent ✓' : 'Resend code'}
               </Text>
             </PressableScale>

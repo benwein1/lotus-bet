@@ -7,16 +7,15 @@ import Animated, { FadeIn, FadeInDown, ZoomIn } from '@/components/animated';
 import { countSides, mySide } from '@/components/bet-card';
 import { AlertIcon, ClockIcon, LockIcon, TrophyIcon } from '@/components/icons';
 import { OddsBar } from '@/components/odds-bar';
-import { ContentWidth, ScreenBackdrop } from '@/components/screen';
+import { ContentWidth, ScreenGround } from '@/components/screen';
 import {
   Avatar,
   Badge,
   Button,
-  Card,
-  Divider,
   ErrorNotice,
   Loading,
-  Overline,
+  Money,
+  Panel,
   PressableScale,
   SectionTitle,
 } from '@/components/ui';
@@ -160,7 +159,7 @@ export default function BetDetailScreen() {
     <>
       <Stack.Screen options={{ title: data.group?.name ?? 'Bet' }} />
       <View className="flex-1 bg-ink-950">
-        <ScreenBackdrop
+        <ScreenGround
           tint={
             isResolved
               ? side === data.winning_option
@@ -206,12 +205,11 @@ export default function BetDetailScreen() {
               entering={FadeInDown.delay(60).duration(motion.duration.base)}
               className="mt-6"
             >
-              <Card level="raised">
-                <View className="mb-5 flex-row items-center justify-between">
-                  <Overline>Total pot</Overline>
-                  <Text className="font-display-bold text-3xl text-brass-300">
-                    {formatAgorot(data.total_pot_agorot)}
-                  </Text>
+              <View>
+                <View className="h-px bg-ink-800" />
+                <View className="mb-7 mt-5 flex-row items-end justify-between">
+                  <Text className="font-display text-xs text-ink-600">Total pot</Text>
+                  <Money agorot={data.total_pot_agorot} size="lg" tone="accent" />
                 </View>
                 <OddsBar
                   countA={counts.a}
@@ -221,7 +219,7 @@ export default function BetDetailScreen() {
                   winningOption={isResolved ? data.winning_option : null}
                   size="lg"
                 />
-              </Card>
+              </View>
             </Animated.View>
 
             {actionError && (
@@ -318,14 +316,12 @@ export default function BetDetailScreen() {
             {/* Creator controls */}
             {isCreator && !isResolved && !isCancelled && (
               <View className="mt-8">
-                <SectionTitle>You created this bet</SectionTitle>
-                <Card padded={false} className="overflow-hidden">
-                  <Text className="px-5 pb-4 pt-4 text-xs leading-5 text-ink-600">
+                <Panel title="You created this bet">
+                  <Text className="mb-5 text-xs leading-5 text-ink-600">
                     Only you can call it. Bets can&apos;t be edited — only locked, resolved or
                     cancelled.
                   </Text>
-                  <Divider />
-                  <View className="gap-3 p-4">
+                  <View className="gap-3">
                     <Button
                       title={`"${data.option_a_label}" won`}
                       variant="secondary"
@@ -356,7 +352,7 @@ export default function BetDetailScreen() {
                       onPress={confirmCancel}
                     />
                   </View>
-                </Card>
+                </Panel>
               </View>
             )}
           </ContentWidth>
@@ -427,8 +423,8 @@ function SideRoster({
 
   return (
     <View
-      className={`flex-1 rounded-xl border bg-ink-900 p-4 ${
-        won === true ? 'border-owed/35' : 'border-ink-800'
+      className={`flex-1 border-t-2 pt-4 ${
+        won === true ? 'border-owed' : dimmed ? 'border-ink-800' : 'border-ink-750'
       }`}
     >
       <View className="mb-3 flex-row items-center gap-1.5">
@@ -526,13 +522,9 @@ function ResolvedSummary({
         </Text>
 
         {side !== null && myAmountAgorot !== null && (
-          <Text
-            className={`mt-1.5 font-display-bold text-4xl ${iWon ? 'text-owed' : 'text-owing'}`}
-          >
-            {iWon
-              ? formatAgorot(myAmountAgorot, { sign: true })
-              : formatAgorot(myAmountAgorot, { sign: true })}
-          </Text>
+          <View className="mt-2">
+            <Money agorot={myAmountAgorot} size="xl" sign />
+          </View>
         )}
 
         <Text className="mt-2.5 text-center text-xs leading-5 text-ink-600">

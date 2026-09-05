@@ -5,9 +5,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BetCard, mySide } from '@/components/bet-card';
 import { DemoBadge } from '@/components/demo-entry';
 import { SparkIcon, TicketIcon } from '@/components/icons';
-import { ContentWidth, ScreenBackdrop } from '@/components/screen';
+import { ContentWidth, ScreenGround } from '@/components/screen';
 import { BetFeedSkeleton } from '@/components/skeletons';
-import { EmptySlot, EmptyState, ErrorNotice, SectionTitle, Title } from '@/components/ui';
+import { EmptyState, ErrorNotice, Panel, Title } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useFeedRealtime } from '@/hooks/use-group-realtime';
 import { fetchFeedBets } from '@/lib/queries';
@@ -46,7 +46,7 @@ export default function HomeScreen() {
 
   return (
     <View className="flex-1 bg-ink-950">
-      <ScreenBackdrop />
+      <ScreenGround />
       <SafeAreaView edges={['top']} className="flex-1">
         <ScrollView
           contentContainerClassName="px-gutter pb-10 pt-2"
@@ -60,15 +60,22 @@ export default function HomeScreen() {
           showsVerticalScrollIndicator={false}
         >
           <ContentWidth>
-            <View className="mb-section pt-2">
-              <Text className="font-display text-sm text-ink-600">
-                {greeting()}
-                {firstName ? `, ${firstName}` : ''}
-              </Text>
-              <View className="mt-1 flex-row items-center gap-3">
-                <Title>Your action</Title>
+            <View className="mb-8 pt-6">
+              <View className="mb-3 flex-row items-center justify-between">
+                <Text className="font-display text-xs text-ink-600">
+                  {greeting()}
+                  {firstName ? `, ${firstName}` : ''}
+                </Text>
                 <DemoBadge />
               </View>
+              <Title>Your action</Title>
+              {!feed.loading && (
+                <Text className="mt-3 text-sm text-ink-600">
+                  {mine.length === 0
+                    ? 'Nothing riding on you right now.'
+                    : `${mine.length} live ${mine.length === 1 ? 'bet' : 'bets'}, ${open.length} you could still join.`}
+                </Text>
+              )}
             </View>
 
             {feed.error && <ErrorNotice message={feed.error} />}
@@ -77,19 +84,17 @@ export default function HomeScreen() {
               <BetFeedSkeleton count={3} />
             ) : (
               <>
-                <SectionTitle>Your open bets</SectionTitle>
+                <Panel title="Riding on you" className="mb-8">
                 {mine.length === 0 ? (
-                  <View className="mb-section">
-                    <EmptySlot>
+                  <View>
                       <EmptyState
-                        icon={<TicketIcon size={22} color={colors.brass['400']} />}
+                        icon={<TicketIcon size={26} color={colors.ink['500']} />}
                         title="No live bets"
                         body="Pick a side on something below, or start one in a group."
                       />
-                    </EmptySlot>
                   </View>
                 ) : (
-                  <View className="mb-section">
+                  <View>
                     {mine.map((bet, i) => (
                       <BetCard
                         key={bet.id}
@@ -101,28 +106,31 @@ export default function HomeScreen() {
                     ))}
                   </View>
                 )}
+                </Panel>
 
-                <SectionTitle>New in your groups</SectionTitle>
+                <Panel title="Open in your groups">
                 {open.length === 0 ? (
-                  <EmptySlot>
                     <EmptyState
-                      icon={<SparkIcon size={22} color={colors.brass['400']} />}
+                      icon={<SparkIcon size={26} color={colors.ink['500']} />}
                       title="All caught up"
                       body="Nothing new to join right now. Post a bet and see who bites."
                     />
-                  </EmptySlot>
                 ) : (
                   open.map((bet, i) => (
                     <BetCard key={bet.id} bet={bet} currentUserId={userId} showGroup index={i} />
                   ))
                 )}
+                </Panel>
               </>
             )}
 
-            <Text className="mt-9 text-center text-2xs leading-4 tracking-normal text-ink-650">
-              Lotus Bet tracks obligations only.{'\n'}Settle up with your friends however you
-              normally do.
-            </Text>
+            <View className="mt-12">
+              <View className="h-px w-10 bg-ink-800" />
+              <Text className="mt-4 text-xs leading-5 text-ink-650">
+                Lotus Bet tracks obligations only. Settle up with your friends however you
+                normally do.
+              </Text>
+            </View>
           </ContentWidth>
         </ScrollView>
       </SafeAreaView>

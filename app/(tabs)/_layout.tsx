@@ -58,7 +58,7 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
   return (
     <View
       style={{ paddingBottom: Math.max(insets.bottom, 12) }}
-      className="border-t border-ink-850 bg-ink-1000/95 px-4 pt-2"
+      className="border-t border-ink-850 bg-ink-1000 px-4 pt-2"
     >
       <View className="flex-row items-center justify-around">
         {state.routes.map((route, index) => {
@@ -120,28 +120,23 @@ function TabButton({
         onResponderTerminate={() => {
           press.value = withSpring(1, motion.press);
         }}
-        className="items-center gap-1 py-1.5"
+        className="items-center py-1.5"
       >
-        {/* The lit pill behind the active icon does the work a colour change
-            alone cannot — it reads instantly in peripheral vision. */}
+        {/* A short rule above the active tab, not a lit pill. The indicator
+            marks position; the icon and label carry the meaning. */}
         <View
-          className={`h-8 w-14 items-center justify-center rounded-full ${
-            focused ? 'bg-brass-900' : 'bg-transparent'
-          }`}
-        >
-          <Icon
-            size={21}
-            active={focused}
-            color={focused ? colors.brass['300'] : colors.ink['600']}
-          />
+          className={`h-0.5 w-6 rounded-full ${focused ? 'bg-ink-50' : 'bg-transparent'}`}
+        />
+        <View className="items-center gap-1 pt-2">
+          <Icon size={20} active={focused} color={focused ? colors.ink['50'] : colors.ink['650']} />
+          <Text
+            className={`text-2xs tracking-normal ${
+              focused ? 'font-display text-ink-50' : 'text-ink-650'
+            }`}
+          >
+            {label}
+          </Text>
         </View>
-        <Text
-          className={`text-2xs tracking-normal ${
-            focused ? 'font-display text-brass-300' : 'text-ink-600'
-          }`}
-        >
-          {label}
-        </Text>
       </View>
     </Animated.View>
   );

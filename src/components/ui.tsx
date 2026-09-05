@@ -19,8 +19,9 @@ import Animated, {
   withTiming,
 } from '@/components/animated';
 
-import { initials } from '@/lib/format';
-import { avatarColors, colors, elevation, motion } from '@/theme';
+import { formatAgorot, initials } from '@/lib/format';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { avatarColors, colors, elevation, motion, tabular } from '@/theme';
 
 /**
  * The shared visual vocabulary. Everything here is presentational — anything
@@ -57,6 +58,7 @@ export const PressableScale = forwardRef<View, PressableScaleProps>(function Pre
   ref
 ) {
   const scale = useSharedValue(1);
+  const reduced = useReducedMotion();
   const animated = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
   return (
@@ -65,11 +67,13 @@ export const PressableScale = forwardRef<View, PressableScaleProps>(function Pre
       disabled={disabled}
       style={[animated, style as never]}
       onPressIn={(e) => {
-        scale.value = withSpring(scaleTo, motion.press);
+        // Feedback is never removed under reduced motion — an unresponsive
+        // press reads as broken. Only the travel goes.
+        scale.value = reduced ? 1 : withSpring(scaleTo, motion.press);
         onPressIn?.(e);
       }}
       onPressOut={(e) => {
-        scale.value = withSpring(1, motion.press);
+        scale.value = reduced ? 1 : withSpring(1, motion.press);
         onPressOut?.(e);
       }}
       {...props}
@@ -79,27 +83,32 @@ export const PressableScale = forwardRef<View, PressableScaleProps>(function Pre
 
 // --- Surfaces ---------------------------------------------------------------
 
-type SurfaceLevel = 'sunken' | 'base' | 'raised';
+type SurfaceLevel = 'flat' | 'sunken' | 'base' | 'raised';
 
+// Most content does not need a container. A bordered, shadowed, rounded box
+// around every group of text is the SaaS-card kit, and it flattens hierarchy:
+// when everything is a card, nothing is. `flat` is the default for content that
+// simply sits on the felt; the heavier levels are reserved for objects that
+// should read as physical.
 const SURFACE: Record<SurfaceLevel, string> = {
-  // Sunken reads as a well — used for inputs and inset rows.
-  sunken: 'bg-ink-1000 border border-ink-800',
-  base: 'bg-ink-900 border border-ink-800',
-  // Raised is for the things that should feel closest to the user.
-  raised: 'bg-ink-850 border border-ink-750',
+  flat: '',
+  sunken: 'bg-ink-1000',
+  base: 'bg-ink-900',
+  raised: 'bg-ink-850',
 };
 
 export function Card({
   className = '',
   level = 'base',
   padded = true,
-  shadow = true,
+  shadow = false,
   style,
   ...props
 }: ViewProps & {
   className?: string;
   level?: SurfaceLevel;
   padded?: boolean;
+  /** Off by default. Weight is earned, not applied to every surface. */
   shadow?: boolean;
 }) {
   return (
@@ -108,6 +117,82 @@ export function Card({
       className={`rounded-2xl ${SURFACE[level]} ${padded ? 'p-5' : ''} ${className}`}
       {...props}
     />
+  );
+}
+
+/**
+ * A titled block with a hairline above it. This replaces most cards: the rule
+ * and the space around it carry the grouping, at a fraction of the visual cost.
+ */
+export function Panel({
+  title,
+  action,
+  children,
+  className = '',
+}: {
+  title?: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <View className={className}>
+      <View className="h-px bg-ink-800" />
+      {(title || action) && (
+        <View className="flex-row items-center justify-between pb-1 pt-4">
+          {title ? <Text className="font-display text-xs text-ink-600">{title}</Text> : <View />}
+          {action}
+        </View>
+      )}
+      <View className={title || action ? 'pt-2' : 'pt-4'}>{children}</View>
+    </View>
+  );
+}
+
+/**
+ * A figure. Always tabular so digits do not shift as a value changes, and
+ * always sized from the display scale — money is the loudest thing on screen.
+ */
+export function Money({
+  agorot,
+  size = 'md',
+  tone,
+  sign = false,
+  className = '',
+}: {
+  agorot: number;
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'hero';
+  /** Omit to colour by direction. */
+  tone?: 'neutral' | 'owed' | 'owing' | 'accent';
+  sign?: boolean;
+  className?: string;
+}) {
+  const sizes = {
+    sm: 'text-base',
+    md: 'text-xl',
+    lg: 'text-3xl',
+    xl: 'text-5xl',
+    hero: 'text-6xl',
+  } as const;
+
+  const resolved =
+    tone ?? (agorot > 0 ? 'owed' : agorot < 0 ? 'owing' : 'neutral');
+  const tones = {
+    neutral: 'text-ink-50',
+    owed: 'text-owed',
+    owing: 'text-owing',
+    accent: 'text-brass-400',
+  } as const;
+
+  return (
+    <Text
+      style={tabular}
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      className={`font-display-bold ${sizes[size]} ${tones[resolved]} ${className}`}
+    >
+      {formatAgorot(agorot, { sign })}
+    </Text>
   );
 }
 
@@ -120,7 +205,7 @@ export function Divider({ className = '' }: { className?: string }) {
 
 /** Screen-level heading. One per screen, at the top of the scroll. */
 export function Title({ className = '', ...props }: TextProps & { className?: string }) {
-  return <Text className={`font-display-bold text-3xl text-ink-50 ${className}`} {...props} />;
+  return <Text className={`font-display-bold text-4xl text-ink-50 ${className}`} {...props} />;
 }
 
 /** The label above a group of cards. */
@@ -132,12 +217,9 @@ export function SectionTitle({
 }: TextProps & { className?: string; action?: React.ReactNode }) {
   return (
     <View className={`mb-3 flex-row items-center justify-between ${className}`}>
-      <View className="flex-row items-center gap-2.5">
-        <View className="h-px w-4 bg-ink-750" />
-        <Text className="font-display text-xs text-ink-600" {...props}>
-          {children}
-        </Text>
-      </View>
+      <Text className="font-display text-xs text-ink-600" {...props}>
+        {children}
+      </Text>
       {action}
     </View>
   );
@@ -155,18 +237,21 @@ export function Overline({ className = '', ...props }: TextProps & { className?:
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
+// The primary action is champagne on felt — the highest contrast pairing the
+// palette allows, so it needs no glow to be found. Secondary actions are a
+// single hairline; ghost is type alone.
 const BUTTON_VARIANT: Record<ButtonVariant, { container: string; label: string }> = {
-  primary: { container: 'bg-brass-500', label: 'text-white' },
-  secondary: { container: 'bg-ink-800 border border-ink-700', label: 'text-ink-50' },
-  ghost: { container: 'bg-transparent border border-ink-700', label: 'text-ink-500' },
-  danger: { container: 'bg-owing-shade border border-owing/30', label: 'text-owing' },
-  success: { container: 'bg-owed-shade border border-owed/30', label: 'text-owed' },
+  primary: { container: 'bg-ink-50', label: 'text-ink-950' },
+  secondary: { container: 'bg-ink-850', label: 'text-ink-50' },
+  ghost: { container: 'bg-transparent border border-ink-750', label: 'text-ink-500' },
+  danger: { container: 'bg-transparent border border-owing/40', label: 'text-owing' },
+  success: { container: 'bg-transparent border border-owed/40', label: 'text-owed' },
 };
 
 const BUTTON_SIZE: Record<ButtonSize, { container: string; label: string }> = {
-  sm: { container: 'h-9 rounded-xl px-3.5', label: 'text-sm' },
-  md: { container: 'h-12 rounded-2xl px-5', label: 'text-base' },
-  lg: { container: 'h-14 rounded-2xl px-6', label: 'text-lg' },
+  sm: { container: 'h-9 rounded-lg px-3.5', label: 'text-sm' },
+  md: { container: 'h-12 rounded-xl px-5', label: 'text-base' },
+  lg: { container: 'h-14 rounded-xl px-6', label: 'text-base' },
 };
 
 interface ButtonProps extends Omit<PressableProps, 'children'> {
@@ -202,16 +287,17 @@ export const Button = forwardRef<View, ButtonProps>(function Button(
       accessibilityRole="button"
       accessibilityState={{ disabled: Boolean(isDisabled), busy: loading }}
       disabled={isDisabled}
-      // The primary button carries a coloured glow so the main action on any
-      // screen is findable without reading anything.
-      style={variant === 'primary' && !isDisabled ? elevation.glow(colors.brass['600']) : undefined}
+
       className={`flex-row items-center justify-center gap-2 ${s.container} ${v.container} ${
         isDisabled ? 'opacity-40' : ''
       } ${className}`}
       {...props}
     >
       {loading ? (
-        <ActivityIndicator color={variant === 'primary' ? '#fff' : colors.ink['500']} size="small" />
+        <ActivityIndicator
+          color={variant === 'primary' ? colors.ink['950'] : colors.ink['500']}
+          size="small"
+        />
       ) : (
         <>
           {icon}
@@ -240,8 +326,8 @@ export function Chip({
       onPress={onPress}
       accessibilityRole="radio"
       accessibilityState={{ selected }}
-      className={`rounded-full border px-3.5 py-2 ${
-        selected ? 'border-brass-500 bg-brass-900' : 'border-ink-700 bg-ink-850'
+      className={`rounded-lg border px-3.5 py-2 ${
+        selected ? 'border-brass-500/60 bg-brass-900' : 'border-ink-750 bg-transparent'
       } ${className}`}
     >
       <Text
@@ -440,13 +526,11 @@ export function EmptyState({
   action?: React.ReactNode;
 }) {
   return (
-    <View className="items-center px-6 py-10">
-      <View className="mb-4 h-14 w-14 items-center justify-center rounded-2xl border border-ink-750 bg-ink-850">
-        {icon}
-      </View>
-      <Text className="mb-1.5 text-center font-display text-lg text-ink-50">{title}</Text>
-      <Text className="max-w-[280px] text-center text-sm leading-5 text-ink-600">{body}</Text>
-      {action && <View className="mt-5">{action}</View>}
+    <View className="py-10">
+      <View className="mb-4 opacity-40">{icon}</View>
+      <Text className="mb-2 font-display text-xl text-ink-400">{title}</Text>
+      <Text className="max-w-[300px] text-sm leading-6 text-ink-600">{body}</Text>
+      {action && <View className="mt-6 self-start">{action}</View>}
     </View>
   );
 }
@@ -454,19 +538,15 @@ export function EmptyState({
 /** Dashed container that wraps an EmptyState inside a section. */
 export function EmptySlot({ children }: { children: React.ReactNode }) {
   return (
-    <View className="rounded-2xl border border-dashed border-ink-750 bg-ink-900/40">{children}</View>
+    <View>{children}</View>
   );
 }
 
 export function ErrorNotice({ message, className = '' }: { message: string; className?: string }) {
   return (
-    <View
-      className={`mb-4 flex-row items-start gap-3 rounded-2xl border border-owing/25 bg-owing-shade px-4 py-3.5 ${className}`}
-    >
-      <View className="mt-0.5 h-4 w-4 items-center justify-center rounded-full bg-owing/20">
-        <Text className="text-2xs font-bold tracking-normal text-owing">!</Text>
-      </View>
-      <Text className="flex-1 text-sm leading-5 text-owing">{message}</Text>
+    <View className={`mb-4 flex-row gap-3 ${className}`}>
+      <View className="w-0.5 rounded-full bg-owing" />
+      <Text className="flex-1 py-0.5 text-sm leading-5 text-owing">{message}</Text>
     </View>
   );
 }
@@ -498,15 +578,21 @@ export function Stat({
       : tone === 'owing'
         ? 'text-owing'
         : tone === 'accent'
-          ? 'text-brass-300'
+          ? 'text-brass-400'
           : 'text-ink-50';
 
   return (
-    <View className="flex-1 rounded-2xl border border-ink-800 bg-ink-900 px-3.5 py-4">
-      <Overline>{label}</Overline>
-      <Text numberOfLines={1} className={`mt-1.5 font-display-bold text-xl ${toneClass}`}>
+    <View className="flex-1">
+      <View className="h-px bg-ink-800" />
+      <Text
+        style={tabular}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        className={`mt-3 font-display-bold text-2xl ${toneClass}`}
+      >
         {value}
       </Text>
+      <Text className="mt-1 text-xs text-ink-600">{label}</Text>
     </View>
   );
 }

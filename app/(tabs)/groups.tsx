@@ -4,24 +4,22 @@ import { RefreshControl, ScrollView, Text, View } from 'react-native';
 import Animated, { FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ChevronRightIcon, GroupsIcon, PlusIcon, TicketIcon } from '@/components/icons';
-import { ContentWidth, ScreenBackdrop } from '@/components/screen';
+import { GroupsIcon, PlusIcon, TicketIcon } from '@/components/icons';
+import { ContentWidth, ScreenGround } from '@/components/screen';
 import { GroupListSkeleton } from '@/components/skeletons';
 import {
   AvatarStack,
   Button,
-  EmptySlot,
   EmptyState,
   ErrorNotice,
-  Overline,
+  Money,
   PressableScale,
   Title,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
-import { formatAgorot } from '@/lib/format';
 import { fetchGroupBalances, fetchMyGroups, type GroupWithMembers } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
-import { colors, elevation, motion } from '@/theme';
+import { colors, motion } from '@/theme';
 
 export default function GroupsScreen() {
   const { session } = useAuth();
@@ -42,7 +40,7 @@ export default function GroupsScreen() {
 
   return (
     <View className="flex-1 bg-ink-950">
-      <ScreenBackdrop />
+      <ScreenGround />
       <SafeAreaView edges={['top']} className="flex-1">
         <ScrollView
           contentContainerClassName="px-gutter pb-10 pt-2"
@@ -56,11 +54,13 @@ export default function GroupsScreen() {
           showsVerticalScrollIndicator={false}
         >
           <ContentWidth>
-            <View className="mb-6 flex-row items-end justify-between pt-4">
+            <View className="mb-7 pt-6">
               <Title>Groups</Title>
-              <Text className="pb-1.5 text-sm text-ink-600">
-                {list.length || ''} {list.length === 1 ? 'group' : list.length ? 'groups' : ''}
-              </Text>
+              {!groups.loading && list.length > 0 && (
+                <Text className="mt-3 text-sm text-ink-600">
+                  {list.length} {list.length === 1 ? 'group' : 'groups'}, settled up outside the app.
+                </Text>
+              )}
             </View>
 
             {groups.error && <ErrorNotice message={groups.error} />}
@@ -83,13 +83,11 @@ export default function GroupsScreen() {
             {groups.loading ? (
               <GroupListSkeleton />
             ) : list.length === 0 ? (
-              <EmptySlot>
-                <EmptyState
-                  icon={<GroupsIcon size={22} color={colors.brass['400']} />}
-                  title="No groups yet"
-                  body="Create one for your football chat, your flatmates, whoever — then share the invite code."
-                />
-              </EmptySlot>
+              <EmptyState
+                icon={<GroupsIcon size={26} color={colors.ink['500']} />}
+                title="No groups yet"
+                body="Create one for your football chat, your flatmates, whoever — then share the invite code."
+              />
             ) : (
               list.map((group, i) => (
                 <GroupRow key={group.id} group={group} currentUserId={userId} index={i} />
@@ -146,26 +144,23 @@ function GroupRow({
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel={`Group: ${group.name}`}
-          style={elevation.card}
-          className="mb-3 rounded-2xl border border-ink-800 bg-ink-900 p-5"
+          className="py-5"
         >
-          <View className="flex-row items-center gap-4">
-            <View className="h-[52px] w-[52px] items-center justify-center rounded-2xl border border-ink-750 bg-ink-850">
-              <Text className="text-2xl">{group.emoji ?? '🎲'}</Text>
-            </View>
+          <View className="h-px bg-ink-800" />
+          <View className="mt-5 flex-row items-start gap-4">
+            <Text className="text-2xl leading-7">{group.emoji ?? '🎲'}</Text>
 
             <View className="flex-1">
-              <Text numberOfLines={1} className="font-display text-base text-ink-50">
+              <Text numberOfLines={1} className="font-display text-lg leading-6 text-ink-50">
                 {group.name}
               </Text>
-              <View className="mt-2">
+              <View className="mt-3">
                 <AvatarStack people={members} size={24} />
               </View>
             </View>
 
-            <View className="items-end gap-1">
+            <View className="items-end">
               <BalancePreview balance={balance} />
-              <ChevronRightIcon size={16} color={colors.ink['650']} />
             </View>
           </View>
         </PressableScale>
@@ -175,19 +170,13 @@ function GroupRow({
 }
 
 function BalancePreview({ balance }: { balance: number | null }) {
-  if (balance === null) {
-    return (
-      <View className="flex-row items-center gap-1.5">
-        <TicketIcon size={14} color={colors.ink['650']} />
-      </View>
-    );
-  }
+  if (balance === null) return <TicketIcon size={15} color={colors.ink['700']} />;
 
   if (balance === 0) {
     return (
       <>
-        <Text className="font-display text-sm text-ink-500">All square</Text>
-        <Overline>settled</Overline>
+        <Text className="font-display text-lg text-ink-500">Square</Text>
+        <Text className="mt-0.5 text-xs text-ink-650">nothing owed</Text>
       </>
     );
   }
@@ -195,10 +184,8 @@ function BalancePreview({ balance }: { balance: number | null }) {
   const owed = balance > 0;
   return (
     <>
-      <Text className={`font-display-bold text-xl ${owed ? 'text-owed' : 'text-owing'}`}>
-        {formatAgorot(Math.abs(balance))}
-      </Text>
-      <Overline>{owed ? "you're owed" : 'you owe'}</Overline>
+      <Money agorot={Math.abs(balance)} size="lg" tone={owed ? 'owed' : 'owing'} />
+      <Text className="mt-0.5 text-xs text-ink-650">{owed ? "you're owed" : 'you owe'}</Text>
     </>
   );
 }

@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-nat
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ScreenBackdrop } from '@/components/screen';
+import { ScreenGround } from '@/components/screen';
 import { Avatar, Button, ErrorNotice } from '@/components/ui';
 import { useAuth } from '@/providers/auth-provider';
 import { colors } from '@/theme';
@@ -32,7 +32,7 @@ export default function ProfileSetupScreen() {
 
   return (
     <View className="flex-1 bg-ink-950">
-      <ScreenBackdrop />
+      <ScreenGround />
       <SafeAreaView className="flex-1">
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -40,10 +40,10 @@ export default function ProfileSetupScreen() {
         >
           <View>
             <Animated.View entering={FadeInDown.duration(420)}>
-              <Text className="font-display-bold text-3xl leading-9 text-ink-50">
-                What should we{'\n'}call you?
+              <Text className="font-display-bold text-5xl leading-[54px] text-ink-50">
+                What should{'\n'}we call you?
               </Text>
-              <Text className="mt-3 text-base leading-6 text-ink-600">
+              <Text className="mt-5 text-base leading-7 text-ink-500">
                 This is the name your friends see on every bet.
               </Text>
             </Animated.View>
@@ -52,9 +52,9 @@ export default function ProfileSetupScreen() {
                 from their user id, so it is the one they will actually get. */}
             <Animated.View
               entering={FadeInDown.delay(90).duration(420)}
-              className="my-9 items-center"
+              className="my-10"
             >
-              <Avatar name={trimmed || '?'} id={session?.user.id} size={88} ring />
+              <Avatar name={trimmed || '?'} id={session?.user.id} size={72} />
             </Animated.View>
 
             <Animated.View entering={FadeInDown.delay(150).duration(420)}>
@@ -71,11 +71,11 @@ export default function ProfileSetupScreen() {
                 autoFocus
                 returnKeyType="done"
                 onSubmitEditing={submit}
-                className={`h-16 rounded-2xl border bg-ink-900 px-4 text-center font-display text-xl text-ink-50 ${
-                  focused ? 'border-brass-500' : 'border-ink-750'
+                className={`h-16 border-b-2 px-1 font-display text-2xl text-ink-50 ${
+                  focused ? 'border-ink-50' : 'border-ink-750'
                 }`}
               />
-              <Text className="mt-2.5 text-center text-xs text-ink-600">
+              <Text className="mt-3 text-xs text-ink-600">
                 {trimmed.length < 2
                   ? 'At least two characters.'
                   : `${40 - trimmed.length} characters left`}

@@ -1,6 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { View, useWindowDimensions, type ViewProps } from 'react-native';
 
+import { Grain } from '@/components/texture';
 import { colors } from '@/theme';
 
 /**
@@ -40,6 +41,16 @@ export function ScreenBackdrop({ tint = colors.ink['700'] }: { tint?: string }) 
       style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 460 }}
       pointerEvents="none"
     />
+  );
+}
+
+/** The wash plus the grain. Every screen sits on this. */
+export function ScreenGround({ tint }: { tint?: string }) {
+  return (
+    <>
+      <ScreenBackdrop tint={tint} />
+      <Grain />
+    </>
   );
 }
 

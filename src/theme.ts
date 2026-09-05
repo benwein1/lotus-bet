@@ -80,3 +80,10 @@ export function avatarColors(seed: string): { bg: string; fg: string } {
   }
   return AVATAR_HUES[hash % AVATAR_HUES.length]!;
 }
+
+/**
+ * Lining, fixed-width figures. Money is the most-read content in this app and
+ * proportional digits visibly shift as a balance changes; tabular ones stay
+ * put. Applied to every figure, never to prose.
+ */
+export const tabular = { fontVariant: ['tabular-nums' as const] };

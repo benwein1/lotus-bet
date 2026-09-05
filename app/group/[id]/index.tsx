@@ -7,19 +7,17 @@ import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 
 import { BetCard } from '@/components/bet-card';
 import { CheckIcon, CopyIcon, HandshakeIcon, PlusIcon, TicketIcon } from '@/components/icons';
-import { ContentWidth, ScreenBackdrop } from '@/components/screen';
+import { ContentWidth, ScreenGround } from '@/components/screen';
 import { BetFeedSkeleton } from '@/components/skeletons';
 import {
   Avatar,
   Button,
-  Card,
-  EmptySlot,
   EmptyState,
   ErrorNotice,
   Loading,
-  Overline,
+  Money,
+  Panel,
   PressableScale,
-  SectionTitle,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
@@ -89,7 +87,7 @@ export default function GroupDetailScreen() {
     <>
       <Stack.Screen options={{ title: group.data.name }} />
       <View className="flex-1 bg-ink-950">
-        <ScreenBackdrop />
+        <ScreenGround />
         <ScrollView
           contentContainerClassName="px-gutter pb-12 pt-2"
           refreshControl={
@@ -104,16 +102,14 @@ export default function GroupDetailScreen() {
           <ContentWidth>
             {/* Identity + your position, the two things you open a group for */}
             <Animated.View entering={FadeInDown.duration(motion.duration.base)}>
-              <Card level="raised" className="mb-4">
-                <View className="flex-row items-center gap-4">
-                  <View className="h-14 w-14 items-center justify-center rounded-2xl border border-ink-700 bg-ink-800">
-                    <Text className="text-3xl">{group.data.emoji ?? '🎲'}</Text>
-                  </View>
+              <View className="mb-9 pt-4">
+                <View className="flex-row items-start gap-3">
+                  <Text className="text-2xl leading-8">{group.data.emoji ?? '🎲'}</Text>
                   <View className="flex-1">
-                    <Text numberOfLines={2} className="font-display text-lg leading-6 text-ink-50">
+                    <Text numberOfLines={2} className="font-display-bold text-3xl leading-9 text-ink-50">
                       {group.data.name}
                     </Text>
-                    <Text className="mt-0.5 text-xs text-ink-600">
+                    <Text className="mt-2 text-sm text-ink-600">
                       {group.data.members.length}{' '}
                       {group.data.members.length === 1 ? 'member' : 'members'}, {allBets.length}{' '}
                       {allBets.length === 1 ? 'bet' : 'bets'}
@@ -121,12 +117,16 @@ export default function GroupDetailScreen() {
                   </View>
                 </View>
 
-                <View className="mt-5 flex-row items-end justify-between border-t border-ink-750 pt-4">
+                <View className="mt-7 flex-row items-end justify-between">
                   <View>
-                    <Overline>Your position here</Overline>
-                    <Text className={`mt-1 font-display-bold text-3xl ${balanceTone}`}>
-                      {myBalance === 0 ? 'All square' : formatAgorot(myBalance, { sign: true })}
-                    </Text>
+                    <Text className="font-display text-xs text-ink-600">Your position here</Text>
+                    <View className="mt-2">
+                      {myBalance === 0 ? (
+                        <Text className="font-display-bold text-4xl text-ink-50">Square</Text>
+                      ) : (
+                        <Money agorot={myBalance} size="xl" sign />
+                      )}
+                    </View>
                   </View>
                   <Button
                     title="Settle up"
@@ -138,14 +138,13 @@ export default function GroupDetailScreen() {
                     }
                   />
                 </View>
-              </Card>
+              </View>
             </Animated.View>
 
             {/* Members + invite */}
             <Animated.View entering={FadeInDown.delay(60).duration(motion.duration.base)}>
-              <SectionTitle>Members</SectionTitle>
-              <Card className="mb-4" padded={false}>
-                <View className="px-5 pt-4">
+              <Panel title="Members" className="mb-8">
+                <View>
                   {group.data.members.map((member, i) => (
                     <View
                       key={member.user_id}
@@ -173,17 +172,17 @@ export default function GroupDetailScreen() {
                   ))}
                 </View>
 
-                <View className="p-4">
+                <View className="mt-5">
                   <PressableScale
                     onPress={copyInvite}
                     scaleTo={0.985}
                     accessibilityRole="button"
                     accessibilityLabel="Copy invite code"
-                    className="flex-row items-center justify-between rounded-2xl border border-dashed border-ink-700 bg-ink-1000 px-4 py-3.5"
+                    className="flex-row items-center justify-between rounded-xl bg-ink-1000 px-4 py-4"
                   >
                     <View>
-                      <Overline>Invite code</Overline>
-                      <Text className="mt-0.5 font-display-bold text-xl tracking-[3px] text-ink-50">
+                      <Text className="font-display text-xs text-ink-600">Invite code</Text>
+                      <Text className="mt-1 font-display-bold text-2xl tracking-[4px] text-ink-50">
                         {group.data.invite_code}
                       </Text>
                     </View>
@@ -203,7 +202,7 @@ export default function GroupDetailScreen() {
                     </View>
                   </PressableScale>
                 </View>
-              </Card>
+              </Panel>
             </Animated.View>
 
             <Animated.View entering={FadeIn.delay(120).duration(motion.duration.base)}>
@@ -219,34 +218,30 @@ export default function GroupDetailScreen() {
 
             {bets.error && <ErrorNotice message={bets.error} />}
 
-            <SectionTitle>Live bets</SectionTitle>
+            <Panel title="Live bets" className="mb-8">
             {bets.loading ? (
               <BetFeedSkeleton count={2} />
             ) : openBets.length === 0 ? (
-              <View className="mb-section">
-                <EmptySlot>
-                  <EmptyState
-                    icon={<TicketIcon size={22} color={colors.brass['400']} />}
-                    title="Nothing running"
-                    body="Start the first bet — pick a question with exactly two answers."
-                  />
-                </EmptySlot>
-              </View>
+              <EmptyState
+                icon={<TicketIcon size={26} color={colors.ink['500']} />}
+                title="Nothing running"
+                body="Start the first bet — pick a question with exactly two answers."
+              />
             ) : (
-              <View className="mb-section">
+              <View>
                 {openBets.map((bet, i) => (
                   <BetCard key={bet.id} bet={bet} currentUserId={userId} index={i} />
                 ))}
               </View>
             )}
+            </Panel>
 
             {pastBets.length > 0 && (
-              <>
-                <SectionTitle>Settled &amp; cancelled</SectionTitle>
+              <Panel title="Settled and cancelled">
                 {pastBets.map((bet, i) => (
                   <BetCard key={bet.id} bet={bet} currentUserId={userId} index={i} />
                 ))}
-              </>
+              </Panel>
             )}
           </ContentWidth>
         </ScrollView>

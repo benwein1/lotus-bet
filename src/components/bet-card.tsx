@@ -1,9 +1,11 @@
 import { Link } from 'expo-router';
 import { Text, View } from 'react-native';
-import Animated, { FadeInDown } from '@/components/animated';
+import Animated, { FadeIn, FadeInDown } from '@/components/animated';
+
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 
 import { ClockIcon, LockIcon } from '@/components/icons';
-import { Badge, LiveDot, PressableScale } from '@/components/ui';
+import { Badge, LiveDot, Money, PressableScale } from '@/components/ui';
 import type { BetSide, BetStatus, BetWithPositions } from '@/lib/database.types';
 import { formatAgorot, formatCountdown } from '@/lib/format';
 import { colors, elevation, motion } from '@/theme';
@@ -48,6 +50,7 @@ export function BetCard({
   /** Position in the list, used to stagger the entrance. */
   index?: number;
 }) {
+  const reduced = useReducedMotion();
   const counts = countSides(bet);
   const side = mySide(bet, currentUserId);
   const countdown = bet.status === 'open' ? formatCountdown(bet.close_at) : null;
@@ -58,26 +61,33 @@ export function BetCard({
 
   // A settled bet carries its outcome on the edge, so scrolling history reads
   // at a glance without stopping to read the footer.
+  // A left keyline, not an outline. It marks state without boxing the content.
   const edge = iWon
-    ? 'border-owed/35'
+    ? 'border-l-2 border-owed'
     : iLost
-      ? 'border-owing/35'
+      ? 'border-l-2 border-owing'
       : side
-        ? 'border-brass-500/40'
-        : 'border-ink-800';
+        ? 'border-l-2 border-brass-500'
+        : 'border-l-2 border-transparent';
 
   const myLabel = side === 'a' ? bet.option_a_label : bet.option_b_label;
   const winningLabel = bet.winning_option === 'a' ? bet.option_a_label : bet.option_b_label;
 
   return (
-    <Animated.View entering={FadeInDown.delay(index * motion.stagger).duration(motion.duration.base)}>
+    <Animated.View
+      entering={
+        reduced
+          ? FadeIn.duration(motion.duration.fast)
+          : FadeInDown.delay(index * motion.stagger).duration(motion.duration.base)
+      }
+    >
       <Link href={{ pathname: '/bet/[id]', params: { id: bet.id } }} asChild>
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel={`Bet: ${bet.title}`}
           style={elevation.card}
-          className={`mb-3 overflow-hidden rounded-[20px] border bg-ink-900 ${edge} ${
-            isCancelled ? 'opacity-55' : ''
+          className={`mb-2.5 overflow-hidden rounded-[18px] bg-ink-900 ${edge} ${
+            isCancelled ? 'opacity-50' : ''
           }`}
         >
           {/* Header: where it lives, and what state it's in */}
@@ -105,12 +115,10 @@ export function BetCard({
               {bet.title}
             </Text>
 
-            <View className="mt-2.5 flex-row items-center gap-3">
-              <View className="flex-row items-baseline gap-1.5 rounded-full bg-brass-900 px-2.5 py-1">
-                <Text className="font-display-bold text-sm text-brass-300">
-                  {formatAgorot(bet.total_pot_agorot)}
-                </Text>
-                <Text className="text-2xs tracking-normal text-brass-400/70">pot</Text>
+            <View className="mt-3 flex-row items-center gap-4">
+              <View className="flex-row items-baseline gap-1.5">
+                <Money agorot={bet.total_pot_agorot} size="md" tone="accent" />
+                <Text className="text-xs text-ink-600">pot</Text>
               </View>
 
               {countdown && (

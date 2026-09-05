@@ -5,18 +5,9 @@ import { Alert, Platform, RefreshControl, ScrollView, Text, View } from 'react-n
 import Animated, { FadeInDown } from '@/components/animated';
 
 import { CheckIcon, HandshakeIcon } from '@/components/icons';
-import { ContentWidth, ScreenBackdrop } from '@/components/screen';
+import { ContentWidth, ScreenGround } from '@/components/screen';
 import { SettleSkeleton } from '@/components/skeletons';
-import {
-  Avatar,
-  Button,
-  Card,
-  EmptySlot,
-  EmptyState,
-  ErrorNotice,
-  Overline,
-  SectionTitle,
-} from '@/components/ui';
+import { Avatar, Button, EmptyState, ErrorNotice, Money, Panel } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
 import { useSettlement } from '@/hooks/use-settlement';
@@ -120,7 +111,7 @@ export default function SettleUpScreen() {
 
   return (
     <View className="flex-1 bg-ink-950">
-      <ScreenBackdrop
+      <ScreenGround
         tint={myBalance > 0 ? colors.owed.DEFAULT : myBalance < 0 ? colors.owing.DEFAULT : colors.ink['700']}
       />
       <ScrollView
@@ -140,38 +131,38 @@ export default function SettleUpScreen() {
           ) : (
             <>
               <Animated.View entering={FadeInDown.duration(motion.duration.base)}>
-                <Card level="raised" className="mb-6 items-center py-7">
-                  <Overline>Your net position</Overline>
-                  <Text className={`mt-2 font-display-bold text-5xl ${balanceTone}`}>
-                    {myBalance === 0 ? 'Square' : formatAgorot(myBalance, { sign: true })}
-                  </Text>
-                  <Text className="mt-2 text-xs text-ink-600">
+                <View className="mb-9 pt-4">
+                  <Text className="font-display text-xs text-ink-600">Your net position</Text>
+                  {myBalance === 0 ? (
+                    <Text className="mt-3 font-display-bold text-6xl text-ink-50">Square</Text>
+                  ) : (
+                    <View className="mt-3">
+                      <Money agorot={myBalance} size="hero" sign />
+                    </View>
+                  )}
+                  <Text className="mt-4 max-w-[280px] text-sm leading-6 text-ink-600">
                     {myBalance > 0
-                      ? 'The group owes you this much'
+                      ? 'The group owes you this much. Nudge them.'
                       : myBalance < 0
-                        ? 'You owe this much to the group'
-                        : 'Nothing outstanding here'}
+                        ? 'You owe this much. Pay however you normally do, then tick it off.'
+                        : 'Nothing outstanding here.'}
                   </Text>
-                </Card>
+                </View>
               </Animated.View>
 
               {(balances.error || actionError) && (
                 <ErrorNotice message={actionError ?? balances.error ?? ''} />
               )}
 
-              <SectionTitle>Suggested payments</SectionTitle>
+              <Panel title="Suggested payments" className="mb-9">
               {settlement.transactions.length === 0 ? (
-                <View className="mb-section">
-                  <EmptySlot>
                     <EmptyState
-                      icon={<HandshakeIcon size={22} color={colors.sideA.DEFAULT} />}
+                      icon={<HandshakeIcon size={26} color={colors.ink['500']} />}
                       title="Everyone's square"
                       body="No outstanding balances in this group. Resolve a bet and they'll show up here."
                     />
-                  </EmptySlot>
-                </View>
               ) : (
-                <View className="mb-section">
+                <View>
                   <Text className="mb-4 text-xs leading-5 text-ink-600">
                     The shortest set of payments that clears every balance. Pay each other however
                     you normally do — cash, Bit, bank transfer — then tick it off here.
@@ -191,10 +182,9 @@ export default function SettleUpScreen() {
                           motion.duration.base
                         )}
                       >
-                        <Card
-                          className={`mb-2.5 ${involvesMe ? 'border-brass-500/35' : 'opacity-80'}`}
-                        >
-                          <View className="flex-row items-center gap-3">
+                        <View className={involvesMe ? 'py-4' : 'py-4 opacity-55'}>
+                          <View className="h-px bg-ink-800" />
+                          <View className="mt-4 flex-row items-center gap-3">
                             <Avatar name={fromName} id={txn.fromUserId} size={34} />
                             <View className="flex-1">
                               <Text className="text-xs text-ink-600">
@@ -203,13 +193,13 @@ export default function SettleUpScreen() {
                                   {txn.toUserId === userId ? 'you' : toName}
                                 </Text>
                               </Text>
-                              <Text
-                                className={`mt-0.5 font-display-bold text-xl ${
-                                  iPay ? 'text-owing' : involvesMe ? 'text-owed' : 'text-ink-50'
-                                }`}
-                              >
-                                {formatAgorot(txn.amountAgorot)}
-                              </Text>
+                              <View className="mt-1">
+                                <Money
+                                  agorot={txn.amountAgorot}
+                                  size="lg"
+                                  tone={iPay ? 'owing' : involvesMe ? 'owed' : 'neutral'}
+                                />
+                              </View>
                             </View>
 
                             <Button
@@ -237,16 +227,16 @@ export default function SettleUpScreen() {
                               }
                             />
                           </View>
-                        </Card>
+                        </View>
                       </Animated.View>
                     );
                   })}
                 </View>
               )}
+              </Panel>
 
-              <SectionTitle>Everyone&apos;s balance</SectionTitle>
-              <Card padded={false}>
-                <View className="px-5 py-2">
+              <Panel title="Everyone's balance">
+                <View>
                   {settlement.balances.map((balance, i) => (
                     <View
                       key={balance.userId}
@@ -279,12 +269,15 @@ export default function SettleUpScreen() {
                     </View>
                   ))}
                 </View>
-              </Card>
+              </Panel>
 
-              <Text className="mt-7 text-center text-2xs leading-4 tracking-normal text-ink-650">
-                Lotus Bet never moves money.{'\n'}Marking a payment as paid only updates the running
-                total here.
-              </Text>
+              <View className="mt-12">
+                <View className="h-px w-10 bg-ink-800" />
+                <Text className="mt-4 text-xs leading-5 text-ink-650">
+                  Lotus Bet never moves money. Marking a payment as paid only updates the running
+                  total here.
+                </Text>
+              </View>
             </>
           )}
         </ContentWidth>
