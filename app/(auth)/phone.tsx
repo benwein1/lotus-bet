@@ -4,6 +4,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View } fro
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { DemoEntry } from '@/components/demo-entry';
 import { ScreenBackdrop } from '@/components/screen';
 import { Button, ErrorNotice } from '@/components/ui';
 import { useAuth } from '@/providers/auth-provider';
@@ -106,6 +107,8 @@ export default function PhoneScreen() {
               <Text className="text-center text-xs leading-5 text-ink-600">
                 Lotus Bet never handles money.{'\n'}It only tracks who owes whom.
               </Text>
+
+              <DemoEntry />
             </Animated.View>
           </ScrollView>
         </KeyboardAvoidingView>

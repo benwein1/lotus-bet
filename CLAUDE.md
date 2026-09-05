@@ -421,6 +421,25 @@ code out of the SQL editor.
 **This is a login backdoor.** Anyone who can read that table can sign in as
 anyone. Drop the schema before production.
 
+### TEMPORARY: offline demo mode
+
+`src/lib/demo.ts` is an in-memory fake of the whole backend, so the app can be
+opened and clicked through with no Supabase project, no SMS provider and no
+network. The way in is a small "Skip sign-in · demo data" button on the
+sign-in screen and on the setup screen (`src/components/demo-entry.tsx`).
+
+It is scaffolding, not a feature. Two properties keep it safe:
+
+- The entry point renders only when `DEMO_AVAILABLE` — `__DEV__`, or an
+  explicit `EXPO_PUBLIC_ENABLE_DEMO=1` for testing an exported bundle. It
+  cannot reach a production build.
+- Resolving a bet in demo mode runs the real `computeBetPayouts`, so the demo
+  cannot drift into a second implementation of the money maths.
+
+**To remove it:** delete `src/lib/demo.ts` and
+`src/components/demo-entry.tsx`, then grep for `isDemoMode`, `DemoEntry` and
+`DemoBadge` — every call site is a one-line guard.
+
 ---
 
 ## 9. How to verify UI work without a backend

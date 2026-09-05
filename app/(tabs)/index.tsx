@@ -3,6 +3,7 @@ import { RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BetCard, mySide } from '@/components/bet-card';
+import { DemoBadge } from '@/components/demo-entry';
 import { SparkIcon, TicketIcon } from '@/components/icons';
 import { ContentWidth, ScreenBackdrop } from '@/components/screen';
 import { BetFeedSkeleton } from '@/components/skeletons';
@@ -64,7 +65,10 @@ export default function HomeScreen() {
                 {greeting()}
                 {firstName ? `, ${firstName}` : ''}
               </Text>
-              <Title className="mt-1">Your action</Title>
+              <View className="mt-1 flex-row items-center gap-3">
+                <Title>Your action</Title>
+                <DemoBadge />
+              </View>
             </View>
 
             {feed.error && <ErrorNotice message={feed.error} />}

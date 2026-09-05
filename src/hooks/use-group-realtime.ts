@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react';
 
+import { isDemoMode } from '@/lib/demo';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -87,7 +88,8 @@ function useRealtimeChannel(topic: string | null, onChange: () => void, build: C
   const instanceId = useId();
 
   useEffect(() => {
-    if (!topic) return;
+    // Demo mode has no backend to subscribe to.
+    if (!topic || isDemoMode()) return;
 
     const handle = () => onChangeRef.current();
     const channel = build(supabase.channel(`${topic}:${instanceId}`), handle).subscribe();

@@ -3,6 +3,7 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
+import { isDemoMode } from './demo';
 import { supabase } from './supabase';
 
 // Show a banner even when the app is in the foreground — a bet resolving is
@@ -24,7 +25,7 @@ Notifications.setNotificationHandler({
  * push is a nice-to-have, never a blocker.
  */
 export async function registerForPushNotifications(): Promise<string | null> {
-  if (Platform.OS === 'web' || !Device.isDevice) return null;
+  if (Platform.OS === 'web' || !Device.isDevice || isDemoMode()) return null;
 
   try {
     if (Platform.OS === 'android') {
@@ -65,6 +66,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
 
 /** Called from the settings toggles when a user turns all notifications off. */
 export async function clearPushToken(): Promise<void> {
+  if (isDemoMode()) return;
   await supabase.rpc('set_push_token', { p_token: '' });
 }
 
@@ -73,6 +75,7 @@ export async function clearPushToken(): Promise<void> {
  * Best-effort: a failed announcement must not fail bet creation.
  */
 export async function announceNewBet(betId: string): Promise<void> {
+  if (isDemoMode()) return;
   try {
     await supabase.functions.invoke('notify-new-bet', { body: { betId } });
   } catch (err) {

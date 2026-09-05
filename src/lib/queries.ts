@@ -17,6 +17,7 @@ import type {
   SettlementConfirmationRow,
   UserRow,
 } from './database.types';
+import { demo, isDemoMode } from './demo';
 import { supabase } from './supabase';
 
 function unwrap<T>(result: { data: T | null; error: { message: string } | null }): T {
@@ -32,6 +33,7 @@ export interface GroupWithMembers extends GroupRow {
 }
 
 export async function fetchMyGroups(): Promise<GroupWithMembers[]> {
+  if (isDemoMode()) return demo.fetchMyGroups();
   const { data, error } = await supabase
     .from('groups')
     .select('*, members:group_members(*, user:users(*))')
@@ -42,6 +44,7 @@ export async function fetchMyGroups(): Promise<GroupWithMembers[]> {
 }
 
 export async function fetchGroup(groupId: string): Promise<GroupWithMembers> {
+  if (isDemoMode()) return demo.fetchGroup(groupId);
   return unwrap(
     await supabase
       .from('groups')
@@ -52,18 +55,21 @@ export async function fetchGroup(groupId: string): Promise<GroupWithMembers> {
 }
 
 export async function createGroup(name: string, emoji: string | null): Promise<GroupRow> {
+  if (isDemoMode()) return demo.createGroup(name, emoji);
   return unwrap(
     await supabase.rpc('create_group', { p_name: name, p_emoji: emoji }).single()
   ) as GroupRow;
 }
 
 export async function joinGroupWithCode(code: string): Promise<GroupRow> {
+  if (isDemoMode()) return demo.joinGroupWithCode(code);
   return unwrap(
     await supabase.rpc('join_group_with_code', { p_code: code }).single()
   ) as GroupRow;
 }
 
 export async function leaveGroup(groupId: string, userId: string): Promise<void> {
+  if (isDemoMode()) return demo.leaveGroup(groupId, userId);
   const { error } = await supabase
     .from('group_members')
     .delete()
@@ -79,6 +85,7 @@ const BET_SELECT = '*, positions:bet_positions(user_id, side)';
 const BET_SELECT_WITH_GROUP = `${BET_SELECT}, group:groups(id, name, emoji)`;
 
 export async function fetchGroupBets(groupId: string): Promise<BetWithPositions[]> {
+  if (isDemoMode()) return demo.fetchGroupBets(groupId);
   const { data, error } = await supabase
     .from('bets')
     .select(BET_SELECT)
@@ -91,6 +98,7 @@ export async function fetchGroupBets(groupId: string): Promise<BetWithPositions[
 
 /** Every bet across every group the user is in — the Home feed's raw input. */
 export async function fetchFeedBets(): Promise<BetWithPositions[]> {
+  if (isDemoMode()) return demo.fetchFeedBets();
   const { data, error } = await supabase
     .from('bets')
     .select(BET_SELECT_WITH_GROUP)
@@ -103,6 +111,7 @@ export async function fetchFeedBets(): Promise<BetWithPositions[]> {
 }
 
 export async function fetchBet(betId: string): Promise<BetWithPositions> {
+  if (isDemoMode()) return demo.fetchBet(betId);
   return unwrap(
     await supabase.from('bets').select(BET_SELECT_WITH_GROUP).eq('id', betId).single()
   ) as unknown as BetWithPositions;
@@ -120,6 +129,7 @@ export interface NewBetInput {
 }
 
 export async function createBet(input: NewBetInput): Promise<BetRow> {
+  if (isDemoMode()) return demo.createBet(input);
   return unwrap(
     await supabase
       .from('bets')
@@ -139,21 +149,25 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
 }
 
 export async function joinBet(betId: string, side: BetSide): Promise<void> {
+  if (isDemoMode()) return demo.joinBet(betId, side);
   const { error } = await supabase.rpc('join_bet', { p_bet_id: betId, p_side: side });
   if (error) throw new Error(error.message);
 }
 
 export async function leaveBet(betId: string): Promise<void> {
+  if (isDemoMode()) return demo.leaveBet(betId);
   const { error } = await supabase.rpc('leave_bet', { p_bet_id: betId });
   if (error) throw new Error(error.message);
 }
 
 export async function lockBet(betId: string): Promise<void> {
+  if (isDemoMode()) return demo.lockBet(betId);
   const { error } = await supabase.rpc('lock_bet', { p_bet_id: betId });
   if (error) throw new Error(error.message);
 }
 
 export async function cancelBet(betId: string): Promise<void> {
+  if (isDemoMode()) return demo.cancelBet(betId);
   const { error } = await supabase.rpc('cancel_bet', { p_bet_id: betId });
   if (error) throw new Error(error.message);
 }
@@ -172,6 +186,8 @@ export async function resolveBet(
   betId: string,
   winningOption: BetSide
 ): Promise<ResolveBetResult> {
+  if (isDemoMode()) return demo.resolveBet(betId, winningOption);
+
   const { data, error } = await supabase.functions.invoke<
     ResolveBetResult & { error?: string }
   >('resolve-bet', { body: { betId, winningOption } });
@@ -186,6 +202,7 @@ export async function resolveBet(
 // --- Settlement ------------------------------------------------------------
 
 export async function fetchGroupBalances(groupId: string): Promise<GroupBalanceRow[]> {
+  if (isDemoMode()) return demo.fetchGroupBalances(groupId);
   const { data, error } = await supabase.rpc('group_balances', { p_group_id: groupId });
   if (error) throw new Error(error.message);
   return (data ?? []) as GroupBalanceRow[];
@@ -194,6 +211,7 @@ export async function fetchGroupBalances(groupId: string): Promise<GroupBalanceR
 export async function fetchSettlementConfirmations(
   groupId: string
 ): Promise<SettlementConfirmationRow[]> {
+  if (isDemoMode()) return demo.fetchSettlementConfirmations(groupId);
   const { data, error } = await supabase
     .from('settlement_confirmations')
     .select('*')
@@ -210,6 +228,8 @@ export async function confirmSettlement(input: {
   amountAgorot: number;
   confirmedBy: string;
 }): Promise<void> {
+  if (isDemoMode()) return demo.confirmSettlement(input);
+
   const { error } = await supabase.from('settlement_confirmations').insert({
     group_id: input.groupId,
     from_user_id: input.fromUserId,
@@ -222,6 +242,7 @@ export async function confirmSettlement(input: {
 }
 
 export async function undoSettlement(confirmationId: string): Promise<void> {
+  if (isDemoMode()) return demo.undoSettlement(confirmationId);
   const { error } = await supabase
     .from('settlement_confirmations')
     .delete()
@@ -241,6 +262,7 @@ export interface HistoryEntry {
 }
 
 export async function fetchMyHistory(userId: string): Promise<HistoryEntry[]> {
+  if (isDemoMode()) return demo.fetchMyHistory(userId);
   const { data, error } = await supabase
     .from('bet_ledger_entries')
     .select(
@@ -255,6 +277,7 @@ export async function fetchMyHistory(userId: string): Promise<HistoryEntry[]> {
 }
 
 export async function fetchMyStats(): Promise<MyStatsRow | null> {
+  if (isDemoMode()) return demo.fetchMyStats();
   const { data, error } = await supabase.rpc('my_stats');
   if (error) throw new Error(error.message);
 
@@ -264,6 +287,7 @@ export async function fetchMyStats(): Promise<MyStatsRow | null> {
 
 /** The signed results the resolve-bet function wrote for one bet. */
 export async function fetchBetLedger(betId: string): Promise<BetLedgerEntryRow[]> {
+  if (isDemoMode()) return demo.fetchBetLedger(betId);
   const { data, error } = await supabase
     .from('bet_ledger_entries')
     .select('*')

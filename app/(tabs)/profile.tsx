@@ -3,6 +3,7 @@ import { Alert, Platform, RefreshControl, ScrollView, Switch, Text, View } from 
 import Animated, { FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { DemoBadge } from '@/components/demo-entry';
 import { LogOutIcon, TrophyIcon } from '@/components/icons';
 import { ContentWidth, ScreenBackdrop } from '@/components/screen';
 import { ProfileSkeleton } from '@/components/skeletons';
@@ -96,8 +97,9 @@ export default function ProfileScreen() {
           showsVerticalScrollIndicator={false}
         >
           <ContentWidth>
-            <View className="mb-6 pt-4">
+            <View className="mb-6 flex-row items-center gap-3 pt-4">
               <Title>Profile</Title>
+              <DemoBadge />
             </View>
 
             {error && <ErrorNotice message={error} />}
