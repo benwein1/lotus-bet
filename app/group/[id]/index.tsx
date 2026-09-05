@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
@@ -52,6 +52,12 @@ export default function GroupDetailScreen() {
   }, [reloadBets, reloadBalances, reloadGroup]);
 
   useGroupRealtime(groupId, refresh);
+
+  // This screen stays mounted underneath the new-bet and bet-detail screens
+  // pushed on top of it, so without this a bet you just posted would be
+  // missing from "Live bets" when you came back. Realtime carries other
+  // people's changes; this carries your own.
+  useFocusEffect(refresh);
 
   const [copied, setCopied] = useState(false);
 

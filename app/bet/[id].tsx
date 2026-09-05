@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Alert, Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, ZoomIn } from '@/components/animated';
@@ -70,6 +70,11 @@ export default function BetDetailScreen() {
   }, [reloadBet]);
 
   useGroupRealtime(groupId, refresh);
+
+  // Same reason as the group screen: this one is still mounted under the
+  // settle-up screen, so a balance settled there would otherwise be stale on
+  // the way back.
+  useFocusEffect(refresh);
 
   if (bet.loading) return <Loading label="Loading bet…" />;
   if (!bet.data) {
