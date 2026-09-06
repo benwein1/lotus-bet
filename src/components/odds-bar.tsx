@@ -5,7 +5,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring } from '@/compon
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { positionPercentages } from '@/lib/format';
 import { useColors } from '@/providers/theme-provider';
-import { motion, tabular } from '@/theme';
+import { motion, palettes, tabular } from '@/theme';
 
 /**
  * The market bar — the app's signature element.
@@ -61,14 +61,20 @@ export function OddsBar({
   const lostA = winningOption === 'b';
   const lostB = winningOption === 'a';
 
-  const barHeight = size === 'sm' ? 4 : size === 'lg' ? 8 : 6;
+  const barHeight = size === 'sm' ? 6 : size === 'lg' ? 10 : 8;
   const pctClass = size === 'lg' ? 'text-2xl' : size === 'sm' ? 'text-lg' : 'text-xl';
 
   const label = onMedia ? 'text-on-media-soft' : 'text-secondary';
   const muted = onMedia ? 'text-on-media-faint' : 'text-tertiary';
   const trackColor = onMedia ? 'rgba(255,255,255,0.22)' : colors.surface3;
-  const colorA = lostA ? trackColor : onMedia ? colors.onMedia : colors.sideA;
-  const colorB = lostB ? trackColor : onMedia ? 'rgba(255,255,255,0.45)' : colors.sideB;
+
+  // "On media" always means "over a dark scrim", whatever the app's scheme is
+  // doing, so the right green and red there are the dark palette's — bright
+  // enough to hold against a photo. Reading them off `palettes` keeps this
+  // from becoming two more hardcoded hexes in a component.
+  const sideColors = onMedia ? palettes.dark : colors;
+  const colorA = lostA ? trackColor : sideColors.sideA;
+  const colorB = lostB ? trackColor : sideColors.sideB;
 
   return (
     <View className={size === 'sm' ? 'gap-2' : 'gap-2.5'}>
@@ -77,11 +83,13 @@ export function OddsBar({
           <Text numberOfLines={1} className={`text-sm ${lostA ? muted : label}`}>
             {labelA}
           </Text>
+          {/* The percentage takes the colour of the bar under it. A class
+              cannot express "the dark palette's green whatever the scheme is",
+              which is what a label over a photo needs, so the colour is
+              applied as a style — the one case §4 leaves open. */}
           <Text
-            style={tabular}
-            className={`font-bold ${pctClass} ${
-              lostA ? muted : onMedia ? 'text-on-media' : 'text-sideA'
-            }`}
+            style={[tabular, lostA ? null : { color: colorA }]}
+            className={`font-bold ${pctClass} ${lostA ? muted : ''}`}
           >
             {a}%
           </Text>
@@ -92,10 +100,8 @@ export function OddsBar({
             {labelB}
           </Text>
           <Text
-            style={tabular}
-            className={`font-bold ${pctClass} ${
-              lostB ? muted : onMedia ? 'text-on-media-soft' : 'text-sideB'
-            }`}
+            style={[tabular, lostB ? null : { color: colorB }]}
+            className={`font-bold ${pctClass} ${lostB ? muted : ''}`}
           >
             {b}%
           </Text>

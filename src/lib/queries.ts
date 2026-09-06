@@ -63,6 +63,26 @@ export async function createGroup(name: string, emoji: string | null): Promise<G
   ) as GroupRow;
 }
 
+/**
+ * Sets a group's picture. Separate from `create_group` because the upload path
+ * contains the group id, so the row has to exist before there is anything to
+ * point at — the same ordering bet media has.
+ */
+export async function updateGroupAvatar(
+  groupId: string,
+  avatarUrl: string | null
+): Promise<GroupRow> {
+  if (isDemoMode()) return demo.updateGroupAvatar(groupId, avatarUrl);
+  return unwrap(
+    await supabase
+      .from('groups')
+      .update({ avatar_url: avatarUrl })
+      .eq('id', groupId)
+      .select()
+      .single()
+  ) as GroupRow;
+}
+
 export async function joinGroupWithCode(code: string): Promise<GroupRow> {
   if (isDemoMode()) return demo.joinGroupWithCode(code);
   return unwrap(
@@ -84,7 +104,7 @@ export async function leaveGroup(groupId: string, userId: string): Promise<void>
 // --- Bets ------------------------------------------------------------------
 
 const BET_SELECT = '*, positions:bet_positions(user_id, side), media:bet_media(*)';
-const BET_SELECT_WITH_GROUP = `${BET_SELECT}, group:groups(id, name, emoji)`;
+const BET_SELECT_WITH_GROUP = `${BET_SELECT}, group:groups(id, name, emoji, avatar_url)`;
 
 /**
  * Media rows arrive as storage paths; the bucket is private, so they have to be
@@ -335,7 +355,7 @@ export interface HistoryEntry {
   amount_agorot: number;
   created_at: string;
   bet: Pick<BetRow, 'id' | 'title' | 'winning_option' | 'option_a_label' | 'option_b_label' | 'resolved_at'>;
-  group: Pick<GroupRow, 'id' | 'name' | 'emoji'>;
+  group: Pick<GroupRow, 'id' | 'name' | 'emoji' | 'avatar_url'>;
 }
 
 export async function fetchMyHistory(userId: string): Promise<HistoryEntry[]> {
@@ -343,7 +363,7 @@ export async function fetchMyHistory(userId: string): Promise<HistoryEntry[]> {
   const { data, error } = await supabase
     .from('bet_ledger_entries')
     .select(
-      'id, amount_agorot, created_at, bet:bets(id, title, winning_option, option_a_label, option_b_label, resolved_at), group:groups(id, name, emoji)'
+      'id, amount_agorot, created_at, bet:bets(id, title, winning_option, option_a_label, option_b_label, resolved_at), group:groups(id, name, emoji, avatar_url)'
     )
     .eq('user_id', userId)
     .order('created_at', { ascending: false })

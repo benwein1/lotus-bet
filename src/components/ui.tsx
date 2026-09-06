@@ -1,8 +1,10 @@
 import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
 import { cssInterop } from 'nativewind';
-import { forwardRef, useEffect, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   Platform,
   Pressable,
   Text,
@@ -316,14 +318,20 @@ type ButtonVariant = 'primary' | 'secondary' | 'tinted' | 'plain' | 'destructive
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 // The accent is the app's only decisive colour, so the primary action is a
-// solid fill of it. Everything else steps down: a neutral fill, a tint of the
-// accent, then type alone.
+// solid fill of it. Everything else steps down: a bordered neutral fill, a
+// tint of the accent, then type alone.
+//
+// Every variant that is meant to look like a *surface* carries a border. A
+// fill alone is not enough: `surface2` over `sunken` is #F5F5F8 on #F2F2F7 in
+// light and #17171C on black in dark, so a secondary button with no rule
+// around it reads as a piece of text floating on the page rather than
+// something you can press.
 const BUTTON_VARIANT: Record<ButtonVariant, { container: string; label: string }> = {
   primary: { container: 'bg-accent', label: 'text-accent-ink' },
-  secondary: { container: 'bg-surface2 border border-hairline', label: 'text-primary' },
-  tinted: { container: 'bg-accent-soft', label: 'text-accent' },
+  secondary: { container: 'bg-surface border border-hairline-strong', label: 'text-primary' },
+  tinted: { container: 'bg-accent-soft border border-accent-soft', label: 'text-accent' },
   plain: { container: 'bg-transparent', label: 'text-accent' },
-  destructive: { container: 'bg-negative-soft', label: 'text-negative' },
+  destructive: { container: 'bg-negative-soft border border-negative', label: 'text-negative' },
 };
 
 const BUTTON_SIZE: Record<ButtonSize, { container: string; label: string }> = {
@@ -338,6 +346,12 @@ interface ButtonProps extends Omit<PressableProps, 'children'> {
   size?: ButtonSize;
   loading?: boolean;
   icon?: React.ReactNode;
+  /**
+   * Lift the button off the page. Reserved for the one action a screen exists
+   * to get you to — creating a group, posting a bet — so that weight still
+   * means something when you see it.
+   */
+  elevated?: boolean;
   className?: string;
 }
 
@@ -348,9 +362,11 @@ export const Button = forwardRef<View, ButtonProps>(function Button(
     size = 'md',
     loading = false,
     icon,
+    elevated = false,
     disabled,
     className = '',
     onPress,
+    style,
     ...props
   },
   ref
@@ -367,6 +383,7 @@ export const Button = forwardRef<View, ButtonProps>(function Button(
       accessibilityRole="button"
       accessibilityState={{ disabled: Boolean(isDisabled), busy: loading }}
       disabled={isDisabled}
+      style={[elevated && !isDisabled ? elevation.card : null, style as never]}
       onPress={(e) => {
         tap();
         onPress?.(e);
@@ -561,12 +578,15 @@ export function LiveDot({ className = '' }: { className?: string }) {
 export function Avatar({
   name,
   id,
+  uri,
   size = 36,
   ring = false,
 }: {
   name: string;
   /** Stable seed for the colour. Falls back to the name. */
   id?: string;
+  /** A profile picture. Without one the initials stand in. */
+  uri?: string | null;
   size?: number;
   ring?: boolean;
 }) {
@@ -580,15 +600,28 @@ export function Avatar({
         width: size,
         height: size,
         borderRadius: size / 2,
+        // The tinted ground stays under the photo: it is what shows while the
+        // image loads, so an avatar never flashes as a hole in the layout.
         backgroundColor: bg,
         borderWidth: ring ? 2 : 0,
         borderColor: ring ? colors.canvas : 'transparent',
+        overflow: 'hidden',
       }}
       className="items-center justify-center"
     >
-      <Text style={{ fontSize: size * 0.36, color: fg }} className="font-semibold">
-        {initials(name)}
-      </Text>
+      {uri ? (
+        <Image
+          source={{ uri }}
+          style={{ width: '100%', height: '100%' }}
+          contentFit="cover"
+          transition={160}
+          accessibilityLabel={name}
+        />
+      ) : (
+        <Text style={{ fontSize: size * 0.36, color: fg }} className="font-semibold">
+          {initials(name)}
+        </Text>
+      )}
     </View>
   );
 }
@@ -598,7 +631,7 @@ export function AvatarStack({
   max = 4,
   size = 26,
 }: {
-  people: { id?: string; name: string }[];
+  people: { id?: string; name: string; avatarUrl?: string | null }[];
   max?: number;
   size?: number;
 }) {
@@ -612,7 +645,7 @@ export function AvatarStack({
           key={`${person.id ?? person.name}-${index}`}
           style={{ marginLeft: index === 0 ? 0 : -size * 0.3, zIndex: max - index }}
         >
-          <Avatar name={person.name} id={person.id} size={size} ring />
+          <Avatar name={person.name} id={person.id} uri={person.avatarUrl} size={size} ring />
         </View>
       ))}
       {extra > 0 && (
@@ -663,6 +696,96 @@ export function Skeleton({
       style={[style, { width: width ?? '100%', height, borderRadius: radius }]}
       className={`bg-surface3 ${className}`}
     />
+  );
+}
+
+// --- Confirmation -----------------------------------------------------------
+
+export interface ConfirmOptions {
+  title: string;
+  message?: string;
+  /** The button that goes through with it. */
+  confirmLabel: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+  onConfirm: () => void;
+}
+
+/**
+ * The app's own confirmation, not the platform's.
+ *
+ * `Alert.alert` is a no-op on react-native-web — it is literally an empty
+ * static method — so every irreversible action in the app (resolving a bet,
+ * cancelling one, marking a payment settled, signing out) silently did nothing
+ * in a browser. A dialog rendered in-app works on all three platforms and
+ * looks like the rest of the product rather than the OS.
+ */
+export function useConfirm(): { ask: (options: ConfirmOptions) => void; dialog: React.ReactNode } {
+  const [options, setOptions] = useState<ConfirmOptions | null>(null);
+  const ask = useCallback((next: ConfirmOptions) => setOptions(next), []);
+  const close = useCallback(() => setOptions(null), []);
+
+  return {
+    ask,
+    dialog: <ConfirmDialog options={options} onClose={close} />,
+  };
+}
+
+function ConfirmDialog({
+  options,
+  onClose,
+}: {
+  options: ConfirmOptions | null;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      visible={options !== null}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      accessibilityViewIsModal
+    >
+      {/* The scrim is inert: dismissing goes through the Cancel button, and on
+          Android through `onRequestClose`. Tap-to-dismiss would mean either an
+          absolutely positioned overlay — which on the web paints above its
+          unpositioned siblings and swallows presses meant for the card — or
+          wrapping the card in the Pressable, which makes every button inside
+          it part of that one button. Neither is worth it for a shortcut past a
+          button that is already on screen. */}
+      <View className="flex-1 items-center justify-center bg-scrim px-8">
+        {options && (
+          <View
+            style={elevation.sheet}
+            className="w-full max-w-[340px] overflow-hidden rounded-3xl border border-hairline-strong bg-surface p-6"
+          >
+            <Text className="text-lg font-bold text-primary">{options.title}</Text>
+            {options.message && (
+              <Text className="mt-2 text-subhead leading-5 text-secondary">{options.message}</Text>
+            )}
+
+            <View className="mt-6 gap-3">
+              <Button
+                title={options.confirmLabel}
+                variant={options.destructive ? 'destructive' : 'primary'}
+                size="lg"
+                onPress={() => {
+                  const run = options.onConfirm;
+                  onClose();
+                  run();
+                }}
+              />
+              <Button
+                title={options.cancelLabel ?? 'Cancel'}
+                variant="plain"
+                size="lg"
+                onPress={onClose}
+              />
+            </View>
+          </View>
+        )}
+      </View>
+    </Modal>
   );
 }
 

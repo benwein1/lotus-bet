@@ -4,6 +4,7 @@ import { RefreshControl, ScrollView, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { GroupGlyph } from '@/components/group-glyph';
 import { ChevronRightIcon, GroupsIcon, PlusIcon } from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
 import { GroupListSkeleton } from '@/components/skeletons';
@@ -14,7 +15,6 @@ import {
   ErrorNotice,
   Money,
   PressableScale,
-  Title,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -22,7 +22,7 @@ import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import { fetchGroupBalances, fetchMyGroups, type GroupWithMembers } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
-import { motion } from '@/theme';
+import { elevation, motion } from '@/theme';
 
 export default function GroupsScreen() {
   const { session } = useAuth();
@@ -59,20 +59,15 @@ export default function GroupsScreen() {
           showsVerticalScrollIndicator={false}
         >
           <ContentWidth>
-            <View className="mb-6 pt-4">
-              <Title>Groups</Title>
-              {!groups.loading && list.length > 0 && (
-                <Text className="mt-1.5 text-callout text-secondary">
-                  {list.length} {list.length === 1 ? 'group' : 'groups'}, settled up outside the app.
-                </Text>
-              )}
-            </View>
+            <View className="pt-3" />
 
             {groups.error && <ErrorNotice message={groups.error} />}
 
             <View className="mb-6 flex-row gap-3">
               <Button
                 title="New group"
+                size="lg"
+                elevated
                 className="flex-1"
                 icon={<PlusIcon size={17} color={colors.accentInk} />}
                 onPress={() => router.push('/group/create')}
@@ -80,6 +75,7 @@ export default function GroupsScreen() {
               <Button
                 title="Join"
                 variant="secondary"
+                size="lg"
                 className="flex-1"
                 onPress={() => router.push('/group/join')}
               />
@@ -143,6 +139,7 @@ function GroupRow({
   const members = group.members.map((m) => ({
     id: m.user_id,
     name: m.user?.display_name ?? '?',
+    avatarUrl: m.user?.avatar_url ?? null,
   }));
 
   return (
@@ -157,11 +154,19 @@ function GroupRow({
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel={`Group: ${group.name}`}
-          className="mb-3 flex-row items-center gap-4 rounded-3xl border border-hairline bg-surface p-4"
+          // A hairline over `sunken` all but vanished in both schemes — white
+          // on #F2F2F7, and #0E0E11 on black. The strong rule plus a shadow is
+          // what makes one card read as a separate object from the next.
+          style={elevation.card}
+          className="mb-3 flex-row items-center gap-4 rounded-3xl border border-hairline-strong bg-surface p-4"
         >
-          <View className="h-12 w-12 items-center justify-center rounded-2xl bg-surface2">
-            <Text className="text-xl">{group.emoji ?? '🎲'}</Text>
-          </View>
+          <GroupGlyph
+            emoji={group.emoji}
+            avatarUrl={group.avatar_url}
+            name={group.name}
+            size={48}
+            radius={16}
+          />
 
           <View className="flex-1">
             <Text numberOfLines={1} className="text-base font-semibold text-primary">

@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, ZoomIn } from '@/components/animated';
 
 import { countSides, mySide } from '@/components/bet-card';
@@ -18,6 +18,7 @@ import {
   Money,
   PressableScale,
   SectionTitle,
+  useConfirm,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
@@ -60,6 +61,7 @@ export default function BetDetailScreen() {
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const { ask, dialog } = useConfirm();
 
   // See the note in group/[id]/index.tsx: depend on the stable `reload`, not
   // on the state object, or the Realtime channel reopens every render.
@@ -131,37 +133,33 @@ export default function BetDetailScreen() {
     const label = winning === 'a' ? data.option_a_label : data.option_b_label;
     const winners = winning === 'a' ? counts.a : counts.b;
 
-    Alert.alert(
-      `"${label}" won?`,
-      winners === 0
-        ? 'Nobody backed that side, so nothing will change hands. This cannot be undone.'
-        : `${winners} ${winners === 1 ? 'person splits' : 'people split'} ${formatAgorot(data.total_pot_agorot)}. This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Resolve',
-          style: 'destructive',
-          onPress: () =>
-            void withBusy(async () => {
-              await resolveBet(betId, winning);
-              if (Platform.OS !== 'web') {
-                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              }
-            }),
-        },
-      ]
-    );
+    ask({
+      title: `"${label}" won?`,
+      message:
+        winners === 0
+          ? 'Nobody backed that side, so nothing will change hands. This cannot be undone.'
+          : `${winners} ${winners === 1 ? 'person splits' : 'people split'} ${formatAgorot(data.total_pot_agorot)}. This cannot be undone.`,
+      confirmLabel: 'Resolve',
+      destructive: true,
+      onConfirm: () =>
+        void withBusy(async () => {
+          await resolveBet(betId, winning);
+          if (Platform.OS !== 'web') {
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+        }),
+    });
   }
 
   function confirmCancel() {
-    Alert.alert('Cancel this bet?', 'Nobody wins, nobody owes anything.', [
-      { text: 'Keep it', style: 'cancel' },
-      {
-        text: 'Cancel bet',
-        style: 'destructive',
-        onPress: () => void withBusy(() => cancelBet(betId)),
-      },
-    ]);
+    ask({
+      title: 'Cancel this bet?',
+      message: 'Nobody wins, nobody owes anything.',
+      confirmLabel: 'Cancel bet',
+      cancelLabel: 'Keep it',
+      destructive: true,
+      onConfirm: () => void withBusy(() => cancelBet(betId)),
+    });
   }
 
   return (
@@ -304,6 +302,7 @@ export default function BetDetailScreen() {
                     .map((p) => ({
                       id: p.user_id,
                       name: usersById.get(p.user_id)?.display_name ?? 'Someone',
+                      avatarUrl: usersById.get(p.user_id)?.avatar_url ?? null,
                     }))}
                 />
                 <SideRoster
@@ -315,6 +314,7 @@ export default function BetDetailScreen() {
                     .map((p) => ({
                       id: p.user_id,
                       name: usersById.get(p.user_id)?.display_name ?? 'Someone',
+                      avatarUrl: usersById.get(p.user_id)?.avatar_url ?? null,
                     }))}
                 />
               </View>
@@ -365,6 +365,7 @@ export default function BetDetailScreen() {
             )}
           </ContentWidth>
         </ScrollView>
+        {dialog}
       </Screen>
     </>
   );
@@ -425,7 +426,7 @@ function SideRoster({
   tone: 'a' | 'b';
   /** null while unresolved; true/false once a winner is declared. */
   won: boolean | null;
-  people: { id: string; name: string }[];
+  people: { id: string; name: string; avatarUrl?: string | null }[];
 }) {
   const colors = useColors();
   const dimmed = won === false;
@@ -449,7 +450,7 @@ function SideRoster({
       ) : (
         people.map((person, index) => (
           <View key={`${person.id}-${index}`} className="mb-2 flex-row items-center gap-2">
-            <Avatar name={person.name} id={person.id} size={24} />
+            <Avatar name={person.name} id={person.id} uri={person.avatarUrl} size={24} />
             <Text numberOfLines={1} className="flex-1 text-sm text-primary">
               {person.name}
             </Text>

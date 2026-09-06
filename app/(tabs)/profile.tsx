@@ -1,14 +1,14 @@
 import { useCallback, useState } from 'react';
-import { Alert, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AvatarPicker } from '@/components/avatar-picker';
 import { DemoBadge } from '@/components/demo-entry';
 import { LogOutIcon, TrophyIcon } from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
 import { ProfileSkeleton } from '@/components/skeletons';
 import {
-  Avatar,
   Button,
   EmptyState,
   ErrorNotice,
@@ -19,7 +19,7 @@ import {
   SectionTitle,
   Segmented,
   Stat,
-  Title,
+  useConfirm,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -45,6 +45,7 @@ export default function ProfileScreen() {
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { ask, dialog } = useConfirm();
 
   const { reload: reloadStats } = stats;
   const { reload: reloadHistory } = history;
@@ -73,10 +74,14 @@ export default function ProfileScreen() {
   }
 
   function confirmSignOut() {
-    Alert.alert('Sign out?', 'Your bets and balances stay exactly where they are.', [
-      { text: 'Stay', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: () => void signOut() },
-    ]);
+    ask({
+      title: 'Sign out?',
+      message: 'Your bets and balances stay exactly where they are.',
+      confirmLabel: 'Sign out',
+      cancelLabel: 'Stay',
+      destructive: true,
+      onConfirm: () => void signOut(),
+    });
   }
 
   if (!profile) return <Loading label="Loading your profile…" />;
@@ -108,8 +113,7 @@ export default function ProfileScreen() {
           showsVerticalScrollIndicator={false}
         >
           <ContentWidth>
-            <View className="mb-6 flex-row items-center justify-between pt-4">
-              <Title>You</Title>
+            <View className="mb-4 items-end pt-2">
               <DemoBadge />
             </View>
 
@@ -117,7 +121,14 @@ export default function ProfileScreen() {
 
             <Animated.View entering={entering(0)}>
               <View className="mb-7 items-center rounded-3xl border border-hairline bg-surface px-5 py-7">
-                <Avatar name={profile.display_name} id={profile.id} size={72} />
+                <AvatarPicker
+                  name={profile.display_name}
+                  id={profile.id}
+                  uri={profile.avatar_url}
+                  size={84}
+                  owner={{ kind: 'users', id: profile.id }}
+                  onChange={(url) => updateProfile({ avatar_url: url })}
+                />
                 <Text numberOfLines={1} className="mt-3.5 text-xl font-bold text-primary">
                   {profile.display_name}
                 </Text>
@@ -247,6 +258,7 @@ export default function ProfileScreen() {
           </ContentWidth>
         </ScrollView>
       </SafeAreaView>
+      {dialog}
     </Screen>
   );
 }

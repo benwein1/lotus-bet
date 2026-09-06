@@ -10,7 +10,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { motion } from '@/theme';
 
 export default function ProfileSetupScreen() {
-  const { updateProfile, session } = useAuth();
+  const { updateProfile, session, signOut } = useAuth();
   const reduced = useReducedMotion();
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -86,9 +86,19 @@ export default function ProfileSetupScreen() {
             <Button
               title="Start betting"
               size="lg"
+              elevated
               onPress={submit}
               loading={busy}
               disabled={trimmed.length < 2}
+            />
+            {/* The redirect gate holds a signed-in user here until they have a
+                name, so if saving one keeps failing this is the only way out.
+                Without it the screen is a dead end. */}
+            <Button
+              title="Sign out"
+              variant="plain"
+              size="lg"
+              onPress={() => void signOut()}
             />
           </ContentWidth>
         </KeyboardAvoidingView>

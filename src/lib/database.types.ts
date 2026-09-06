@@ -17,8 +17,14 @@ export interface UserRow {
   /** Kept for the accounts created under the old phone-OTP flow. */
   phone: string | null;
   display_name: string;
-  /** False until the user has actually named themselves. */
-  profile_completed: boolean;
+  /**
+   * False until the user has actually named themselves.
+   *
+   * Optional because a project that has not yet had `…_email_auth.sql` applied
+   * has no such column, and `select('*')` simply returns a row without it.
+   * `profileIsComplete` in the auth provider is the only place that reads it.
+   */
+  profile_completed?: boolean;
   avatar_url: string | null;
   expo_push_token: string | null;
   notify_new_bets: boolean;
@@ -30,6 +36,8 @@ export interface GroupRow {
   id: string;
   name: string;
   emoji: string | null;
+  /** Public URL in the `avatars` bucket. Null means fall back to `emoji`. */
+  avatar_url?: string | null;
   created_by: string;
   invite_code: string;
   created_at: string;
@@ -133,5 +141,5 @@ export interface BetMedia extends BetMediaRow {
 export interface BetWithPositions extends BetRow {
   positions: { user_id: string; side: BetSide }[];
   media?: BetMedia[];
-  group?: Pick<GroupRow, 'id' | 'name' | 'emoji'>;
+  group?: Pick<GroupRow, 'id' | 'name' | 'emoji' | 'avatar_url'>;
 }

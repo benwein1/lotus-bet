@@ -284,6 +284,7 @@ export default function NewBetScreen() {
             <Button
               title={media.length > 0 && busy ? 'Uploading…' : 'Post bet'}
               size="lg"
+              elevated
               onPress={submit}
               loading={busy}
               disabled={!canSubmit}

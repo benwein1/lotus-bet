@@ -6,7 +6,15 @@ import { Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 
 import { BetCard } from '@/components/bet-card';
-import { CheckIcon, CopyIcon, HandshakeIcon, PlusIcon, TicketIcon } from '@/components/icons';
+import { GroupGlyph } from '@/components/group-glyph';
+import {
+  CameraIcon,
+  CheckIcon,
+  CopyIcon,
+  HandshakeIcon,
+  PlusIcon,
+  TicketIcon,
+} from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
 import { BetCardSkeleton } from '@/components/skeletons';
 import {
@@ -21,7 +29,13 @@ import {
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
-import { fetchGroup, fetchGroupBalances, fetchGroupBets } from '@/lib/queries';
+import { pickAvatar, uploadAvatar } from '@/lib/media';
+import {
+  fetchGroup,
+  fetchGroupBalances,
+  fetchGroupBets,
+  updateGroupAvatar,
+} from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
 import { motion } from '@/theme';
@@ -35,6 +49,8 @@ export default function GroupDetailScreen() {
   const userId = session?.user.id ?? '';
 
   const group = useAsync(() => fetchGroup(groupId), [groupId]);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const bets = useAsync(() => fetchGroupBets(groupId), [groupId]);
   const balances = useAsync(() => fetchGroupBalances(groupId), [groupId]);
 
@@ -52,6 +68,25 @@ export default function GroupDetailScreen() {
   }, [reloadBets, reloadBalances, reloadGroup]);
 
   useGroupRealtime(groupId, refresh);
+
+  const isAdmin =
+    group.data?.members.some((m) => m.user_id === userId && m.role === 'admin') ?? false;
+
+  async function changePhoto() {
+    setPhotoError(null);
+    try {
+      const picked = await pickAvatar();
+      if (!picked) return;
+      setPhotoBusy(true);
+      const url = await uploadAvatar({ kind: 'groups', id: groupId }, picked);
+      await updateGroupAvatar(groupId, url);
+      await reloadGroup({ silent: true });
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : 'Could not set that photo.');
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
 
   // This screen stays mounted underneath the new-bet and bet-detail screens
   // pushed on top of it, so without this a bet you just posted would be
@@ -107,9 +142,38 @@ export default function GroupDetailScreen() {
             <Animated.View entering={FadeInDown.duration(motion.duration.base)}>
               <View className="mb-7 pt-4">
                 <View className="flex-row items-start gap-3">
-                  <View className="h-12 w-12 items-center justify-center rounded-2xl bg-surface2">
-                    <Text className="text-xl">{group.data.emoji ?? '🎲'}</Text>
-                  </View>
+                  {isAdmin ? (
+                    // Only an admin can write under `groups/<id>/` in storage,
+                    // so only an admin is offered the control.
+                    <PressableScale
+                      onPress={() => void changePhoto()}
+                      disabled={photoBusy}
+                      scaleTo={0.94}
+                      accessibilityRole="button"
+                      accessibilityLabel="Change the group photo"
+                      accessibilityState={{ busy: photoBusy }}
+                      className={photoBusy ? 'opacity-60' : ''}
+                    >
+                      <GroupGlyph
+                        emoji={group.data.emoji}
+                        avatarUrl={group.data.avatar_url}
+                        name={group.data.name}
+                        size={52}
+                        radius={17}
+                      />
+                      <View className="absolute -bottom-1 -right-1 h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-canvas bg-accent">
+                        <CameraIcon size={11} color={colors.accentInk} />
+                      </View>
+                    </PressableScale>
+                  ) : (
+                    <GroupGlyph
+                      emoji={group.data.emoji}
+                      avatarUrl={group.data.avatar_url}
+                      name={group.data.name}
+                      size={52}
+                      radius={17}
+                    />
+                  )}
                   <View className="flex-1">
                     <Text numberOfLines={2} className="text-2xl font-bold text-primary">
                       {group.data.name}
@@ -121,6 +185,12 @@ export default function GroupDetailScreen() {
                     </Text>
                   </View>
                 </View>
+
+                {photoError && (
+                  <View className="mt-4">
+                    <ErrorNotice message={photoError} />
+                  </View>
+                )}
 
                 <View className="mt-5 flex-row items-end justify-between rounded-3xl border border-hairline bg-surface p-4">
                   <View>
@@ -161,6 +231,7 @@ export default function GroupDetailScreen() {
                       <Avatar
                         name={member.user?.display_name ?? '?'}
                         id={member.user_id}
+                        uri={member.user?.avatar_url}
                         size={34}
                       />
                       <Text className="flex-1 text-base text-primary">
@@ -212,6 +283,8 @@ export default function GroupDetailScreen() {
             <Animated.View entering={FadeIn.delay(120).duration(motion.duration.base)}>
               <Button
                 title="New bet"
+                size="lg"
+                elevated
                 icon={<PlusIcon size={18} color={colors.accentInk} />}
                 onPress={() =>
                   router.push({ pathname: '/group/[id]/new-bet', params: { id: groupId } })

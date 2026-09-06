@@ -15,6 +15,13 @@ import { supabase } from './supabase';
 
 export const BUCKET = 'bet-media';
 
+/**
+ * Profile and group pictures. Public, unlike `bet-media` — see the note at the
+ * top of `20260906090000_avatars.sql` for why a face is not treated like a
+ * bet's attachments.
+ */
+export const AVATAR_BUCKET = 'avatars';
+
 /** Four is enough to tell a story and short enough to stay scrollable. */
 export const MAX_ATTACHMENTS = 4;
 
@@ -174,4 +181,58 @@ function randomId(): string {
   // Good enough for a filename: the path is already scoped by group and bet,
   // and the bucket is private.
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// --- Avatars ----------------------------------------------------------------
+
+/**
+ * Picks one square image for a profile or a group.
+ *
+ * Cropping is forced to 1:1 in the picker rather than fixed up with CSS later:
+ * an avatar is rendered in a circle in a dozen places, and letting the user
+ * choose what ends up inside that circle is the difference between a portrait
+ * and a cropped forehead.
+ */
+export async function pickAvatar(): Promise<PickedMedia | null> {
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.9,
+  });
+
+  if (result.canceled) return null;
+  const asset = result.assets[0];
+  return asset ? toPicked(asset) : null;
+}
+
+/**
+ * Uploads an avatar and returns the public URL to store on the row.
+ *
+ * The path is stable per owner (`users/<id>/avatar.<ext>`) and upserted, so a
+ * user who changes their picture five times leaves one object behind rather
+ * than five. The cache-busting query string is what makes the new one show up
+ * — the URL is otherwise identical and both the CDN and expo-image would
+ * happily keep serving the old bytes.
+ */
+export async function uploadAvatar(
+  owner: { kind: 'users' | 'groups'; id: string },
+  media: PickedMedia
+): Promise<string> {
+  const extension =
+    EXTENSION_BY_MIME[media.mimeType] ??
+    media.fileName?.split('.').pop()?.toLowerCase() ??
+    'jpg';
+
+  const storagePath = `${owner.kind}/${owner.id}/avatar.${extension}`;
+  const body = await readBytes(media.uri);
+
+  const { error } = await supabase.storage.from(AVATAR_BUCKET).upload(storagePath, body, {
+    contentType: media.mimeType,
+    upsert: true,
+  });
+  if (error) throw new Error(error.message);
+
+  const { data } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(storagePath);
+  return `${data.publicUrl}?v=${Date.now().toString(36)}`;
 }

@@ -39,8 +39,16 @@ module.exports = {
         positive: { DEFAULT: color('positive'), soft: color('positive-soft') },
         negative: { DEFAULT: color('negative'), soft: color('negative-soft') },
 
-        sideA: { DEFAULT: color('side-a'), soft: color('side-a-soft') },
-        sideB: { DEFAULT: color('side-b'), soft: color('side-b-soft') },
+        sideA: {
+          DEFAULT: color('side-a'),
+          soft: color('side-a-soft'),
+          ink: color('side-a-ink'),
+        },
+        sideB: {
+          DEFAULT: color('side-b'),
+          soft: color('side-b-soft'),
+          ink: color('side-b-ink'),
+        },
 
         chrome: color('chrome'),
         'chrome-edge': color('chrome-edge'),

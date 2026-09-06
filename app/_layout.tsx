@@ -97,22 +97,45 @@ function RootNavigator() {
     >
       <Stack.Screen name="(auth)" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen
-        name="group/create"
-        options={{ title: 'New group', presentation: 'modal', animation: 'slide_from_bottom' }}
-      />
-      <Stack.Screen
-        name="group/join"
-        options={{ title: 'Join a group', presentation: 'modal', animation: 'slide_from_bottom' }}
-      />
+      <Stack.Screen name="group/create" options={modalOptions('New group')} />
+      <Stack.Screen name="group/join" options={modalOptions('Join a group')} />
       <Stack.Screen name="group/[id]/index" options={{ title: '' }} />
-      <Stack.Screen
-        name="group/[id]/new-bet"
-        options={{ title: 'New bet', presentation: 'modal', animation: 'slide_from_bottom' }}
-      />
+      <Stack.Screen name="group/[id]/new-bet" options={modalOptions('New bet')} />
       <Stack.Screen name="group/[id]/settle" options={{ title: 'Settle up' }} />
       <Stack.Screen name="bet/[id]" options={{ title: '' }} />
     </Stack>
+  );
+}
+
+/**
+ * A sheet, with an explicit way out.
+ *
+ * A modally presented screen on iOS shows no back chevron — the platform
+ * expects you to swipe it down — and a swipe is not a thing you can see. Every
+ * one of these is a form, so the escape hatch has to be visible or the screen
+ * is a place you can get stuck.
+ */
+function modalOptions(title: string) {
+  return {
+    title,
+    presentation: 'modal' as const,
+    animation: 'slide_from_bottom' as const,
+    headerLeft: () => <CancelButton />,
+  };
+}
+
+function CancelButton() {
+  const router = useRouter();
+  return (
+    <PressableScale
+      onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
+      hitSlop={12}
+      accessibilityRole="button"
+      accessibilityLabel="Close"
+      className="py-1 pr-4"
+    >
+      <Text className="text-base text-accent">Cancel</Text>
+    </PressableScale>
   );
 }
 

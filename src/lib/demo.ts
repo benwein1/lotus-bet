@@ -347,6 +347,7 @@ export const demo = {
       id: `demo-group-${state.groups.length + 1}-${Date.now()}`,
       name,
       emoji,
+      avatar_url: null,
       created_by: DEMO_USER_ID,
       invite_code: randomCode(),
       created_at: new Date().toISOString(),
@@ -358,6 +359,13 @@ export const demo = {
       role: 'admin',
       joined_at: group.created_at,
     });
+    return clone(group);
+  },
+
+  async updateGroupAvatar(groupId: string, avatarUrl: string | null): Promise<GroupRow> {
+    const group = state.groups.find((g) => g.id === groupId);
+    if (!group) throw new Error('Group not found');
+    group.avatar_url = avatarUrl;
     return clone(group);
   },
 

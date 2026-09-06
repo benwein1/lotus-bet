@@ -1,5 +1,5 @@
-import { Tabs } from 'expo-router';
-import { Platform, Text, View } from 'react-native';
+import { TopTabs } from 'expo-router/js-top-tabs';
+import { Platform, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from '@/components/animated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -15,9 +15,12 @@ import { elevation, motion } from '@/theme';
  * Three tabs, no more. Everything else — group detail, bet detail, settle up —
  * is pushed on top of them from the root stack.
  *
- * The bar floats: a rounded, translucent pill sitting above the home indicator
- * with content scrolling underneath it, rather than an opaque strip that eats
- * the bottom of every screen. Screens leave room for it with `useTabBarInset`.
+ * The navigator is expo-router's *top* tabs rather than its bottom tabs, for
+ * one reason: it is a pager, so a horizontal drag carries the screen with the
+ * finger and can be caught mid-flight. Bottom tabs cut between screens with no
+ * gesture at all. Its own tab bar is replaced with the floating pill below and
+ * positioned at the bottom, which also puts the bar after the pager in paint
+ * order so it sits above the content it floats over.
  */
 const TABS: {
   name: string;
@@ -33,25 +36,27 @@ export default function TabsLayout() {
   const colors = useColors();
 
   return (
-    <Tabs
-      tabBar={(props) => <FloatingTabBar {...props} />}
+    <TopTabs
+      tabBarPosition="bottom"
+      tabBar={(props: TabBarProps) => <FloatingTabBar {...props} />}
       screenOptions={{
-        headerShown: false,
+        swipeEnabled: true,
+        animationEnabled: true,
         sceneStyle: { backgroundColor: colors.canvas },
       }}
     >
       {TABS.map((tab) => (
-        <Tabs.Screen key={tab.name} name={tab.name} options={{ title: tab.label }} />
+        <TopTabs.Screen key={tab.name} name={tab.name} options={{ title: tab.label }} />
       ))}
-    </Tabs>
+    </TopTabs>
   );
 }
 
 /**
  * The slice of the navigator's tab-bar props this bar actually uses. Typed
- * structurally rather than imported: expo-router vendors react-navigation's
- * bottom tabs inside its own build output, so there is no stable public
- * package path to import `BottomTabBarProps` from.
+ * structurally rather than imported: expo-router vendors react-navigation
+ * inside its own build output, so there is no stable public package path to
+ * import `MaterialTopTabBarProps` from.
  */
 interface TabBarProps {
   state: { index: number; routes: { key: string; name: string }[] };
@@ -95,6 +100,12 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
   );
 }
 
+/**
+ * Icon only. The three destinations are a house, a pair of people and a
+ * person — a label under each would be repeating what the glyph already says,
+ * and the bar is narrower and quieter without them. The name stays on as the
+ * accessibility label, so nothing is lost to a screen reader.
+ */
 function TabButton({
   label,
   Icon,
@@ -116,6 +127,11 @@ function TabButton({
       <View
         accessibilityRole="tab"
         accessibilityState={{ selected: focused }}
+        // react-native-web maps `accessibilityState` for most roles but does
+        // not emit `aria-selected` for a plain View, so a screen reader on the
+        // web could not tell which tab was current. The ARIA prop is
+        // understood on all three platforms.
+        aria-selected={focused}
         accessibilityLabel={label}
         // Responder handlers rather than a Pressable: the highlight has to
         // land on touch-down, before the navigation on release.
@@ -130,20 +146,11 @@ function TabButton({
         onResponderTerminate={() => {
           press.value = withSpring(1, motion.press);
         }}
-        className={`h-11 min-w-[84px] flex-row items-center justify-center gap-1.5 rounded-full px-4 ${
+        className={`h-11 w-[68px] items-center justify-center rounded-full ${
           focused ? 'bg-accent-soft' : ''
         }`}
       >
-        <Icon
-          size={21}
-          active={focused}
-          color={focused ? colors.accent : colors.textSecondary}
-        />
-        <Text
-          className={`text-sm ${focused ? 'font-semibold text-accent' : 'text-secondary'}`}
-        >
-          {label}
-        </Text>
+        <Icon size={23} active={focused} color={focused ? colors.accent : colors.textSecondary} />
       </View>
     </Animated.View>
   );

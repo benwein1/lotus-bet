@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
 import Animated, { FadeInDown } from '@/components/animated';
 
 import { CheckIcon, HandshakeIcon } from '@/components/icons';
@@ -14,6 +14,7 @@ import {
   ErrorNotice,
   Money,
   SectionTitle,
+  useConfirm,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
@@ -50,6 +51,7 @@ export default function SettleUpScreen() {
 
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const { ask, dialog } = useConfirm();
 
   // Stable `reload` references — see group/[id]/index.tsx.
   const { reload: reloadBalances } = balances;
@@ -102,14 +104,13 @@ export default function SettleUpScreen() {
     fromName: string;
     toName: string;
   }) {
-    Alert.alert(
-      'Mark as paid?',
-      `Records that ${txn.fromName} paid ${txn.toName} ${formatAgorot(txn.amountAgorot)} outside the app. Both balances update.`,
-      [
-        { text: 'Not yet', style: 'cancel' },
-        { text: 'Mark as paid', onPress: () => void markPaid(txn) },
-      ]
-    );
+    ask({
+      title: 'Mark as paid?',
+      message: `Records that ${txn.fromName} paid ${txn.toName} ${formatAgorot(txn.amountAgorot)} outside the app. Both balances update.`,
+      confirmLabel: 'Mark as paid',
+      cancelLabel: 'Not yet',
+      onConfirm: () => void markPaid(txn),
+    });
   }
 
   const nameOf = (lookupId: string, fallback = 'Someone') =>
@@ -259,6 +260,7 @@ export default function SettleUpScreen() {
                       <Avatar
                         name={balance.user?.display_name ?? '?'}
                         id={balance.userId}
+                        uri={balance.user?.avatar_url}
                         size={32}
                       />
                       <Text className="flex-1 text-base text-primary">
@@ -291,6 +293,7 @@ export default function SettleUpScreen() {
           )}
         </ContentWidth>
       </ScrollView>
+      {dialog}
     </Screen>
   );
 }

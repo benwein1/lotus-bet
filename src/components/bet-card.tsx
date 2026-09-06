@@ -4,6 +4,7 @@ import { Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 
 import { BetMediaView } from '@/components/bet-media';
+import { GroupGlyph } from '@/components/group-glyph';
 import { ClockIcon, LockIcon } from '@/components/icons';
 import { OddsBar } from '@/components/odds-bar';
 import { Badge, LiveDot, Money, PressableScale, tap } from '@/components/ui';
@@ -100,13 +101,21 @@ export function FeedCard({
           scaleTo={0.99}
           accessibilityRole="button"
           accessibilityLabel={`Bet: ${bet.title}`}
-          className="flex-1 justify-between p-5"
+          // Inset to match the 28px corner radius — at p-5 the type ran into
+          // the curve of the card.
+          className="flex-1 justify-between p-7"
         >
           <View className="flex-row items-start justify-between gap-3">
             <View className="flex-1 flex-row items-center gap-2">
               {bet.group && (
                 <>
-                  <Text className="text-base">{bet.group.emoji ?? '🎲'}</Text>
+                  <GroupGlyph
+                    emoji={bet.group.emoji}
+                    avatarUrl={bet.group.avatar_url}
+                    name={bet.group.name}
+                    size={26}
+                    radius={9}
+                  />
                   <Text numberOfLines={1} className={`flex-1 text-sm ${metaClass}`}>
                     {bet.group.name}
                   </Text>
@@ -253,8 +262,8 @@ function SidePick({
 
   const text = selected
     ? tone === 'a'
-      ? 'text-accent-ink'
-      : 'text-canvas'
+      ? 'text-sideA-ink'
+      : 'text-sideB-ink'
     : onMedia
       ? 'text-on-media'
       : 'text-primary';
@@ -317,19 +326,29 @@ export function BetCard({
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel={`Bet: ${bet.title}`}
-          className={`mb-3 overflow-hidden rounded-3xl border border-hairline bg-surface ${
+          style={elevation.card}
+          className={`mb-3 overflow-hidden rounded-3xl border border-hairline-strong bg-surface ${
             isCancelled ? 'opacity-50' : ''
           }`}
         >
           {media.length > 0 && <BetMediaView media={media} className="h-40 w-full" />}
 
-          <View className="p-4">
+          <View className="p-5">
             <View className="flex-row items-center justify-between gap-3">
               <View className="flex-1 flex-row items-center gap-1.5">
                 {showGroup && bet.group ? (
-                  <Text numberOfLines={1} className="text-sm text-secondary">
-                    {bet.group.emoji ?? '🎲'}  {bet.group.name}
-                  </Text>
+                  <>
+                    <GroupGlyph
+                      emoji={bet.group.emoji}
+                      avatarUrl={bet.group.avatar_url}
+                      name={bet.group.name}
+                      size={20}
+                      radius={7}
+                    />
+                    <Text numberOfLines={1} className="flex-1 text-sm text-secondary">
+                      {bet.group.name}
+                    </Text>
+                  </>
                 ) : (
                   bet.status === 'open' && (
                     <>
@@ -375,7 +394,7 @@ export function BetCard({
           </View>
 
           {side && !isResolved && !isCancelled && (
-            <View className="flex-row items-center gap-2 border-t border-hairline bg-accent-soft px-4 py-2.5">
+            <View className="flex-row items-center gap-2 border-t border-hairline bg-accent-soft px-5 py-2.5">
               <Text className="text-sm text-accent">
                 You&apos;re on <Text className="font-semibold">{myLabel}</Text>
               </Text>
@@ -384,7 +403,7 @@ export function BetCard({
 
           {isResolved && side && (
             <View
-              className={`flex-row items-center justify-between gap-2 border-t border-hairline px-4 py-2.5 ${
+              className={`flex-row items-center justify-between gap-2 border-t border-hairline px-5 py-2.5 ${
                 iWon ? 'bg-positive-soft' : 'bg-negative-soft'
               }`}
             >

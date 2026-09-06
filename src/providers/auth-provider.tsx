@@ -94,11 +94,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       profile,
       loading,
       demo: demoActive,
-      // A real column, not a guess at the shape of a placeholder name. The
-      // signup trigger sets it when the sign-up form supplied a name, and the
-      // profile-setup screen sets it otherwise.
       needsProfileSetup:
-        !demoActive && Boolean(session) && Boolean(profile) && !profile!.profile_completed,
+        !demoActive && Boolean(session) && Boolean(profile) && !profileIsComplete(profile!),
 
       enterDemo() {
         enableDemoMode();
@@ -141,16 +138,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         if (!session?.user.id) throw new Error('Not signed in.');
 
-        const { data, error } = await supabase
-          .from('users')
-          .update(
-            // Naming yourself is what completes the profile, so the two always
-            // move together.
-            patch.display_name ? { ...patch, profile_completed: true } : patch
-          )
-          .eq('id', session.user.id)
-          .select()
-          .single<UserRow>();
+        // Naming yourself is what completes the profile, so the two always
+        // move together.
+        const full = patch.display_name ? { ...patch, profile_completed: true } : patch;
+
+        const write = (values: Record<string, unknown>) =>
+          supabase
+            .from('users')
+            .update(values)
+            .eq('id', session.user.id)
+            .select()
+            .single<UserRow>();
+
+        let { data, error } = await write(full);
+
+        // A project that has not had `…_email_auth.sql` applied has no
+        // `profile_completed` column, and PostgREST rejects the whole write
+        // rather than ignoring the unknown key. Retry with just the columns
+        // that schema does have, so naming yourself still works — the
+        // placeholder-name fallback in `profileIsComplete` then carries it.
+        if (error && isMissingColumn(error, 'profile_completed')) {
+          ({ data, error } = await write(patch));
+        }
 
         if (error) throw new Error(error.message);
         setProfile(data);
@@ -180,6 +189,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+/**
+ * Whether the user has named themselves.
+ *
+ * `profile_completed` is the real answer, but the column only exists once
+ * `…_email_auth.sql` has been applied. Against the older schema the value is
+ * simply absent, so fall back to what that schema encoded: the signup trigger
+ * named every new account `Player <4 chars>`, and anything else is a name the
+ * user chose.
+ */
+function profileIsComplete(profile: UserRow): boolean {
+  if (typeof profile.profile_completed === 'boolean') return profile.profile_completed;
+  return !/^player [0-9a-f]{0,4}$/i.test(profile.display_name.trim());
+}
+
+/** PostgREST's "column not in the schema cache" rejection. */
+function isMissingColumn(error: { code?: string; message: string }, column: string): boolean {
+  return error.code === 'PGRST204' || error.message.includes(`'${column}' column`);
 }
 
 /**

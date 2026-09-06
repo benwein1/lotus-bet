@@ -94,8 +94,10 @@ export default function FeedScreen() {
   return (
     <Screen>
       <SafeAreaView edges={['top']} className="flex-1">
-        <View className="flex-row items-center justify-between px-gutter pb-3 pt-1">
-          <Text className="text-2xl font-bold text-primary">Feed</Text>
+        {/* No heading. The tab bar already says which tab this is, and the
+            bet is meant to have the whole screen. The demo badge sits in a row
+            that collapses to nothing when it renders null. */}
+        <View className="items-end px-gutter pt-1">
           <DemoBadge />
         </View>
 
