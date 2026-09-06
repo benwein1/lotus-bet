@@ -48,7 +48,12 @@ npm test                  # jest — 50 tests, pure logic + a theme drift check
 npm run typecheck         # tsc --noEmit
 npm run lint
 npm run theme             # regenerate global.css from theme-colors.json
+
+supabase/test/run.sh      # migrations + RLS + RPCs against a throwaway Postgres
 ```
+
+`run.sh` needs a local PostgreSQL 16 and never touches a real project. It is
+the only thing that exercises the SQL — see §7.
 
 Always run `npm run typecheck && npm test` before claiming a change works.
 They are fast (a few seconds combined) and there is **no CI in this repo** —
@@ -420,12 +425,21 @@ any new consumer.
 
 ## 7. Known issues and suspected bugs
 
-**The single most important caveat: none of the SQL in `supabase/migrations/`
-has ever been run against a live Postgres by Claude.** It was written and
-reviewed but never applied during the build — only the TypeScript was
-typechecked and tested. Treat the schema, RLS policies, storage policies and
-RPCs as *unverified*. When a backend bug surfaces, the migration is a likely
-suspect.
+**The SQL is now exercised.** `supabase/test/run.sh` spins up a throwaway
+PostgreSQL 16, fakes just enough of the Supabase platform (`auth.users`,
+`auth.uid()`, `storage.objects`, the realtime publication, and the table
+grants Supabase hands out on its own), applies every migration in order, runs
+the seed script on top, and then drives the policies as the `authenticated`
+role with a JWT subject. It checks that a member sees their group and an
+outsider sees nothing without the `group_members` policy recursing, that
+clients cannot write `bet_ledger_entries`, that `join_bet`/`leave_bet` and
+`join_group_with_code` work, that `enforce_bet_open` rejects a position on a
+resolved bet, that a non-creator cannot cancel, and that a settlement moves
+both balances and still nets to zero. All of that passes.
+
+What it does **not** cover is anything the platform provides rather than this
+repo: real storage behaviour, GoTrue, and Edge Function deployment. The
+storage policies are only checked for syntax, not for effect.
 
 Concrete things worth fixing, roughly by severity:
 
