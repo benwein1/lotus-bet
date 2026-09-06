@@ -39,15 +39,20 @@ module.exports = {
         positive: { DEFAULT: color('positive'), soft: color('positive-soft') },
         negative: { DEFAULT: color('negative'), soft: color('negative-soft') },
 
+        // The two sides of a bet read as the two directions money can go:
+        // green for, red against. `media` is the on-a-photo variant, which is
+        // the same value in both schemes because a scrim is dark either way.
         sideA: {
           DEFAULT: color('side-a'),
           soft: color('side-a-soft'),
           ink: color('side-a-ink'),
+          media: color('side-a-on-media'),
         },
         sideB: {
           DEFAULT: color('side-b'),
           soft: color('side-b-soft'),
           ink: color('side-b-ink'),
+          media: color('side-b-on-media'),
         },
 
         chrome: color('chrome'),

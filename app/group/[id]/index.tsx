@@ -111,6 +111,11 @@ export default function GroupDetailScreen() {
     return (
       <Screen className="px-gutter pt-10">
         <ErrorNotice message={group.error ?? 'This group is not available.'} />
+        <Button
+          title="Back to your groups"
+          variant="tinted"
+          onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/groups'))}
+        />
       </Screen>
     );
   }

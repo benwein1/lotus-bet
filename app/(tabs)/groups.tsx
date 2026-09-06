@@ -59,11 +59,13 @@ export default function GroupsScreen() {
           showsVerticalScrollIndicator={false}
         >
           <ContentWidth>
+            {/* No screen title: the tab bar says which tab this is, and the
+                two things you came here to do sit at the top instead. */}
             <View className="pt-3" />
 
             {groups.error && <ErrorNotice message={groups.error} />}
 
-            <View className="mb-6 flex-row gap-3">
+            <View className="mb-6 flex-row gap-3 pt-4">
               <Button
                 title="New group"
                 size="lg"

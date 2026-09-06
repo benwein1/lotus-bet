@@ -5,13 +5,18 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring } from '@/compon
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { positionPercentages } from '@/lib/format';
 import { useColors } from '@/providers/theme-provider';
-import { motion, palettes, tabular } from '@/theme';
+import { motion, tabular } from '@/theme';
 
 /**
  * The market bar — the app's signature element.
  *
  * Percentages are headcount, not money: "how many friends think this" is the
  * number people actually care about.
+ *
+ * Green is side A — the people in favour — and red is side B, the people
+ * against. It is the same pair of colours the ledger uses for money owed to
+ * you and money you owe, which is the point: one learned convention, read the
+ * same way everywhere in the app.
  *
  * The split animates on `scaleX` over a fixed-width track, never on width or
  * flex. Animating a layout property re-lays-out the whole row every frame; a
@@ -66,15 +71,12 @@ export function OddsBar({
 
   const label = onMedia ? 'text-on-media-soft' : 'text-secondary';
   const muted = onMedia ? 'text-on-media-faint' : 'text-tertiary';
+  // Over media the two sides keep their green and red, but in the brighter
+  // variants that hold up on a scrim — those tokens are scheme-independent by
+  // design, because a scrim is dark in both schemes.
   const trackColor = onMedia ? 'rgba(255,255,255,0.22)' : colors.surface3;
-
-  // "On media" always means "over a dark scrim", whatever the app's scheme is
-  // doing, so the right green and red there are the dark palette's — bright
-  // enough to hold against a photo. Reading them off `palettes` keeps this
-  // from becoming two more hardcoded hexes in a component.
-  const sideColors = onMedia ? palettes.dark : colors;
-  const colorA = lostA ? trackColor : sideColors.sideA;
-  const colorB = lostB ? trackColor : sideColors.sideB;
+  const colorA = lostA ? trackColor : onMedia ? colors.sideAOnMedia : colors.sideA;
+  const colorB = lostB ? trackColor : onMedia ? colors.sideBOnMedia : colors.sideB;
 
   return (
     <View className={size === 'sm' ? 'gap-2' : 'gap-2.5'}>
@@ -83,13 +85,11 @@ export function OddsBar({
           <Text numberOfLines={1} className={`text-sm ${lostA ? muted : label}`}>
             {labelA}
           </Text>
-          {/* The percentage takes the colour of the bar under it. A class
-              cannot express "the dark palette's green whatever the scheme is",
-              which is what a label over a photo needs, so the colour is
-              applied as a style — the one case §4 leaves open. */}
           <Text
-            style={[tabular, lostA ? null : { color: colorA }]}
-            className={`font-bold ${pctClass} ${lostA ? muted : ''}`}
+            style={tabular}
+            className={`font-bold ${pctClass} ${
+              lostA ? muted : onMedia ? 'text-sideA-media' : 'text-sideA'
+            }`}
           >
             {a}%
           </Text>
@@ -100,8 +100,10 @@ export function OddsBar({
             {labelB}
           </Text>
           <Text
-            style={[tabular, lostB ? null : { color: colorB }]}
-            className={`font-bold ${pctClass} ${lostB ? muted : ''}`}
+            style={tabular}
+            className={`font-bold ${pctClass} ${
+              lostB ? muted : onMedia ? 'text-sideB-media' : 'text-sideB'
+            }`}
           >
             {b}%
           </Text>

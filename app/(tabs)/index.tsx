@@ -94,9 +94,9 @@ export default function FeedScreen() {
   return (
     <Screen>
       <SafeAreaView edges={['top']} className="flex-1">
-        {/* No heading. The tab bar already says which tab this is, and the
-            bet is meant to have the whole screen. The demo badge sits in a row
-            that collapses to nothing when it renders null. */}
+        {/* No screen title. The tab bar already says where you are, and the
+            bet is meant to be the first thing on the screen. The demo badge
+            sits in a row that collapses to nothing when it renders null. */}
         <View className="items-end px-gutter pt-1">
           <DemoBadge />
         </View>
@@ -108,7 +108,7 @@ export default function FeedScreen() {
         )}
 
         {feed.loading ? (
-          <ContentWidth className="px-gutter">
+          <ContentWidth className="px-gutter pt-2">
             <BetFeedSkeleton cardHeight={cardHeight} />
           </ContentWidth>
         ) : bets.length === 0 ? (
@@ -136,7 +136,7 @@ export default function FeedScreen() {
             decelerationRate="fast"
             snapToAlignment="start"
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: tabInset, paddingHorizontal: 20 }}
+            contentContainerStyle={{ paddingTop: 8, paddingBottom: tabInset, paddingHorizontal: 20 }}
             onViewableItemsChanged={onViewableItemsChanged.current}
             viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
             refreshControl={

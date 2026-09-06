@@ -4,7 +4,7 @@ import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ContentWidth, Screen } from '@/components/screen';
-import { Avatar, BlockField, Button, ErrorNotice } from '@/components/ui';
+import { Avatar, BlockField, Button, ErrorNotice, PressableScale } from '@/components/ui';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useAuth } from '@/providers/auth-provider';
 import { motion } from '@/theme';
@@ -91,15 +91,17 @@ export default function ProfileSetupScreen() {
               loading={busy}
               disabled={trimmed.length < 2}
             />
-            {/* The redirect gate holds a signed-in user here until they have a
-                name, so if saving one keeps failing this is the only way out.
-                Without it the screen is a dead end. */}
-            <Button
-              title="Sign out"
-              variant="plain"
-              size="lg"
+
+            {/* The redirect gate pins you here until a name sticks, so this is
+                the only way out if you land on it by mistake. */}
+            <PressableScale
               onPress={() => void signOut()}
-            />
+              hitSlop={8}
+              accessibilityRole="button"
+              className="mt-4 self-center px-3 py-1"
+            >
+              <Text className="text-subhead text-secondary">Sign out instead</Text>
+            </PressableScale>
           </ContentWidth>
         </KeyboardAvoidingView>
       </SafeAreaView>

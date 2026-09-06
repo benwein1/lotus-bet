@@ -32,9 +32,11 @@
     --c-side-a: #1E9E52;
     --c-side-a-soft: #E4F6EB;
     --c-side-a-ink: #FFFFFF;
+    --c-side-a-on-media: #3DDC84;
     --c-side-b: #DC3A40;
     --c-side-b-soft: #FDECEC;
     --c-side-b-ink: #FFFFFF;
+    --c-side-b-on-media: #FF7076;
     --c-chrome: rgba(255, 255, 255, 0.88);
     --c-chrome-edge: rgba(0, 0, 0, 0.07);
     --c-scrim: rgba(0, 0, 0, 0.45);
@@ -66,9 +68,11 @@
     --c-side-a: #34D07A;
     --c-side-a-soft: #0D2418;
     --c-side-a-ink: #00190C;
+    --c-side-a-on-media: #3DDC84;
     --c-side-b: #FF5E63;
     --c-side-b-soft: #2A1112;
     --c-side-b-ink: #2A0002;
+    --c-side-b-on-media: #FF7076;
     --c-chrome: rgba(18, 18, 21, 0.86);
     --c-chrome-edge: rgba(255, 255, 255, 0.08);
     --c-scrim: rgba(0, 0, 0, 0.6);

@@ -107,8 +107,8 @@ export default function SettleUpScreen() {
     ask({
       title: 'Mark as paid?',
       message: `Records that ${txn.fromName} paid ${txn.toName} ${formatAgorot(txn.amountAgorot)} outside the app. Both balances update.`,
-      confirmLabel: 'Mark as paid',
       cancelLabel: 'Not yet',
+      confirmLabel: 'Mark as paid',
       onConfirm: () => void markPaid(txn),
     });
   }

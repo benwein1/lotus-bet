@@ -101,10 +101,10 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
 }
 
 /**
- * Icon only. The three destinations are a house, a pair of people and a
- * person — a label under each would be repeating what the glyph already says,
- * and the bar is narrower and quieter without them. The name stays on as the
- * accessibility label, so nothing is lost to a screen reader.
+ * Icon only — no caption. Three destinations whose glyphs are already
+ * unambiguous do not need labels, and dropping them lets the bar shrink to
+ * something closer to a control than a strip. The label survives as the
+ * accessibility name, which is the only place it was doing real work.
  */
 function TabButton({
   label,

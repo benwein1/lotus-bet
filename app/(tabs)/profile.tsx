@@ -77,8 +77,8 @@ export default function ProfileScreen() {
     ask({
       title: 'Sign out?',
       message: 'Your bets and balances stay exactly where they are.',
-      confirmLabel: 'Sign out',
       cancelLabel: 'Stay',
+      confirmLabel: 'Sign out',
       destructive: true,
       onConfirm: () => void signOut(),
     });
@@ -113,6 +113,7 @@ export default function ProfileScreen() {
           showsVerticalScrollIndicator={false}
         >
           <ContentWidth>
+            {/* No screen title — the tab bar carries that. */}
             <View className="mb-4 items-end pt-2">
               <DemoBadge />
             </View>
@@ -120,7 +121,7 @@ export default function ProfileScreen() {
             {error && <ErrorNotice message={error} />}
 
             <Animated.View entering={entering(0)}>
-              <View className="mb-7 items-center rounded-3xl border border-hairline bg-surface px-5 py-7">
+              <View className="mb-7 mt-4 items-center rounded-3xl border border-hairline bg-surface px-5 py-7">
                 <AvatarPicker
                   name={profile.display_name}
                   id={profile.id}

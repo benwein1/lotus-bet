@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, ZoomIn } from '@/components/animated';
@@ -45,6 +45,7 @@ export default function BetDetailScreen() {
   const betId = id ?? '';
   const { session } = useAuth();
   const colors = useColors();
+  const router = useRouter();
   const userId = session?.user.id ?? '';
 
   const bet = useAsync(() => fetchBet(betId), [betId]);
@@ -83,6 +84,11 @@ export default function BetDetailScreen() {
     return (
       <Screen className="px-gutter pt-10">
         <ErrorNotice message={bet.error ?? 'This bet is not available.'} />
+        <Button
+          title="Back to the feed"
+          variant="tinted"
+          onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
+        />
       </Screen>
     );
   }
@@ -155,8 +161,8 @@ export default function BetDetailScreen() {
     ask({
       title: 'Cancel this bet?',
       message: 'Nobody wins, nobody owes anything.',
-      confirmLabel: 'Cancel bet',
       cancelLabel: 'Keep it',
+      confirmLabel: 'Cancel bet',
       destructive: true,
       onConfirm: () => void withBusy(() => cancelBet(betId)),
     });

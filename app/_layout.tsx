@@ -19,6 +19,13 @@ import '../global.css';
 
 void SplashScreen.preventAutoHideAsync();
 
+/**
+ * Whatever route the app opens on — a push notification straight to a bet, a
+ * shared link to a group — the tabs are underneath it. Without this a deep
+ * link lands on a stack of one and there is no way back out of it.
+ */
+export const unstable_settings = { initialRouteName: '(tabs)' };
+
 export default function RootLayout() {
   // No webfont to wait on: the app is set in the system face, which on iOS is
   // SF Pro. It already ships optical sizing, tracking tables and legibility
@@ -95,8 +102,13 @@ function RootNavigator() {
         animation: 'slide_from_right',
       }}
     >
-      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+      {/* No swipe-back out of auth: deep-linking while signed out leaves the
+          tabs underneath, and the gate would only bounce you straight back. */}
+      <Stack.Screen name="(auth)" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      {/* The three modals get an explicit Cancel. A sheet has no back chevron
+          of its own on every platform, and dismissing by dragging is not
+          discoverable — there is always a visible way out. */}
       <Stack.Screen name="group/create" options={modalOptions('New group')} />
       <Stack.Screen name="group/join" options={modalOptions('Join a group')} />
       <Stack.Screen name="group/[id]/index" options={{ title: '' }} />
@@ -120,19 +132,23 @@ function modalOptions(title: string) {
     title,
     presentation: 'modal' as const,
     animation: 'slide_from_bottom' as const,
-    headerLeft: () => <CancelButton />,
+    headerLeft: () => <ModalCancel />,
   };
 }
 
-function CancelButton() {
+/**
+ * The way out of a modal. Falls back to the tabs rather than calling `back()`
+ * blind: opened from a deep link there may be nothing behind it.
+ */
+function ModalCancel() {
   const router = useRouter();
   return (
     <PressableScale
       onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
       hitSlop={12}
       accessibilityRole="button"
-      accessibilityLabel="Close"
-      className="py-1 pr-4"
+      accessibilityLabel="Cancel"
+      className="py-1 pl-2 pr-4"
     >
       <Text className="text-base text-accent">Cancel</Text>
     </PressableScale>
