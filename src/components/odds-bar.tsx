@@ -13,6 +13,11 @@ import { motion, tabular } from '@/theme';
  * Percentages are headcount, not money: "how many friends think this" is the
  * number people actually care about.
  *
+ * Green is side A — the people in favour — and red is side B, the people
+ * against. It is the same pair of colours the ledger uses for money owed to
+ * you and money you owe, which is the point: one learned convention, read the
+ * same way everywhere in the app.
+ *
  * The split animates on `scaleX` over a fixed-width track, never on width or
  * flex. Animating a layout property re-lays-out the whole row every frame; a
  * transform is composited and costs nothing. This is the one value in the app
@@ -61,14 +66,17 @@ export function OddsBar({
   const lostA = winningOption === 'b';
   const lostB = winningOption === 'a';
 
-  const barHeight = size === 'sm' ? 4 : size === 'lg' ? 8 : 6;
+  const barHeight = size === 'sm' ? 6 : size === 'lg' ? 10 : 8;
   const pctClass = size === 'lg' ? 'text-2xl' : size === 'sm' ? 'text-lg' : 'text-xl';
 
   const label = onMedia ? 'text-on-media-soft' : 'text-secondary';
   const muted = onMedia ? 'text-on-media-faint' : 'text-tertiary';
+  // Over media the two sides keep their green and red, but in the brighter
+  // variants that hold up on a scrim — those tokens are scheme-independent by
+  // design, because a scrim is dark in both schemes.
   const trackColor = onMedia ? 'rgba(255,255,255,0.22)' : colors.surface3;
-  const colorA = lostA ? trackColor : onMedia ? colors.onMedia : colors.sideA;
-  const colorB = lostB ? trackColor : onMedia ? 'rgba(255,255,255,0.45)' : colors.sideB;
+  const colorA = lostA ? trackColor : onMedia ? colors.sideAOnMedia : colors.sideA;
+  const colorB = lostB ? trackColor : onMedia ? colors.sideBOnMedia : colors.sideB;
 
   return (
     <View className={size === 'sm' ? 'gap-2' : 'gap-2.5'}>
@@ -80,7 +88,7 @@ export function OddsBar({
           <Text
             style={tabular}
             className={`font-bold ${pctClass} ${
-              lostA ? muted : onMedia ? 'text-on-media' : 'text-sideA'
+              lostA ? muted : onMedia ? 'text-sideA-media' : 'text-sideA'
             }`}
           >
             {a}%
@@ -94,7 +102,7 @@ export function OddsBar({
           <Text
             style={tabular}
             className={`font-bold ${pctClass} ${
-              lostB ? muted : onMedia ? 'text-on-media-soft' : 'text-sideB'
+              lostB ? muted : onMedia ? 'text-sideB-media' : 'text-sideB'
             }`}
           >
             {b}%

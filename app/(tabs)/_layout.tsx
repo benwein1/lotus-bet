@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Platform, Text, View } from 'react-native';
+import { Platform, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from '@/components/animated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -18,6 +18,11 @@ import { elevation, motion } from '@/theme';
  * The bar floats: a rounded, translucent pill sitting above the home indicator
  * with content scrolling underneath it, rather than an opaque strip that eats
  * the bottom of every screen. Screens leave room for it with `useTabBarInset`.
+ *
+ * Icons only — no captions. Three destinations whose glyphs are already
+ * unambiguous do not need labels, and dropping them lets the bar shrink to
+ * something closer to a control than a strip. The label survives as the
+ * accessibility name, which is the only place it was doing real work.
  */
 const TABS: {
   name: string;
@@ -130,20 +135,15 @@ function TabButton({
         onResponderTerminate={() => {
           press.value = withSpring(1, motion.press);
         }}
-        className={`h-11 min-w-[84px] flex-row items-center justify-center gap-1.5 rounded-full px-4 ${
+        className={`h-12 w-16 items-center justify-center rounded-full ${
           focused ? 'bg-accent-soft' : ''
         }`}
       >
         <Icon
-          size={21}
+          size={24}
           active={focused}
           color={focused ? colors.accent : colors.textSecondary}
         />
-        <Text
-          className={`text-sm ${focused ? 'font-semibold text-accent' : 'text-secondary'}`}
-        >
-          {label}
-        </Text>
       </View>
     </Animated.View>
   );

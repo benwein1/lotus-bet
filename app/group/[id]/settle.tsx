@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
 import Animated, { FadeInDown } from '@/components/animated';
 
 import { CheckIcon, HandshakeIcon } from '@/components/icons';
@@ -18,6 +18,7 @@ import {
 import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
 import { useSettlement } from '@/hooks/use-settlement';
+import { confirm } from '@/lib/confirm';
 import { formatAgorot } from '@/lib/format';
 import {
   confirmSettlement,
@@ -102,14 +103,13 @@ export default function SettleUpScreen() {
     fromName: string;
     toName: string;
   }) {
-    Alert.alert(
-      'Mark as paid?',
-      `Records that ${txn.fromName} paid ${txn.toName} ${formatAgorot(txn.amountAgorot)} outside the app. Both balances update.`,
-      [
-        { text: 'Not yet', style: 'cancel' },
-        { text: 'Mark as paid', onPress: () => void markPaid(txn) },
-      ]
-    );
+    confirm({
+      title: 'Mark as paid?',
+      message: `Records that ${txn.fromName} paid ${txn.toName} ${formatAgorot(txn.amountAgorot)} outside the app. Both balances update.`,
+      cancelLabel: 'Not yet',
+      confirmLabel: 'Mark as paid',
+      onConfirm: () => void markPaid(txn),
+    });
   }
 
   const nameOf = (lookupId: string, fallback = 'Someone') =>

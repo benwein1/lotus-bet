@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Alert, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -19,9 +19,9 @@ import {
   SectionTitle,
   Segmented,
   Stat,
-  Title,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
+import { confirm } from '@/lib/confirm';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import { formatAgorot, formatShortDate } from '@/lib/format';
@@ -73,10 +73,14 @@ export default function ProfileScreen() {
   }
 
   function confirmSignOut() {
-    Alert.alert('Sign out?', 'Your bets and balances stay exactly where they are.', [
-      { text: 'Stay', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: () => void signOut() },
-    ]);
+    confirm({
+      title: 'Sign out?',
+      message: 'Your bets and balances stay exactly where they are.',
+      cancelLabel: 'Stay',
+      confirmLabel: 'Sign out',
+      destructive: true,
+      onConfirm: () => void signOut(),
+    });
   }
 
   if (!profile) return <Loading label="Loading your profile…" />;
@@ -108,15 +112,15 @@ export default function ProfileScreen() {
           showsVerticalScrollIndicator={false}
         >
           <ContentWidth>
-            <View className="mb-6 flex-row items-center justify-between pt-4">
-              <Title>You</Title>
+            {/* No screen title — the tab bar carries that. */}
+            <View className="items-end pt-2">
               <DemoBadge />
             </View>
 
             {error && <ErrorNotice message={error} />}
 
             <Animated.View entering={entering(0)}>
-              <View className="mb-7 items-center rounded-3xl border border-hairline bg-surface px-5 py-7">
+              <View className="mb-7 mt-4 items-center rounded-3xl border border-hairline bg-surface px-5 py-7">
                 <Avatar name={profile.display_name} id={profile.id} size={72} />
                 <Text numberOfLines={1} className="mt-3.5 text-xl font-bold text-primary">
                   {profile.display_name}

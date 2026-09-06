@@ -91,6 +91,7 @@ src/
   lib/settlement.ts         balance netting + greedy debt simplification
   lib/queries.ts            every Supabase read/write the app makes
   lib/media.ts              picking, uploading and signing bet media
+  lib/confirm.ts            yes/no confirm that also works on web
   lib/format.ts             agorot ↔ shekels, countdowns, initials, email
   lib/database.types.ts     hand-written row types
   lib/supabase.ts           client; `isSupabaseConfigured` guard
@@ -145,16 +146,19 @@ never need to be.
 | `inverse` | text on an inverted surface |
 | `accent` (+ `-strong`, `-soft`, `-ink`) | the one decisive colour |
 | `positive` / `negative` (+ `-soft`) | money owed to you / that you owe |
-| `sideA` / `sideB` (+ `-soft`) | the two sides of a bet |
+| `sideA` / `sideB` (+ `-soft`, `-onMedia`) | the two sides of a bet |
 | `chrome` / `chrome-edge` | translucent floating material and its lit edge |
 | `scrim` | dim layer over media |
 | `on-media` (+ `-soft`, `-faint`) | text over a photo or video, both schemes |
 
-**Black and white are the app's colours; light blue is the only accent.** Side
-A is that blue, side B is ink (near-black on light, near-white on dark) — the
-two sides of a bet are literally the two colours the product is made of.
-`positive`/`negative` stay green/red because ledger direction is the one place
-where a learned colour convention beats a house style.
+**Black and white are the app's colours; light blue is the only accent** — it
+carries every action, and nothing else. **The two sides of a bet are green and
+red**: side A is the people in favour, side B the people against, in the same
+pair of colours the ledger uses for money owed to you and money you owe. One
+learned convention, read the same way on the odds bar, the side buttons and the
+balance rows. `sideA-media` / `sideB-media` are the brighter variants for use
+over a photo; they are deliberately the *same value in both schemes*, because a
+scrim is dark either way.
 
 **Never hardcode a hex in a component.** Reach for `useColors()` only where a
 class cannot go: navigator options, `placeholderTextColor`, `Switch`,
@@ -236,8 +240,9 @@ thicker: the tab bar takes a much higher blur intensity than a chip would.
 - **No tracked ALL-CAPS eyebrows.** `SectionTitle` is sentence case at Title 3.
 - **No middle-dot meta strings** (`A · B · C`). Write the sentence.
 - **No near-black-as-grey.** The dark ramp is genuinely black-first.
-- **One accent, used with meaning** — blue carries side A and every action;
-  green and red carry ledger direction. Nothing is coloured for decoration.
+- **One accent, used with meaning** — blue carries every action; green and red
+  carry direction, both on the ledger and on the two sides of a bet. Nothing is
+  coloured for decoration.
 - **Loading states are skeletons, not spinners**, anywhere the shape of the
   content is known.
 
@@ -269,6 +274,19 @@ thicker: the tab bar takes a much higher blur intensity than a chip would.
    what `on-media-soft` and `chrome` are.
 
 4. `contentContainerClassName` **is** supported on ScrollView. Use it.
+
+5. **Never nest a pressable control inside a `Link`.** On iOS the responder
+   system lets the inner one win, so it looks fine; on the web the inner press
+   fires *and* the browser's own anchor activation runs afterwards, doing a
+   full document navigation. That silently broke picking a side from the feed
+   card. `FeedCard` now puts the `Link` and the `SidePick` row side by side as
+   siblings inside the padded column — copy that shape.
+
+6. **`Alert.alert` is a no-op on react-native-web** — the implementation is
+   literally `static alert() {}`. Every confirmation in the app therefore did
+   nothing in a browser: sign out, resolve, cancel and "mark as paid" were dead
+   controls on the one platform the design loop runs on. Confirmations go
+   through `src/lib/confirm.ts`, which falls back to `window.confirm` on web.
 
 5. **Eight-digit hex alpha is not reliable in `LinearGradient`.** A stop that
    doesn't truly reach zero leaves a hard horizontal seam. The feed card's
@@ -311,6 +329,14 @@ be picked straight from the card. Only the card actually on screen plays its
 video (`active` prop, driven by `onViewableItemsChanged`).
 
 Screens leave room for the floating tab bar with `useTabBarInset()`.
+
+### Chrome the tabs don't have
+
+The floating tab bar is **icons only** — three destinations with unambiguous
+glyphs do not need captions, and the label survives where it was actually doing
+work, as the accessibility name. **No tab screen prints its own name at the top
+either**: the bar already says where you are, so Feed, Groups and You open
+straight onto their content.
 
 ---
 

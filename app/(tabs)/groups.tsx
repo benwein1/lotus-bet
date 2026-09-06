@@ -14,7 +14,6 @@ import {
   ErrorNotice,
   Money,
   PressableScale,
-  Title,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -59,18 +58,11 @@ export default function GroupsScreen() {
           showsVerticalScrollIndicator={false}
         >
           <ContentWidth>
-            <View className="mb-6 pt-4">
-              <Title>Groups</Title>
-              {!groups.loading && list.length > 0 && (
-                <Text className="mt-1.5 text-callout text-secondary">
-                  {list.length} {list.length === 1 ? 'group' : 'groups'}, settled up outside the app.
-                </Text>
-              )}
-            </View>
-
+            {/* No screen title: the tab bar says which tab this is, and the
+                two things you came here to do sit at the top instead. */}
             {groups.error && <ErrorNotice message={groups.error} />}
 
-            <View className="mb-6 flex-row gap-3">
+            <View className="mb-6 flex-row gap-3 pt-4">
               <Button
                 title="New group"
                 className="flex-1"

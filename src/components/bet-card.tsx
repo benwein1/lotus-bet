@@ -95,129 +95,140 @@ export function FeedCard({
         </>
       )}
 
-      <Link href={{ pathname: '/bet/[id]', params: { id: bet.id } }} asChild>
-        <PressableScale
-          scaleTo={0.99}
-          accessibilityRole="button"
-          accessibilityLabel={`Bet: ${bet.title}`}
-          className="flex-1 justify-between p-5"
-        >
-          <View className="flex-row items-start justify-between gap-3">
-            <View className="flex-1 flex-row items-center gap-2">
-              {bet.group && (
-                <>
-                  <Text className="text-base">{bet.group.emoji ?? '🎲'}</Text>
-                  <Text numberOfLines={1} className={`flex-1 text-sm ${metaClass}`}>
-                    {bet.group.name}
-                  </Text>
-                </>
+      {/* The corners are 28pt, so content needs real inset to stop it crowding
+          them — vertical most of all, since `justify-between` pushes the first
+          and last rows hard against the edges.
+
+          The side buttons sit *outside* the Link, not inside it. Nesting a
+          button in a link is invalid markup, and on the web it costs you the
+          feature outright: the inner press fires, then the browser's own
+          anchor activation runs anyway and hard-navigates the document. Two
+          siblings — one link, one control. */}
+      <View className="flex-1 px-6 py-7">
+        <Link href={{ pathname: '/bet/[id]', params: { id: bet.id } }} asChild>
+          <PressableScale
+            scaleTo={0.99}
+            accessibilityRole="button"
+            accessibilityLabel={`Bet: ${bet.title}`}
+            className="flex-1 justify-between"
+          >
+            <View className="flex-row items-start justify-between gap-3">
+              <View className="flex-1 flex-row items-center gap-2">
+                {bet.group && (
+                  <>
+                    <Text className="text-base">{bet.group.emoji ?? '🎲'}</Text>
+                    <Text numberOfLines={1} className={`flex-1 text-sm ${metaClass}`}>
+                      {bet.group.name}
+                    </Text>
+                  </>
+                )}
+              </View>
+              {bet.status === 'open' ? (
+                <View className="flex-row items-center gap-1.5 rounded-full bg-scrim px-2.5 py-1">
+                  <LiveDot />
+                  <Text className="text-xs font-semibold text-on-media">Live</Text>
+                </View>
+              ) : (
+                <Badge label={bet.status} tone={STATUS_TONE[bet.status]} />
               )}
             </View>
-            {bet.status === 'open' ? (
-              <View className="flex-row items-center gap-1.5 rounded-full bg-scrim px-2.5 py-1">
-                <LiveDot />
-                <Text className="text-xs font-semibold text-on-media">Live</Text>
-              </View>
-            ) : (
-              <Badge label={bet.status} tone={STATUS_TONE[bet.status]} />
-            )}
-          </View>
 
-          {/* Without a photo the question *is* the content, so it takes the
-              space the media would have had rather than leaving a void at the
-              top of the card. */}
-          {!hasMedia && (
-            <View className="flex-1 justify-center py-6">
-              <Text numberOfLines={6} className="text-4xl font-bold text-primary">
-                {bet.title}
-              </Text>
-              {bet.description && (
-                <Text numberOfLines={3} className="mt-3 text-callout leading-5 text-secondary">
-                  {bet.description}
+            {/* Without a photo the question *is* the content, so it takes the
+                space the media would have had rather than leaving a void at the
+                top of the card. */}
+            {!hasMedia && (
+              <View className="flex-1 justify-center py-6">
+                <Text numberOfLines={6} className="text-4xl font-bold text-primary">
+                  {bet.title}
+                </Text>
+                {bet.description && (
+                  <Text numberOfLines={3} className="mt-3 text-callout leading-5 text-secondary">
+                    {bet.description}
+                  </Text>
+                )}
+              </View>
+            )}
+
+            <View>
+              {hasMedia && (
+                <Text numberOfLines={3} className={`text-2xl font-bold ${titleClass}`}>
+                  {bet.title}
                 </Text>
               )}
-            </View>
-          )}
 
-          <View>
-            {hasMedia && (
-              <Text numberOfLines={3} className={`text-2xl font-bold ${titleClass}`}>
-                {bet.title}
-              </Text>
-            )}
+              <View className={`${hasMedia ? 'mt-3' : ''} flex-row items-center gap-4`}>
+                <View className="flex-row items-baseline gap-1.5">
+                  <Money
+                    agorot={bet.total_pot_agorot}
+                    size="md"
+                    tone={hasMedia ? 'onMedia' : 'accent'}
+                  />
+                  <Text className={`text-sm ${metaClass}`}>pot</Text>
+                </View>
 
-            <View className={`${hasMedia ? 'mt-3' : ''} flex-row items-center gap-4`}>
-              <View className="flex-row items-baseline gap-1.5">
-                <Money
-                  agorot={bet.total_pot_agorot}
-                  size="md"
-                  tone={hasMedia ? 'onMedia' : 'accent'}
-                />
-                <Text className={`text-sm ${metaClass}`}>pot</Text>
+                {countdown && (
+                  <View className="flex-row items-center gap-1.5">
+                    <ClockIcon
+                      size={14}
+                      color={hasMedia ? colors.onMediaSoft : colors.textSecondary}
+                    />
+                    <Text style={tabular} className={`text-sm ${metaClass}`}>
+                      {countdown.replace('Closes in ', '')}
+                    </Text>
+                  </View>
+                )}
+
+                {bet.status === 'locked' && (
+                  <View className="flex-row items-center gap-1.5">
+                    <LockIcon
+                      size={14}
+                      color={hasMedia ? colors.onMediaSoft : colors.textSecondary}
+                    />
+                    <Text className={`text-sm ${metaClass}`}>Locked</Text>
+                  </View>
+                )}
               </View>
 
-              {countdown && (
-                <View className="flex-row items-center gap-1.5">
-                  <ClockIcon
-                    size={14}
-                    color={hasMedia ? colors.onMediaSoft : colors.textSecondary}
-                  />
-                  <Text style={tabular} className={`text-sm ${metaClass}`}>
-                    {countdown.replace('Closes in ', '')}
-                  </Text>
-                </View>
-              )}
-
-              {bet.status === 'locked' && (
-                <View className="flex-row items-center gap-1.5">
-                  <LockIcon
-                    size={14}
-                    color={hasMedia ? colors.onMediaSoft : colors.textSecondary}
-                  />
-                  <Text className={`text-sm ${metaClass}`}>Locked</Text>
-                </View>
-              )}
-            </View>
-
-            <View className="mt-5">
-              <OddsBar
-                countA={counts.a}
-                countB={counts.b}
-                labelA={bet.option_a_label}
-                labelB={bet.option_b_label}
-                onMedia={hasMedia}
-              />
-            </View>
-
-            {joinable && (
-              <View className="mt-5 flex-row gap-3">
-                <SidePick
-                  label={bet.option_a_label}
-                  tone="a"
-                  selected={side === 'a'}
+              <View className="mt-5">
+                <OddsBar
+                  countA={counts.a}
+                  countB={counts.b}
+                  labelA={bet.option_a_label}
+                  labelB={bet.option_b_label}
                   onMedia={hasMedia}
-                  busy={busySide === 'a'}
-                  onPress={() => {
-                    tap();
-                    onPickSide?.('a');
-                  }}
-                />
-                <SidePick
-                  label={bet.option_b_label}
-                  tone="b"
-                  selected={side === 'b'}
-                  onMedia={hasMedia}
-                  busy={busySide === 'b'}
-                  onPress={() => {
-                    tap();
-                    onPickSide?.('b');
-                  }}
                 />
               </View>
-            )}
+            </View>
+          </PressableScale>
+        </Link>
+
+        {joinable && (
+          <View className="mt-5 flex-row gap-3">
+            <SidePick
+              label={bet.option_a_label}
+              tone="a"
+              selected={side === 'a'}
+              onMedia={hasMedia}
+              busy={busySide === 'a'}
+              onPress={() => {
+                tap();
+                onPickSide?.('a');
+              }}
+            />
+            <SidePick
+              label={bet.option_b_label}
+              tone="b"
+              selected={side === 'b'}
+              onMedia={hasMedia}
+              busy={busySide === 'b'}
+              onPress={() => {
+                tap();
+                onPickSide?.('b');
+              }}
+            />
           </View>
-        </PressableScale>
-      </Link>
+        )}
+      </View>
     </View>
   );
 }
@@ -251,13 +262,19 @@ function SidePick({
       ? 'border-chrome-edge bg-scrim'
       : 'border-hairline bg-surface2';
 
+  // Unselected, the label carries the side's colour so green and red mean the
+  // same thing here as they do on the bar above.
   const text = selected
     ? tone === 'a'
       ? 'text-accent-ink'
       : 'text-canvas'
     : onMedia
-      ? 'text-on-media'
-      : 'text-primary';
+      ? tone === 'a'
+        ? 'text-sideA-media'
+        : 'text-sideB-media'
+      : tone === 'a'
+        ? 'text-sideA'
+        : 'text-sideB';
 
   return (
     <PressableScale
@@ -323,7 +340,7 @@ export function BetCard({
         >
           {media.length > 0 && <BetMediaView media={media} className="h-40 w-full" />}
 
-          <View className="p-4">
+          <View className="p-5">
             <View className="flex-row items-center justify-between gap-3">
               <View className="flex-1 flex-row items-center gap-1.5">
                 {showGroup && bet.group ? (
@@ -375,7 +392,7 @@ export function BetCard({
           </View>
 
           {side && !isResolved && !isCancelled && (
-            <View className="flex-row items-center gap-2 border-t border-hairline bg-accent-soft px-4 py-2.5">
+            <View className="flex-row items-center gap-2 border-t border-hairline bg-accent-soft px-5 py-2.5">
               <Text className="text-sm text-accent">
                 You&apos;re on <Text className="font-semibold">{myLabel}</Text>
               </Text>
@@ -384,7 +401,7 @@ export function BetCard({
 
           {isResolved && side && (
             <View
-              className={`flex-row items-center justify-between gap-2 border-t border-hairline px-4 py-2.5 ${
+              className={`flex-row items-center justify-between gap-2 border-t border-hairline px-5 py-2.5 ${
                 iWon ? 'bg-positive-soft' : 'bg-negative-soft'
               }`}
             >

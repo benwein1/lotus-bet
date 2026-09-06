@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
-import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, ZoomIn } from '@/components/animated';
 
 import { countSides, mySide } from '@/components/bet-card';
@@ -22,6 +22,7 @@ import {
 import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { confirm } from '@/lib/confirm';
 import type { BetSide, BetWithPositions, UserRow } from '@/lib/database.types';
 import { formatAgorot, formatCountdown, formatShortDate } from '@/lib/format';
 import { previewShareAgorot } from '@/lib/payout';
@@ -44,6 +45,7 @@ export default function BetDetailScreen() {
   const betId = id ?? '';
   const { session } = useAuth();
   const colors = useColors();
+  const router = useRouter();
   const userId = session?.user.id ?? '';
 
   const bet = useAsync(() => fetchBet(betId), [betId]);
@@ -81,6 +83,11 @@ export default function BetDetailScreen() {
     return (
       <Screen className="px-gutter pt-10">
         <ErrorNotice message={bet.error ?? 'This bet is not available.'} />
+        <Button
+          title="Back to the feed"
+          variant="tinted"
+          onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
+        />
       </Screen>
     );
   }
@@ -131,37 +138,33 @@ export default function BetDetailScreen() {
     const label = winning === 'a' ? data.option_a_label : data.option_b_label;
     const winners = winning === 'a' ? counts.a : counts.b;
 
-    Alert.alert(
-      `"${label}" won?`,
-      winners === 0
-        ? 'Nobody backed that side, so nothing will change hands. This cannot be undone.'
-        : `${winners} ${winners === 1 ? 'person splits' : 'people split'} ${formatAgorot(data.total_pot_agorot)}. This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Resolve',
-          style: 'destructive',
-          onPress: () =>
-            void withBusy(async () => {
-              await resolveBet(betId, winning);
-              if (Platform.OS !== 'web') {
-                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              }
-            }),
-        },
-      ]
-    );
+    confirm({
+      title: `"${label}" won?`,
+      message:
+        winners === 0
+          ? 'Nobody backed that side, so nothing will change hands. This cannot be undone.'
+          : `${winners} ${winners === 1 ? 'person splits' : 'people split'} ${formatAgorot(data.total_pot_agorot)}. This cannot be undone.`,
+      confirmLabel: 'Resolve',
+      destructive: true,
+      onConfirm: () =>
+        void withBusy(async () => {
+          await resolveBet(betId, winning);
+          if (Platform.OS !== 'web') {
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+        }),
+    });
   }
 
   function confirmCancel() {
-    Alert.alert('Cancel this bet?', 'Nobody wins, nobody owes anything.', [
-      { text: 'Keep it', style: 'cancel' },
-      {
-        text: 'Cancel bet',
-        style: 'destructive',
-        onPress: () => void withBusy(() => cancelBet(betId)),
-      },
-    ]);
+    confirm({
+      title: 'Cancel this bet?',
+      message: 'Nobody wins, nobody owes anything.',
+      cancelLabel: 'Keep it',
+      confirmLabel: 'Cancel bet',
+      destructive: true,
+      onConfirm: () => void withBusy(() => cancelBet(betId)),
+    });
   }
 
   return (
