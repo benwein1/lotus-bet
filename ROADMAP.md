@@ -137,40 +137,55 @@ the README is true.
 
 ## 4. Design
 
-### The feed is the product and it is still thin
-One bet per screen works. What is missing is any sense of what happened while
-you were away: no unread state, no "3 new since you last looked", no way back
-to a bet you scrolled past. A feed you cannot navigate is a feed you scroll
-once.
+**Done.** Kept here as a record of what was decided and what is left.
 
-### Empty states carry the whole first-run experience
-A new account sees an empty feed, an empty groups tab and empty stats. That
-is three dead ends and no explanation of what the app is for. The single
-highest-value design work left is the first five minutes: what a user sees
-before they have a group.
+### ~~The feed is the product and it is still thin~~ — mostly done
+Bets posted since your last visit carry a New badge, and a pill takes you back
+to the top and says how many there are. Reaching the end of the feed now
+offers bets you could post rather than stopping dead.
 
-### Resolution deserves a moment
-`motion.celebrate` exists and is used once. Winning a bet is the payoff of the
-whole product and currently it is a card that changes colour. This is the one
-place a real animation would earn its keep.
+Still open: no way back to a *specific* bet you scrolled past, and no
+per-bet read state — only "since when". A bet you saw and ignored looks the
+same as one you never reached.
 
-### The odds bar shows headcount, not conviction
-"67% of your friends think this" is a good number. It is also the only number,
-and it is easy to misread as a probability. Worth labelling.
+### ~~Empty states carry the whole first-run experience~~ — done
+The feed offers real bets to post, tapping one opens the new-bet form
+prefilled; the groups tab explains what a group is in three steps; the stats
+block says what will fill it instead of reporting zeroes. `src/lib/demo.ts`
+grew a `fresh` seed so these screens can actually be looked at.
 
-### Light mode is correct but unloved
-Both schemes are verified and neither is broken, but the design was made in
-dark and it shows — light mode reads flatter, and the greens and reds are
-doing more work there than they should.
+Still open: the suggestion catalogue is fifteen fixed prompts. It does not
+know anything about the group it is posting into, and after a few weeks a
+regular user will have seen all of them.
 
-### Accessibility has not been audited
-Labels and roles are set throughout and `useReducedMotion` gates every
-entrance, but nothing has been checked with VoiceOver, at larger Dynamic Type
-sizes, or against contrast ratios. Type at accessibility sizes is the one
-most likely to break a layout — several screens assume text stays roughly the
-size it is.
+### ~~Resolution deserves a moment~~ — done
+The badge and the amount land after the card with the one spring in the app
+that overshoots, and only on a win.
 
----
+### ~~The odds bar shows headcount, not conviction~~ — done
+It names the denominator now.
+
+### ~~Light mode is correct but unloved~~ — done, and it was measurable
+Light mode failed fifteen of the twenty-six contrast pairings the app
+renders. Every colour that failed was solved against WCAG AA rather than
+re-picked by eye, and `__tests__/theme.test.ts` now fails if any of them
+regress.
+
+### ~~Accessibility has not been audited~~ — partly done
+Contrast is enforced by test in both palettes. Buttons and side-picks take
+minimum heights rather than fixed ones, so a label at the larger Dynamic Type
+sizes is not clipped. Every pressable was checked for a name and a role, and
+the five real gaps fixed.
+
+Still open, and it needs a device rather than a browser:
+
+- Nothing has been through VoiceOver end to end. Reading order, focus after
+  a modal opens and closes, and whether the feed's card-per-screen paging
+  makes sense to a screen reader are all unknown.
+- Dynamic Type is mitigated, not verified. The fixed heights that would clip
+  are gone, but no screen has been *looked at* at AX5.
+- Nothing has been tried with Reduce Transparency on, which turns the
+  floating tab bar's material into a flat fill.
 
 ## 5. Functionality worth considering
 
