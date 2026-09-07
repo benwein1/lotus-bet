@@ -31,6 +31,11 @@ export function GroupGlyph({
   return (
     <View
       style={{ width: size, height: size, borderRadius: corner, overflow: 'hidden' }}
+      // Decorative in every place it is used: the group's name is always right
+      // next to it, so announcing "soccer ball, Sunday League Degenerates"
+      // just puts a noise in front of the thing you wanted to hear.
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
       className="items-center justify-center bg-surface2"
     >
       {avatarUrl ? (

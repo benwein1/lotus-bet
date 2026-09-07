@@ -10,6 +10,22 @@ import { createGroup, updateGroupAvatar } from '@/lib/queries';
 
 const EMOJI_CHOICES = ['🎲', '⚽️', '🏀', '🍻', '🏠', '💼', '🎬', '🃏', '🎾', '🏆', '🎮', '🍕'];
 
+/** Spoken names, because an emoji is not reliably announced on every platform. */
+const EMOJI_NAMES: Record<string, string> = {
+  '🎲': 'dice',
+  '⚽️': 'football',
+  '🏀': 'basketball',
+  '🍻': 'drinks',
+  '🏠': 'house',
+  '💼': 'work',
+  '🎬': 'film',
+  '🃏': 'cards',
+  '🎾': 'tennis',
+  '🏆': 'trophy',
+  '🎮': 'games',
+  '🍕': 'food',
+};
+
 export default function CreateGroupScreen() {
   const router = useRouter();
   const [name, setName] = useState('');
@@ -95,6 +111,9 @@ export default function CreateGroupScreen() {
                 scaleTo={0.9}
                 onPress={() => setEmoji(choice)}
                 accessibilityRole="radio"
+                // Without this the button is announced as an unlabelled radio:
+                // an emoji glyph is not reliably read on every platform.
+                accessibilityLabel={`Icon ${EMOJI_NAMES[choice] ?? choice}`}
                 accessibilityState={{ selected: emoji === choice }}
                 className={`h-14 w-14 items-center justify-center rounded-2xl border ${
                   emoji === choice

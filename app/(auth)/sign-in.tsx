@@ -153,13 +153,24 @@ export default function SignInScreen() {
                 <View className="flex-row items-center justify-center gap-1">
                   <Text className="text-subhead text-secondary">New here?</Text>
                   <Link href="/(auth)/sign-up" asChild>
-                    <PressableScale hitSlop={8} className="px-1 py-1">
+                    <PressableScale
+                      hitSlop={8}
+                      accessibilityRole="link"
+                      accessibilityLabel="Create an account"
+                      className="px-1 py-1"
+                    >
                       <Text className="text-subhead font-semibold text-accent">Create an account</Text>
                     </PressableScale>
                   </Link>
                 </View>
 
-                <PressableScale onPress={forgotPassword} hitSlop={8} className="self-center px-2 py-1">
+                <PressableScale
+                  onPress={forgotPassword}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Email me a password reset link"
+                  className="self-center px-2 py-1"
+                >
                   <Text className="text-subhead text-secondary">Forgot your password?</Text>
                 </PressableScale>
               </Animated.View>

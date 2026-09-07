@@ -407,6 +407,8 @@ function SideButton({
       disabled={disabled}
       scaleTo={0.955}
       accessibilityRole="button"
+      // Explicit, or the name is the label *and* the payout line under it.
+      accessibilityLabel={selected ? `Withdraw from ${label}` : `Back ${label}`}
       accessibilityState={{ selected, disabled }}
       className={`flex-1 rounded-3xl border-2 px-4 py-4 ${container} ${
         disabled ? 'opacity-50' : ''
