@@ -11,7 +11,6 @@ import { GroupListSkeleton } from '@/components/skeletons';
 import {
   AvatarStack,
   Button,
-  EmptyState,
   ErrorNotice,
   Money,
   PressableScale,
@@ -86,11 +85,37 @@ export default function GroupsScreen() {
             {groups.loading ? (
               <GroupListSkeleton />
             ) : list.length === 0 ? (
-              <EmptyState
-                icon={<GroupsIcon size={26} color={colors.textSecondary} />}
-                title="No groups yet"
-                body="Create one for your football chat, your flatmates, whoever — then share the invite code."
-              />
+              // A first-run screen, not a null state. Somebody here has never
+              // seen the app work, so this says what it is for and what
+              // happens next rather than reporting an absence.
+              <View className="mt-2 rounded-3xl border border-hairline-strong bg-surface p-6">
+                <View className="mb-5 h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft">
+                  <GroupsIcon size={26} color={colors.accent} />
+                </View>
+                <Text className="text-xl font-bold text-primary">Start with a group</Text>
+                <Text className="mt-2 text-callout leading-5 text-secondary">
+                  A group is the people you bet against — a football chat, your flat, the five
+                  of you who argue about everything. Bets only ever go to a group you are in.
+                </Text>
+
+                <View className="mt-6 gap-3">
+                  <HowItWorks
+                    step="1"
+                    title="Make a group and share the code"
+                    body="Six characters. They tap Join and type it in."
+                  />
+                  <HowItWorks
+                    step="2"
+                    title="Post a bet with two sides"
+                    body="Set one pot for the whole thing. It doesn't grow as people join."
+                  />
+                  <HowItWorks
+                    step="3"
+                    title="Call it, and settle up between yourselves"
+                    body="Lotus Bet keeps the running total. No money goes through the app."
+                  />
+                </View>
+              </View>
             ) : (
               list.map((group, i) => (
                 <GroupRow key={group.id} group={group} currentUserId={userId} index={i} />
@@ -187,6 +212,21 @@ function GroupRow({
         </PressableScale>
       </Link>
     </Animated.View>
+  );
+}
+
+/** One numbered step of the first-run explainer. */
+function HowItWorks({ step, title, body }: { step: string; title: string; body: string }) {
+  return (
+    <View className="flex-row gap-3">
+      <View className="h-6 w-6 items-center justify-center rounded-full bg-surface3">
+        <Text className="text-xs font-semibold text-secondary">{step}</Text>
+      </View>
+      <View className="flex-1">
+        <Text className="text-subhead font-semibold text-primary">{title}</Text>
+        <Text className="mt-0.5 text-sm leading-[18px] text-secondary">{body}</Text>
+      </View>
+    </View>
   );
 }
 

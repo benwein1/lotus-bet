@@ -91,6 +91,7 @@ export default function ProfileScreen() {
   const winRate = decided > 0 ? Math.round(((s?.bets_won ?? 0) / decided) * 100) : null;
   const mostActive = (groups.data ?? []).find((g) => g.id === s?.most_active_group_id);
   const net = Number(s?.total_won_agorot ?? 0) - Number(s?.total_lost_agorot ?? 0);
+  const hasRecord = decided > 0 || Number(s?.bets_settled ?? 0) > 0;
 
   const entering = (delay: number) =>
     reduced
@@ -140,7 +141,10 @@ export default function ProfileScreen() {
                 <View className="mt-6 items-center">
                   <Text className="text-sm text-secondary">Lifetime net</Text>
                   <View className="mt-1">
-                    {net === 0 ? (
+                    {!hasRecord ? (
+                      // "Even" implies you have played and broken even.
+                      <Text className="text-2xl font-bold text-tertiary">Not started</Text>
+                    ) : net === 0 ? (
                       <Text className="text-4xl font-bold text-primary">Even</Text>
                     ) : (
                       <Money agorot={net} size="xl" sign />
@@ -152,6 +156,18 @@ export default function ProfileScreen() {
 
             {stats.loading ? (
               <ProfileSkeleton />
+            ) : !hasRecord ? (
+              // A wall of zeros is not a record, it is a report that nothing
+              // has happened. Say what will fill it instead.
+              <Animated.View entering={entering(60)} className="mb-7">
+                <SectionTitle>Your record</SectionTitle>
+                <View className="rounded-3xl border border-hairline bg-surface px-5 py-6">
+                  <Text className="text-callout leading-5 text-secondary">
+                    Nothing settled yet. Once a bet you joined gets called, your running total
+                    and your win rate start here.
+                  </Text>
+                </View>
+              </Animated.View>
             ) : (
               <Animated.View entering={entering(60)} className="mb-7">
                 <SectionTitle>Your record</SectionTitle>

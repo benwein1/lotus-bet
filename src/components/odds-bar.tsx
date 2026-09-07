@@ -78,8 +78,21 @@ export function OddsBar({
   const colorA = lostA ? trackColor : onMedia ? colors.sideAOnMedia : colors.sideA;
   const colorB = lostB ? trackColor : onMedia ? colors.sideBOnMedia : colors.sideB;
 
+  const total = countA + countB;
+
   return (
     <View className={size === 'sm' ? 'gap-2' : 'gap-2.5'}>
+      {/* Naming the denominator once is what stops "67%" being read as a
+          probability. It is the share of the people who have picked a side —
+          how the room is split, not how likely anything is. */}
+      <Text numberOfLines={1} className={`text-xs ${muted}`}>
+        {total === 0
+          ? 'Nobody has picked a side yet'
+          : total === 1
+            ? 'One person has picked a side'
+            : `Split of the ${total} people who've picked a side`}
+      </Text>
+
       <View className="flex-row items-end justify-between gap-4">
         <View className="flex-1">
           <Text numberOfLines={1} className={`text-sm ${lostA ? muted : label}`}>

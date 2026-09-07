@@ -42,17 +42,27 @@ const DURATION_PRESETS: { label: string; hours: number }[] = [
 ];
 
 export default function NewBetScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // The suggestion cards on the feed link straight here with the fields
+  // already filled. Everything stays editable — a prompt is a starting point,
+  // not a template.
+  const { id, title: seedTitle, a: seedA, b: seedB, pot: seedPot } =
+    useLocalSearchParams<{
+      id: string;
+      title?: string;
+      a?: string;
+      b?: string;
+      pot?: string;
+    }>();
   const groupId = id ?? '';
   const router = useRouter();
   const { session } = useAuth();
   const colors = useColors();
 
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(seedTitle ?? '');
   const [description, setDescription] = useState('');
-  const [labelA, setLabelA] = useState('Yes');
-  const [labelB, setLabelB] = useState('No');
-  const [pot, setPot] = useState('');
+  const [labelA, setLabelA] = useState(seedA ?? 'Yes');
+  const [labelB, setLabelB] = useState(seedB ?? 'No');
+  const [pot, setPot] = useState(seedPot ?? '');
   const [media, setMedia] = useState<PickedMedia[]>([]);
   const [hasDeadline, setHasDeadline] = useState(false);
   const [deadlineHours, setDeadlineHours] = useState(24);

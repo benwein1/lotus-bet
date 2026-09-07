@@ -16,16 +16,30 @@ export function DemoEntry({ className = '' }: { className?: string }) {
   if (!DEMO_AVAILABLE) return null;
 
   return (
-    <PressableScale
-      onPress={enterDemo}
-      scaleTo={0.96}
-      accessibilityRole="button"
-      accessibilityLabel="Open the app with demo data, without signing in"
-      className={`flex-row items-center justify-center gap-2 self-center rounded-full border border-dashed border-hairline-strong px-4 py-2.5 ${className}`}
-    >
-      <View className="h-1.5 w-1.5 rounded-full bg-accent" />
-      <Text className="text-sm text-secondary">Skip sign-in, use demo data</Text>
-    </PressableScale>
+    <View className={`items-center gap-2 ${className}`}>
+      <PressableScale
+        onPress={() => enterDemo(false)}
+        scaleTo={0.96}
+        accessibilityRole="button"
+        accessibilityLabel="Open the app with demo data, without signing in"
+        className="flex-row items-center justify-center gap-2 self-center rounded-full border border-dashed border-hairline-strong px-4 py-2.5"
+      >
+        <View className="h-1.5 w-1.5 rounded-full bg-accent" />
+        <Text className="text-sm text-secondary">Skip sign-in, use demo data</Text>
+      </PressableScale>
+
+      {/* The first-run screens are the hardest part of the app to look at,
+          because every other way in already has groups and bets. */}
+      <PressableScale
+        onPress={() => enterDemo(true)}
+        scaleTo={0.96}
+        accessibilityRole="button"
+        accessibilityLabel="Open the app as a brand new account, with nothing in it"
+        className="px-3 py-1.5"
+      >
+        <Text className="text-sm text-tertiary">…or as a brand new account</Text>
+      </PressableScale>
+    </View>
   );
 }
 

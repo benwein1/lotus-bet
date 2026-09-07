@@ -46,6 +46,7 @@ export function FeedCard({
   currentUserId,
   height,
   active = false,
+  isNew = false,
   onPickSide,
   busySide = null,
 }: {
@@ -54,6 +55,8 @@ export function FeedCard({
   height: number;
   /** True when this is the card on screen — only that one plays its video. */
   active?: boolean;
+  /** Posted since the user last looked at the feed. */
+  isNew?: boolean;
   onPickSide?: (side: BetSide) => void;
   busySide?: BetSide | null;
 }) {
@@ -130,7 +133,13 @@ export function FeedCard({
                   </>
                 )}
               </View>
-              {bet.status === 'open' ? (
+              {/* "New" displaces "Live" rather than sitting beside it: both
+                  say the bet is open, and two pills in a corner is clutter. */}
+              {isNew && bet.status === 'open' ? (
+                <View className="flex-row items-center gap-1.5 rounded-full bg-accent px-2.5 py-1">
+                  <Text className="text-xs font-semibold text-accent-ink">New</Text>
+                </View>
+              ) : bet.status === 'open' ? (
                 <View className="flex-row items-center gap-1.5 rounded-full bg-scrim px-2.5 py-1">
                   <LiveDot />
                   <Text className="text-xs font-semibold text-on-media">Live</Text>
@@ -259,7 +268,8 @@ function SidePick({
   busy: boolean;
   onPress: () => void;
 }) {
-  const base = 'h-12 flex-1 items-center justify-center rounded-2xl border px-3';
+  // Grows with the label rather than clipping it at larger type sizes.
+  const base = 'min-h-12 flex-1 items-center justify-center rounded-2xl border px-3 py-2';
 
   const container = selected
     ? tone === 'a'

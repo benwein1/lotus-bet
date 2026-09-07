@@ -44,9 +44,16 @@ export function isDemoMode(): boolean {
   return active;
 }
 
-export function enableDemoMode(): void {
+/**
+ * @param fresh Start with no groups and no bets — a brand new account.
+ *
+ * The first-run screens are the hardest part of the app to look at, because
+ * every other way in has data. Without this there is no way to see them
+ * short of making a real account against a real project.
+ */
+export function enableDemoMode(fresh = false): void {
   active = true;
-  reset();
+  reset(fresh);
 }
 
 export function disableDemoMode(): void {
@@ -148,8 +155,22 @@ interface DemoState {
 
 let state: DemoState = seed();
 
-function reset(): void {
-  state = seed();
+function reset(fresh = false): void {
+  state = fresh ? emptySeed() : seed();
+}
+
+/** A signed-up account that has not done anything yet. */
+function emptySeed(): DemoState {
+  return {
+    profile: { ...demoProfile },
+    groups: [],
+    members: [],
+    bets: [],
+    positions: [],
+    ledger: [],
+    settlements: [],
+    media: [],
+  };
 }
 
 function seed(): DemoState {

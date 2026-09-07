@@ -532,9 +532,25 @@ function ResolvedSummary({
         }`}
       >
         {!watchedOnly && (
-          <View className="mb-3 h-12 w-12 items-center justify-center rounded-full bg-surface">
-            <TrophyIcon size={22} color={iWon ? colors.positive : colors.negative} />
-          </View>
+          <Animated.View
+            entering={
+              // The badge lands after the card, and only overshoots on a win.
+              // A loss gets the same layout and none of the bounce: animating
+              // a defeat like a victory is the kind of thing that makes an app
+              // feel like it is not paying attention.
+              reduced
+                ? FadeIn.duration(motion.duration.fast)
+                : iWon
+                  ? ZoomIn.delay(260)
+                      .springify()
+                      .duration(motion.celebrate.duration)
+                      .dampingRatio(motion.celebrate.dampingRatio)
+                  : FadeIn.delay(220).duration(motion.duration.base)
+            }
+            className="mb-3 h-14 w-14 items-center justify-center rounded-full bg-surface"
+          >
+            <TrophyIcon size={26} color={iWon ? colors.positive : colors.negative} />
+          </Animated.View>
         )}
 
         <Text className="text-subhead text-secondary">
@@ -542,12 +558,35 @@ function ResolvedSummary({
         </Text>
 
         {side !== null && myAmountAgorot !== null && (
-          <View className="mt-1.5">
-            <Money agorot={myAmountAgorot} size="xl" sign />
-          </View>
+          <>
+            {/* The number is the payoff of the entire product, so it gets a
+                subject and the one animation in the app that overshoots. */}
+            <Text
+              className={`mt-3 text-sm font-semibold ${
+                iWon ? 'text-positive' : 'text-negative'
+              }`}
+            >
+              {iWon ? 'You won' : 'You owe'}
+            </Text>
+            <Animated.View
+              entering={
+                reduced
+                  ? FadeIn.duration(motion.duration.fast)
+                  : iWon
+                    ? ZoomIn.delay(340)
+                        .springify()
+                        .duration(motion.celebrate.duration)
+                        .dampingRatio(motion.celebrate.dampingRatio)
+                    : FadeInDown.delay(280).duration(motion.duration.base)
+              }
+              className="mt-0.5"
+            >
+              <Money agorot={myAmountAgorot} size="xl" sign />
+            </Animated.View>
+          </>
         )}
 
-        <Text className="mt-2 text-center text-sm leading-[18px] text-secondary">
+        <Text className="mt-3 text-center text-sm leading-[18px] text-secondary">
           {watchedOnly
             ? 'You sat this one out.'
             : 'Settle it on the group’s settle-up screen when you’re ready.'}

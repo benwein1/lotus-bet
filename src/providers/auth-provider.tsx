@@ -29,7 +29,7 @@ interface AuthContextValue {
   refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
   /** TEMPORARY: sign in against in-memory data, with no backend. */
-  enterDemo: () => void;
+  enterDemo: (fresh?: boolean) => void;
   demo: boolean;
 }
 
@@ -97,8 +97,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       needsProfileSetup:
         !demoActive && Boolean(session) && Boolean(profile) && !profileIsComplete(profile!),
 
-      enterDemo() {
-        enableDemoMode();
+      enterDemo(fresh = false) {
+        enableDemoMode(fresh);
         setSession(demoSession as unknown as Session);
         setProfile(demoProfile);
         setDemoActive(true);

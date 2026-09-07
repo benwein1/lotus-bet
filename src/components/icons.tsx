@@ -59,19 +59,24 @@ export function HomeIcon({ active, ...props }: IconProps) {
   );
 }
 
+/**
+ * Three heads in a huddle, not two head-and-shoulders figures.
+ *
+ * The obvious drawing of "groups" is `person.2` — a second person behind the
+ * first — but it shares its whole silhouette with the profile icon sitting
+ * next to it in the tab bar, and at 23px the two became the same smudge. A
+ * triangle of circles has a shape of its own at any size while still reading
+ * as people rather than as an abstraction.
+ */
 export function GroupsIcon({ active, ...props }: IconProps) {
+  const fill = active ? (props.color ?? undefined) : 'none';
+  const fillOpacity = active ? 0.22 : 0;
+
   return (
     <Icon {...props}>
-      <Circle
-        cx={9}
-        cy={8.2}
-        r={3.4}
-        fill={active ? (props.color ?? undefined) : 'none'}
-        fillOpacity={active ? 0.18 : 0}
-      />
-      <Path d="M2.9 20.1a6.1 6.1 0 0 1 12.2 0" />
-      <Path d="M16.2 5.2a3.4 3.4 0 0 1 0 6.5" />
-      <Path d="M17.9 14.6a6.1 6.1 0 0 1 3.2 5.5" />
+      <Circle cx={7.4} cy={8.6} r={3.5} fill={fill} fillOpacity={fillOpacity} />
+      <Circle cx={16.6} cy={8.6} r={3.5} fill={fill} fillOpacity={fillOpacity} />
+      <Circle cx={12} cy={16.3} r={3.5} fill={fill} fillOpacity={fillOpacity} />
     </Icon>
   );
 }
@@ -111,6 +116,14 @@ export function ChevronLeftIcon(props: IconProps) {
   return (
     <Icon {...props}>
       <Path d="M15 5.5 8.5 12 15 18.5" />
+    </Icon>
+  );
+}
+
+export function ChevronUpIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Path d="m6 14.5 6-6 6 6" />
     </Icon>
   );
 }

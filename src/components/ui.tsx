@@ -334,10 +334,13 @@ const BUTTON_VARIANT: Record<ButtonVariant, { container: string; label: string }
   destructive: { container: 'bg-negative-soft border border-negative', label: 'text-negative' },
 };
 
+// Minimum heights, not fixed ones. At the larger Dynamic Type sizes a label
+// is taller than the button was, and a fixed height clips it — the control
+// has to be allowed to grow around its text.
 const BUTTON_SIZE: Record<ButtonSize, { container: string; label: string }> = {
-  sm: { container: 'h-9 rounded-xl px-3.5', label: 'text-subhead' },
-  md: { container: 'h-12 rounded-2xl px-5', label: 'text-base' },
-  lg: { container: 'h-[52px] rounded-2xl px-6', label: 'text-base' },
+  sm: { container: 'min-h-9 rounded-xl px-3.5 py-1.5', label: 'text-subhead' },
+  md: { container: 'min-h-12 rounded-2xl px-5 py-2.5', label: 'text-base' },
+  lg: { container: 'min-h-[52px] rounded-2xl px-6 py-3', label: 'text-base' },
 };
 
 interface ButtonProps extends Omit<PressableProps, 'children'> {
