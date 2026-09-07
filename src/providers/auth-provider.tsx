@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { UserRow } from '@/lib/database.types';
 import { demo, demoProfile, demoSession, disableDemoMode, enableDemoMode, isDemoMode } from '@/lib/demo';
 import { registerForPushNotifications } from '@/lib/notifications';
+import { isUnknownWriteColumn } from '@/lib/postgrest';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 export interface SignUpResult {
@@ -157,7 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // rather than ignoring the unknown key. Retry with just the columns
         // that schema does have, so naming yourself still works — the
         // placeholder-name fallback in `profileIsComplete` then carries it.
-        if (error && isMissingColumn(error, 'profile_completed')) {
+        if (error && isUnknownWriteColumn(error, 'profile_completed')) {
           ({ data, error } = await write(patch));
         }
 
@@ -203,11 +204,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 function profileIsComplete(profile: UserRow): boolean {
   if (typeof profile.profile_completed === 'boolean') return profile.profile_completed;
   return !/^player [0-9a-f]{0,4}$/i.test(profile.display_name.trim());
-}
-
-/** PostgREST's "column not in the schema cache" rejection. */
-function isMissingColumn(error: { code?: string; message: string }, column: string): boolean {
-  return error.code === 'PGRST204' || error.message.includes(`'${column}' column`);
 }
 
 /**

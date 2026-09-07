@@ -20,12 +20,52 @@ import type {
 } from './database.types';
 import { demo, isDemoMode } from './demo';
 import { signMedia, uploadBetMedia, type PickedMedia } from './media';
+import { isMissingColumn } from './postgrest';
 import { supabase } from './supabase';
 
 function unwrap<T>(result: { data: T | null; error: { message: string } | null }): T {
   if (result.error) throw new Error(result.error.message);
   if (result.data === null) throw new Error('No data returned');
   return result.data;
+}
+
+/**
+ * Whether this project has had `…_avatars.sql` applied.
+ *
+ * Selecting a column Postgres does not have makes PostgREST reject the whole
+ * request, so a single missing column took the entire feed down rather than
+ * costing one picture — the same failure mode `profile_completed` had on the
+ * sign-up screen. Every read that wants a group's photo asks for it once,
+ * and if the column is not there, stops asking and re-runs without it.
+ *
+ * Starts undecided rather than optimistic-per-call so one probe answers it
+ * for the session.
+ */
+let groupAvatars: 'unknown' | 'yes' | 'no' = 'unknown';
+
+
+/**
+ * Runs a read, and retries it without the group photo if that is what the
+ * project is missing. `build` is called again for the retry so the caller can
+ * hand back a fresh query — a PostgREST builder cannot be re-awaited.
+ */
+async function withGroupAvatarFallback<T>(
+  build: (withAvatar: boolean) => PromiseLike<{ data: T | null; error: { code?: string; message: string } | null }>
+): Promise<T> {
+  const first = await build(groupAvatars !== 'no');
+
+  if (first.error && groupAvatars !== 'no' && isMissingColumn(first.error, 'avatar_url')) {
+    groupAvatars = 'no';
+    const retry = await build(false);
+    if (retry.error) throw new Error(retry.error.message);
+    if (retry.data === null) throw new Error('No data returned');
+    return retry.data;
+  }
+
+  if (first.error) throw new Error(first.error.message);
+  if (first.data === null) throw new Error('No data returned');
+  if (groupAvatars === 'unknown') groupAvatars = 'yes';
+  return first.data;
 }
 
 // --- Groups ----------------------------------------------------------------
@@ -73,14 +113,25 @@ export async function updateGroupAvatar(
   avatarUrl: string | null
 ): Promise<GroupRow> {
   if (isDemoMode()) return demo.updateGroupAvatar(groupId, avatarUrl);
-  return unwrap(
-    await supabase
-      .from('groups')
-      .update({ avatar_url: avatarUrl })
-      .eq('id', groupId)
-      .select()
-      .single()
-  ) as GroupRow;
+
+  const { data, error } = await supabase
+    .from('groups')
+    .update({ avatar_url: avatarUrl })
+    .eq('id', groupId)
+    .select()
+    .single();
+
+  // Reads fall back silently, but a write cannot: the user asked for the
+  // picture to be saved and it was not. Say what is actually wrong.
+  if (error && isMissingColumn(error, 'avatar_url')) {
+    groupAvatars = 'no';
+    throw new Error(
+      'Group photos need the avatars migration. Run supabase/migrations/20260906090000_avatars.sql on your project.'
+    );
+  }
+  if (error) throw new Error(error.message);
+  if (data === null) throw new Error('No data returned');
+  return data as GroupRow;
 }
 
 export async function joinGroupWithCode(code: string): Promise<GroupRow> {
@@ -104,7 +155,8 @@ export async function leaveGroup(groupId: string, userId: string): Promise<void>
 // --- Bets ------------------------------------------------------------------
 
 const BET_SELECT = '*, positions:bet_positions(user_id, side), media:bet_media(*)';
-const BET_SELECT_WITH_GROUP = `${BET_SELECT}, group:groups(id, name, emoji, avatar_url)`;
+const betSelectWithGroup = (withAvatar: boolean) =>
+  `${BET_SELECT}, group:groups(id, name, emoji${withAvatar ? ', avatar_url' : ''})`;
 
 /**
  * Media rows arrive as storage paths; the bucket is private, so they have to be
@@ -144,22 +196,23 @@ export async function fetchGroupBets(groupId: string): Promise<BetWithPositions[
 /** Every bet across every group the user is in — the Home feed's raw input. */
 export async function fetchFeedBets(): Promise<BetWithPositions[]> {
   if (isDemoMode()) return demo.fetchFeedBets();
-  const { data, error } = await supabase
-    .from('bets')
-    .select(BET_SELECT_WITH_GROUP)
-    .in('status', ['open', 'locked'])
-    .order('created_at', { ascending: false })
-    .limit(100);
+  const data = await withGroupAvatarFallback((withAvatar) =>
+    supabase
+      .from('bets')
+      .select(betSelectWithGroup(withAvatar))
+      .in('status', ['open', 'locked'])
+      .order('created_at', { ascending: false })
+      .limit(100)
+  );
 
-  if (error) throw new Error(error.message);
   return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
 }
 
 export async function fetchBet(betId: string): Promise<BetWithPositions> {
   if (isDemoMode()) return demo.fetchBet(betId);
-  const bet = unwrap(
-    await supabase.from('bets').select(BET_SELECT_WITH_GROUP).eq('id', betId).single()
-  ) as unknown as BetWithPositions;
+  const bet = (await withGroupAvatarFallback((withAvatar) =>
+    supabase.from('bets').select(betSelectWithGroup(withAvatar)).eq('id', betId).single()
+  )) as unknown as BetWithPositions;
 
   const [withMedia] = await attachSignedMedia([bet]);
   return withMedia ?? bet;
@@ -360,16 +413,18 @@ export interface HistoryEntry {
 
 export async function fetchMyHistory(userId: string): Promise<HistoryEntry[]> {
   if (isDemoMode()) return demo.fetchMyHistory(userId);
-  const { data, error } = await supabase
-    .from('bet_ledger_entries')
-    .select(
-      'id, amount_agorot, created_at, bet:bets(id, title, winning_option, option_a_label, option_b_label, resolved_at), group:groups(id, name, emoji, avatar_url)'
-    )
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(100);
+  const data = await withGroupAvatarFallback((withAvatar) =>
+    supabase
+      .from('bet_ledger_entries')
+      .select(
+        'id, amount_agorot, created_at, bet:bets(id, title, winning_option, option_a_label, option_b_label, resolved_at), ' +
+          `group:groups(id, name, emoji${withAvatar ? ', avatar_url' : ''})`
+      )
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(100)
+  );
 
-  if (error) throw new Error(error.message);
   return (data ?? []) as unknown as HistoryEntry[];
 }
 
