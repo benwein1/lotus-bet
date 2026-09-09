@@ -1,6 +1,7 @@
 import { Link } from 'expo-router';
 import { useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import { LotusMark } from '@/components/lotus-mark';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -81,8 +82,8 @@ export default function SignInScreen() {
           >
             <ContentWidth>
               <Animated.View entering={entering(0)} className="mb-8 items-center">
-                <View className="mb-5 h-16 w-16 items-center justify-center rounded-[18px] bg-surface">
-                  <Text className="text-2xl">🪷</Text>
+                <View className="mb-5">
+                  <LotusMark size={76} />
                 </View>
                 <Text className="text-2xl font-bold text-primary">Lotus Bet</Text>
                 <Text className="mt-2 max-w-[280px] text-center text-callout leading-5 text-secondary">

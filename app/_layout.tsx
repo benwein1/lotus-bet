@@ -6,7 +6,9 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AnimatedSplash } from '@/components/animated-splash';
 import { DemoEntry } from '@/components/demo-entry';
+import { LotusMark } from '@/components/lotus-mark';
 import { ChevronLeftIcon } from '@/components/icons';
 import { Screen } from '@/components/screen';
 import { PressableScale } from '@/components/ui';
@@ -52,7 +54,11 @@ function Chrome() {
   return (
     <>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-      <RootNavigator />
+      {/* Inside ThemeProvider, so the overlay's ground is the resolved scheme's
+          canvas and matches the native splash it is taking over from. */}
+      <AnimatedSplash>
+        <RootNavigator />
+      </AnimatedSplash>
     </>
   );
 }
@@ -159,9 +165,7 @@ function ModalCancel() {
 function SetupRequired() {
   return (
     <Screen className="items-center justify-center gap-4 px-10">
-      <View className="h-16 w-16 items-center justify-center rounded-3xl bg-surface2">
-        <Text className="text-2xl">🪷</Text>
-      </View>
+      <LotusMark size={72} />
       <Text className="text-center text-xl font-bold text-primary">Almost there</Text>
       <Text className="text-center text-subhead leading-5 text-secondary">
         Copy <Text className="font-semibold text-accent">.env.example</Text> to{' '}

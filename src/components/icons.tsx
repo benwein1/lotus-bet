@@ -60,23 +60,36 @@ export function HomeIcon({ active, ...props }: IconProps) {
 }
 
 /**
- * Three heads in a huddle, not two head-and-shoulders figures.
+ * A stack of group cards, not people.
  *
- * The obvious drawing of "groups" is `person.2` — a second person behind the
- * first — but it shares its whole silhouette with the profile icon sitting
- * next to it in the tab bar, and at 23px the two became the same smudge. A
- * triangle of circles has a shape of its own at any size while still reading
- * as people rather than as an abstraction.
+ * Two drawings of "people" were tried here and both failed for the same
+ * reason: whatever you do with heads and shoulders, the glyph ends up sharing
+ * its silhouette with the profile icon two slots along, and at 23px in a
+ * translucent bar the pair became one smudge. Circles in a huddle solved the
+ * collision but stopped reading as anything.
+ *
+ * So this draws the *thing* rather than its members — the same rounded cards
+ * the Groups screen is a list of, stacked. Nothing else in the tab bar is
+ * rectangular, so the shape is unmistakable at any size, and the meaning is
+ * the one the tab actually has: your groups, more than one of them.
+ *
+ * The back card is a partial path rather than a whole rectangle, so the front
+ * one sits on top cleanly in the stroke-only (inactive) state instead of
+ * showing its hidden edges through.
  */
 export function GroupsIcon({ active, ...props }: IconProps) {
-  const fill = active ? (props.color ?? undefined) : 'none';
-  const fillOpacity = active ? 0.22 : 0;
-
   return (
     <Icon {...props}>
-      <Circle cx={7.4} cy={8.6} r={3.5} fill={fill} fillOpacity={fillOpacity} />
-      <Circle cx={16.6} cy={8.6} r={3.5} fill={fill} fillOpacity={fillOpacity} />
-      <Circle cx={12} cy={16.3} r={3.5} fill={fill} fillOpacity={fillOpacity} />
+      <Path d="M8.2 8.2V7a3.6 3.6 0 0 1 3.6-3.6H17A3.6 3.6 0 0 1 20.6 7v5.2a3.6 3.6 0 0 1-3.6 3.6h-1.2" />
+      <Rect
+        x={3.4}
+        y={8.2}
+        width={12.4}
+        height={12.4}
+        rx={3.6}
+        fill={active ? (props.color ?? undefined) : 'none'}
+        fillOpacity={active ? 0.2 : 0}
+      />
     </Icon>
   );
 }
