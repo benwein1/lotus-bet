@@ -37,6 +37,14 @@ export interface UserRow {
   expo_push_token: string | null;
   notify_new_bets: boolean;
   notify_resolutions: boolean;
+  /**
+   * The two switches added with the second pass of notifications. Optional for
+   * the same reason `profile_completed` is: a project that has not applied
+   * `…_notification_prefs.sql` returns a row without them, and every read site
+   * treats a missing value as on.
+   */
+  notify_group_joins?: boolean;
+  notify_deadlines?: boolean;
   created_at: string;
 }
 

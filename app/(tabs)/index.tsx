@@ -1,5 +1,5 @@
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   RefreshControl,
@@ -19,6 +19,7 @@ import { ContentWidth, Screen } from '@/components/screen';
 import { BetFeedSkeleton } from '@/components/skeletons';
 import { ErrorNotice, PressableScale, tap } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
+import { syncDeadlineReminders, toReminderBet } from '@/lib/reminders';
 import { useFeedRealtime } from '@/hooks/use-group-realtime';
 import { isNewSince, useLastSeen } from '@/hooks/use-last-seen';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -49,7 +50,7 @@ const SLIVER = 64;
  *   "here is something to start".
  */
 export default function FeedScreen() {
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
   const colors = useColors();
   const { height } = useWindowDimensions();
   const tabInset = useTabBarInset();
@@ -105,6 +106,19 @@ export default function FeedScreen() {
     const rest = all.filter((bet) => !bet.positions?.some((p) => p.user_id === userId));
     return [...mine, ...rest];
   }, [feed.data, userId]);
+
+  // Deadline reminders are local notifications, so the phone has to be told
+  // what is currently outstanding. The feed already knows: it holds every open
+  // bet in every group you are in, along with whether you have answered it.
+  // Rebuilt on every feed change, which is also how a reminder goes away after
+  // you pick a side.
+  const wantsDeadlines = profile?.notify_deadlines ?? true;
+  useEffect(() => {
+    void syncDeadlineReminders(
+      bets.map((bet) => toReminderBet(bet, userId || null)),
+      wantsDeadlines
+    );
+  }, [bets, userId, wantsDeadlines]);
 
   const newCount = useMemo(
     () => bets.filter((bet) => isNewSince(bet.created_at, since, bet.creator_id, userId)).length,

@@ -20,7 +20,7 @@ import type {
 } from './database.types';
 import { demo, isDemoMode } from './demo';
 import { signMedia, uploadBetMedia, type PickedMedia } from './media';
-import { announceBetResolved } from './notifications';
+import { announceBetResolved, announceGroupJoin, announceNewBet } from './notifications';
 import { computeBetPayouts } from './payout';
 import { isMissingColumn } from './postgrest';
 import { supabase } from './supabase';
@@ -138,9 +138,15 @@ export async function updateGroupAvatar(
 
 export async function joinGroupWithCode(code: string): Promise<GroupRow> {
   if (isDemoMode()) return demo.joinGroupWithCode(code);
-  return unwrap(
+  const group = unwrap(
     await supabase.rpc('join_group_with_code', { p_code: code }).single()
   ) as GroupRow;
+
+  // Fire-and-forget: you have joined either way, and the group hearing about
+  // it is not something worth failing the join over.
+  void announceGroupJoin(group.id).catch(() => {});
+
+  return group;
 }
 
 export async function leaveGroup(groupId: string, userId: string): Promise<void> {
@@ -283,6 +289,11 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
   if (input.media?.length) {
     await attachMediaToBet(bet, input.media, input.creatorId);
   }
+
+  // Announced from here rather than from the screen: a caller that forgets is
+  // a bet nobody hears about, and there is no reason for that to be possible.
+  // After the media, so the push and the card people open agree.
+  void announceNewBet(bet.id).catch(() => {});
 
   return bet;
 }

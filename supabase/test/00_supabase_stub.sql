@@ -59,6 +59,22 @@ end $$;
 grant usage on schema public to anon, authenticated, service_role;
 grant usage on schema auth to anon, authenticated, service_role;
 
+-- Supabase hands `anon` and `authenticated` access to everything in `public`
+-- through ALTER DEFAULT PRIVILEGES, so the grant lands *as each object is
+-- created* and a migration that revokes one afterwards keeps its revoke.
+--
+-- This used to be a blanket GRANT in the fixture, run after every migration,
+-- which quietly re-granted anything a migration had taken away — so a function
+-- deliberately restricted to the service role tested as restricted while being
+-- callable by any signed-in user. Setting the defaults up front instead is
+-- both what Supabase actually does and the only version that can fail.
+alter default privileges in schema public
+  grant select, insert, update, delete on tables to anon, authenticated;
+alter default privileges in schema public
+  grant usage, select on sequences to anon, authenticated;
+alter default privileges in schema public
+  grant execute on functions to anon, authenticated;
+
 -- --- storage ---------------------------------------------------------------
 create table if not exists storage.buckets (
   id text primary key,

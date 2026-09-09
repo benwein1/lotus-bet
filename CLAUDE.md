@@ -24,9 +24,12 @@ redesign.
 
 Other standing scope boundaries:
 
-- **Two outcomes only.** The `bets` table has `option_a_label` /
-  `option_b_label` and is shaped so a future `bet_options` table can
-  supersede them. Don't build >2-option UI yet.
+- **As many outcomes as the creator wants**, between 2 and 8. `bet_options`
+  is the real list; `bets.option_a_label` / `option_b_label` survive as the
+  first two, mirrored by a trigger, so data and clients written before options
+  existed still read. Render from `options`, never from the label columns.
+  The odds bar is a green/red split at two and a stacked bar with a legend
+  past two.
 - **No public or global discovery.** Bets are always scoped to a group; the
   Home feed shows only bets from groups you are in.
 - **No editing a bet after creation.** The creator can lock, resolve or
@@ -92,15 +95,20 @@ src/
   components/bet-card.tsx   FeedCard (full-screen) + BetCard (compact)
   components/bet-media.tsx  photo/video renderer and pager
   components/odds-bar.tsx
+  components/lotus-mark.tsx  the app mark, wherever the app shows its own face
+  components/animated-splash.tsx  the hand-off out of the native splash
   lib/payout.ts             re-export ONLY — see §5
   lib/settlement.ts         balance netting + greedy debt simplification
   lib/queries.ts            every Supabase read/write the app makes
   lib/media.ts              picking, uploading and signing bet media
-  lib/confirm.ts            yes/no confirm that also works on web
   lib/format.ts             agorot ↔ shekels, countdowns, initials, email
   lib/database.types.ts     hand-written row types
   lib/supabase.ts           client; `isSupabaseConfigured` guard
-  lib/notifications.ts      Expo push registration + announceNewBet
+  lib/notifications.ts      push registration + the three server announcements
+  lib/reminders.ts          local deadline reminders (the device half)
+  lib/reminder-rules.ts     …and the pure half, which is what the tests hold
+  lib/odds.ts               percentages that always total exactly 100
+  lib/postgrest.ts          reading PostgREST's "column does not exist"
   hooks/                    use-async · use-group-realtime · use-settlement ·
                             use-reduced-motion · use-tab-bar-inset
   providers/auth-provider.tsx
@@ -108,12 +116,15 @@ src/
   theme.ts                  palettes · motion · elevation · avatarColors
 theme-colors.json           SINGLE SOURCE OF TRUTH for both palettes
 global.css                  GENERATED from it by scripts/build-theme-css.js
+assets/logo/lotus.svg       the mark; scripts/build-icons.mjs renders every size
 supabase/
-  migrations/               schema · RLS · RPCs · email auth · bet media (5)
+  migrations/               schema · RLS · RPCs · email auth · media · avatars ·
+                            bet options · notification prefs (8)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
-  functions/resolve-bet/    the only writer of bet_ledger_entries
-  functions/notify-new-bet/
-__tests__/                  payout · settlement · format · theme
+  functions/resolve-bet/    legacy; resolution now goes through an RPC
+  functions/notify/         the single push fan-out for all three server events
+__tests__/                  payout · settlement · format · theme · odds ·
+                            postgrest · reminders
 ```
 
 **All Supabase access goes through `src/lib/queries.ts`.** Screens never
@@ -424,11 +435,27 @@ because its id is part of the path.
 
 ### RPC surface (`20260904090200_functions.sql`)
 
-`create_group` · `join_group_with_code` · `join_bet` · `leave_bet` ·
-`lock_bet` · `cancel_bet` · `group_balances` · `my_stats` · `set_push_token`
+`create_group` · `join_group_with_code` · `join_bet` · `join_bet_option` ·
+`leave_bet` · `lock_bet` · `cancel_bet` · `group_balances` · `my_stats` ·
+`set_push_token` · `resolve_bet_with_entries` ·
+`push_targets_for_bet` / `push_targets_for_group` (service role only)
 
 Anything spanning more than one table lives here rather than in the client,
 so it stays atomic and can't be skipped.
+
+### Resolution
+
+**Resolving a bet is one RPC, not an Edge Function.** `resolve_bet_with_entries`
+inserts every ledger row and flips the bet's status in a single transaction, so
+the bet can no longer be stranded half-resolved by a process that dies between
+the two writes. The client computes the split with `computeBetPayouts` and
+hands the entries over; the RPC does not recompute them, it *checks* them —
+one entry per participant, winners positive, losers negative, credits totalling
+the pot exactly and debits totalling minus the pot. A ledger that does not
+balance is refused rather than written.
+
+`supabase/functions/resolve-bet/` is left in place for anything still calling
+it, but nothing in the app does.
 
 ### Settlement
 
@@ -440,6 +467,35 @@ and B down X. That's what stops a settled transaction reappearing.
 `src/lib/settlement.ts` then runs greedy debt simplification client-side. It's
 cheap and recomputed on every open — **don't persist the suggested
 transactions.**
+
+### Notifications
+
+Four events, and one switch each on Profile (`users.notify_*`).
+
+Three are **push**, sent by the `notify` Edge Function: a new bet in one of
+your groups, somebody joining a group you are in, and a bet you took a side on
+being called. One function rather than three: they all check the caller may
+announce this, ask the database who wants to hear it, and hand the list to
+Expo — only the sentence differs.
+
+*Who* hears about something is decided in SQL (`push_targets_for_bet`,
+`push_targets_for_group`), not in TypeScript, so it sits next to the RLS that
+decides who may see the thing being announced and is covered by the same
+harness. Both are `SECURITY DEFINER` and **revoked from `authenticated`** —
+they return device tokens, and a group member must not be able to list their
+friends' phones.
+
+The fourth, a **deadline reminder**, is a *local* notification scheduled on the
+device by `src/lib/reminders.ts`. It needs no cron, no push credentials and no
+delivery guesswork, and — unlike remote push — it works in Expo Go. The feed
+rebuilds the whole schedule whenever it changes: everything this module owns is
+cancelled, then what is currently true is scheduled. That is how a reminder
+disappears once you pick a side.
+
+Announcements are fired from `queries.ts`, not from screens, so a caller cannot
+forget one. All of them are `void`-ed and swallow their failure: the user's
+action already succeeded, and a notification that did not go out must never be
+reported as a failed bet.
 
 ### bigint coercion
 
@@ -460,8 +516,16 @@ role with a JWT subject. It checks that a member sees their group and an
 outsider sees nothing without the `group_members` policy recursing, that
 clients cannot write `bet_ledger_entries`, that `join_bet`/`leave_bet` and
 `join_group_with_code` work, that `enforce_bet_open` rejects a position on a
-resolved bet, that a non-creator cannot cancel, and that a settlement moves
-both balances and still nets to zero. All of that passes.
+resolved bet, that a non-creator cannot cancel, that `resolve_bet_with_entries`
+refuses every shape of unbalanced ledger, that the push-target functions pick
+the right people and are not callable by a signed-in client, and that a
+settlement moves both balances and still nets to zero. All of that passes.
+
+The grants `anon` and `authenticated` get are modelled as **default
+privileges, set before the migrations run** — which is how Supabase actually
+does it. They used to be a blanket `GRANT` after them, which silently
+re-granted anything a migration revoked, so a function locked down to the
+service role tested as locked down while being callable by anyone.
 
 What it does **not** cover is anything the platform provides rather than this
 repo: real storage behaviour, GoTrue, and Edge Function deployment. The
@@ -469,43 +533,36 @@ storage policies are only checked for syntax, not for effect.
 
 Concrete things worth fixing, roughly by severity:
 
-1. **`resolve-bet` can strand a bet permanently.**
-   `supabase/functions/resolve-bet/index.ts` inserts the ledger rows and
-   *then* flips the bet's status. If the process dies between the two, the
-   ledger rows exist but the bet is still `open`. A retry hits the
-   `unique (bet_id, user_id)` index, throws, and the bet can never resolve.
-   The two writes should be one transaction — most likely a `SECURITY DEFINER`
-   RPC the function calls, or an upsert that ignores duplicates.
-
-2. **Media upload is not transactional with the bet.** `createBet` inserts the
+1. **Media upload is not transactional with the bet.** `createBet` inserts the
    bet, uploads each file, then inserts the `bet_media` rows. A failure part
    way leaves a posted bet with some or none of its attachments, and orphaned
    objects in the bucket. That is the better of the two failure modes — the
    bet survives — but it wants a cleanup path.
 
-3. **Signed URLs expire after an hour.** A feed left open longer than that
+2. **Signed URLs expire after an hour.** A feed left open longer than that
    shows broken media until the next refresh. Realtime and pull-to-refresh
    both re-sign, so it is only visible on a screen left untouched.
 
-4. **One push token per user.** `users.expo_push_token` is a single column,
+3. **One push token per user.** `users.expo_push_token` is a single column,
    so a second device silently overwrites the first. Needs its own table when
    multi-device matters.
 
-5. **`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps** with an
+4. **`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps** with an
    eslint-disable. It works because `reload` is stable, but it's fragile — a
    refactor of `useAsync` could silently stop refreshing the group list.
 
-6. **Realtime subscribes to `bet_positions` unfiltered** (in both
+5. **Realtime subscribes to `bet_positions` unfiltered** (in both
    `useGroupRealtime` and `useFeedRealtime`) because that table has no
    `group_id` column. Fine at friend-group scale, wasteful beyond it.
 
-7. **`my_stats.bets_settled` counts ledger rows**, so bets that resolved with
+6. **`my_stats.bets_settled` counts ledger rows**, so bets that resolved with
    nobody on the winning side don't appear in the count. Arguably correct,
    worth a decision.
 
-8. **`announceNewBet` is client-invoked** and fire-and-forget, so a client
-   that skips it means no one gets notified. A database webhook would be more
-   reliable.
+7. **Announcements are still client-invoked.** They now live in
+   `queries.ts` rather than in a screen, so no caller can forget one, but a
+   client that dies between the write and the `notify` call still means nobody
+   is told. A database webhook would be more reliable.
 
 ### Fixed, but easy to reintroduce
 

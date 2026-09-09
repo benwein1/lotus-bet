@@ -24,7 +24,15 @@ interface AuthContextValue {
   sendPasswordReset: (email: string) => Promise<void>;
   updateProfile: (
     patch: Partial<
-      Pick<UserRow, 'display_name' | 'avatar_url' | 'notify_new_bets' | 'notify_resolutions'>
+      Pick<
+        UserRow,
+        | 'display_name'
+        | 'avatar_url'
+        | 'notify_new_bets'
+        | 'notify_resolutions'
+        | 'notify_group_joins'
+        | 'notify_deadlines'
+      >
     >
   ) => Promise<void>;
   refreshProfile: () => Promise<void>;

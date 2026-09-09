@@ -6,14 +6,10 @@
 -- `run.sh`, which is what makes that script part of the tested surface rather
 -- than something we hope works.
 
--- Supabase grants these to `anon` and `authenticated` automatically on its own
--- projects. A plain Postgres does not, and without them every policy check
--- fails at the GRANT layer before RLS is ever consulted — which looks exactly
--- like a broken policy and is not one.
-grant select, insert, update, delete on all tables in schema public to anon, authenticated;
-grant usage, select on all sequences in schema public to anon, authenticated;
-grant execute on all functions in schema public to anon, authenticated;
-
+-- The grants `anon` and `authenticated` get on a real project are set up as
+-- default privileges in `00_supabase_stub.sql`, before the migrations run, so
+-- that a migration revoking one of them still means something here.
+--
 -- The one table clients may only read. `resolve-bet` writes it with the
 -- service role, which bypasses both the grant and the policy.
 revoke insert, update, delete on public.bet_ledger_entries from anon, authenticated;

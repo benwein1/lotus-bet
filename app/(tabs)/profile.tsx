@@ -26,10 +26,30 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import { formatAgorot, formatShortDate } from '@/lib/format';
 import { clearPushToken } from '@/lib/notifications';
+import { cancelDeadlineReminders } from '@/lib/reminders';
 import { fetchMyGroups, fetchMyHistory, fetchMyStats, type HistoryEntry } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { useAppearance, useColors } from '@/providers/theme-provider';
 import { motion } from '@/theme';
+
+/**
+ * The notification switches, and which of them need a push token.
+ *
+ * Deadlines are scheduled locally on the device, so they are deliberately not
+ * in `PUSH_KEYS`: someone who only wants deadline reminders should not have a
+ * push token sitting on their row for nothing.
+ */
+type NotifyKey =
+  | 'notify_new_bets'
+  | 'notify_resolutions'
+  | 'notify_group_joins'
+  | 'notify_deadlines';
+
+const PUSH_KEYS = [
+  'notify_new_bets',
+  'notify_resolutions',
+  'notify_group_joins',
+] as const satisfies readonly NotifyKey[];
 
 export default function ProfileScreen() {
   const { session, profile, updateProfile, signOut } = useAuth();
@@ -55,17 +75,27 @@ export default function ProfileScreen() {
     void reloadHistory({ silent: true });
   }, [reloadStats, reloadHistory]);
 
-  async function toggle(key: 'notify_new_bets' | 'notify_resolutions', value: boolean) {
+  // `undefined` rather than a boolean means the project has not had the
+  // notification-prefs migration applied yet.
+  const hasNewerPrefs = profile?.notify_group_joins !== undefined;
+
+  async function toggle(key: NotifyKey, value: boolean) {
     setError(null);
     setSaving(true);
     try {
       await updateProfile({ [key]: value });
 
-      // If both switches are off there is nothing left to push, so drop the
-      // token rather than keep a stale one on the row.
-      const newBets = key === 'notify_new_bets' ? value : profile?.notify_new_bets;
-      const resolutions = key === 'notify_resolutions' ? value : profile?.notify_resolutions;
-      if (!newBets && !resolutions) await clearPushToken();
+      // Deadline reminders are scheduled on this device, so turning them off
+      // has to take effect here and now rather than at the next feed refresh.
+      if (key === 'notify_deadlines' && !value) await cancelDeadlineReminders();
+
+      // If every *push* switch is off there is nothing left to send, so drop
+      // the token rather than keep a stale one on the row. Deadlines are local
+      // and need no token, so they do not count towards this.
+      const stillPushing = PUSH_KEYS.some((k) =>
+        k === key ? value : (profile?.[k] ?? true)
+      );
+      if (!stillPushing) await clearPushToken();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save that setting.');
     } finally {
@@ -230,8 +260,30 @@ export default function ProfileScreen() {
                   value={profile.notify_resolutions}
                   disabled={saving}
                   onChange={(v) => void toggle('notify_resolutions', v)}
-                  last
+                  last={!hasNewerPrefs}
                 />
+                {/* Absent until `…_notification_prefs.sql` is applied. Showing
+                    a switch whose write would fail is worse than not offering
+                    it — same reasoning as the avatar column fallback. */}
+                {hasNewerPrefs ? (
+                  <>
+                    <ToggleRow
+                      label="Someone joins my groups"
+                      hint="Only for groups you're already in."
+                      value={profile.notify_group_joins ?? true}
+                      disabled={saving}
+                      onChange={(v) => void toggle('notify_group_joins', v)}
+                    />
+                    <ToggleRow
+                      label="Deadlines coming up"
+                      hint="An hour before a bet you haven't answered closes."
+                      value={profile.notify_deadlines ?? true}
+                      disabled={saving}
+                      onChange={(v) => void toggle('notify_deadlines', v)}
+                      last
+                    />
+                  </>
+                ) : null}
               </ListGroup>
             </View>
 

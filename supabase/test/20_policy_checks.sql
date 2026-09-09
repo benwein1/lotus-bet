@@ -269,3 +269,73 @@ begin;
     '[]'::jsonb
   ) is not null;
 rollback;
+
+\echo '--- 13. Push targets: who hears about what ---'
+-- The rules for "who gets notified" live in SQL rather than in the Edge
+-- Function, so they are checked here alongside the policies they mirror.
+begin;
+  -- Give everyone a token; without one nobody is a target at all.
+  update public.users set expo_push_token = 'ExponentPushToken[' || id || ']';
+
+  \echo '  (a) a new bet reaches the group, minus its creator'
+  select 'bet_created' as check, count(*) as targets
+    from public.push_targets_for_bet(
+      'cccccccc-0000-4000-8000-000000000000', 'bet_created',
+      (select creator_id from public.bets where id = 'cccccccc-0000-4000-8000-000000000000')
+    );
+
+  \echo '  (b) opting out removes exactly that person'
+  savepoint s;
+  update public.users set notify_new_bets = false
+   where id = '00000000-0000-4000-8000-000000000002';
+  select 'after one opt-out' as check, count(*) as targets
+    from public.push_targets_for_bet(
+      'cccccccc-0000-4000-8000-000000000000', 'bet_created',
+      (select creator_id from public.bets where id = 'cccccccc-0000-4000-8000-000000000000')
+    );
+  rollback to s;
+
+  \echo '  (c) a resolution reaches only the people who took a side'
+  select 'bet_resolved' as check, count(*) as targets
+    from public.push_targets_for_bet(
+      'cccccccc-0000-4000-8000-000000000000', 'bet_resolved',
+      (select creator_id from public.bets where id = 'cccccccc-0000-4000-8000-000000000000')
+    );
+
+  \echo '  (d) a member joining reaches the rest of the group'
+  select 'member_joined' as check, count(*) as targets
+    from public.push_targets_for_group(
+      (select group_id from public.bets where id = 'cccccccc-0000-4000-8000-000000000000'),
+      'member_joined', '00000000-0000-4000-8000-000000000001'
+    );
+
+  \echo '  (e) an empty token is not a target'
+  savepoint s;
+  update public.users set expo_push_token = '';
+  select 'no tokens' as check, count(*) as targets
+    from public.push_targets_for_bet(
+      'cccccccc-0000-4000-8000-000000000000', 'bet_created',
+      '00000000-0000-4000-8000-000000000001'
+    );
+  rollback to s;
+rollback;
+
+\echo '--- 14. A client cannot read other people''s push tokens ---'
+-- These functions are SECURITY DEFINER and hand back device tokens, so the
+-- grant matters as much as the body. Both calls must fail.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+
+  savepoint s;
+  select count(*) from public.push_targets_for_bet(
+    'cccccccc-0000-4000-8000-000000000000', 'bet_created', null
+  );
+  rollback to s;
+
+  savepoint s;
+  select count(*) from public.push_targets_for_group(
+    (select id from public.groups limit 1), 'member_joined', null
+  );
+  rollback to s;
+rollback;

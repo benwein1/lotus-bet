@@ -79,6 +79,8 @@ function user(id: string, name: string, email: string): UserRow {
     expo_push_token: null,
     notify_new_bets: true,
     notify_resolutions: true,
+    notify_group_joins: true,
+    notify_deadlines: true,
     created_at: '2026-08-01T10:00:00Z',
   };
 }

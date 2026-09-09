@@ -18,7 +18,6 @@ import {
 } from '@/components/ui';
 import { formatAgorot, parseIlsToAgorot } from '@/lib/format';
 import { captureMedia, pickMedia, MAX_ATTACHMENTS, type PickedMedia } from '@/lib/media';
-import { announceNewBet } from '@/lib/notifications';
 import { createBet, MAX_BET_OPTIONS, MIN_BET_OPTIONS } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors, useScheme } from '@/providers/theme-provider';
@@ -144,7 +143,6 @@ export default function NewBetScreen() {
       });
 
       // Fire-and-forget: the bet exists whether or not the pushes land.
-      void announceNewBet(bet.id);
 
       router.replace({ pathname: '/bet/[id]', params: { id: bet.id } });
     } catch (err) {
