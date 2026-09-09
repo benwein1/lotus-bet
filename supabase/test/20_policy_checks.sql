@@ -339,3 +339,56 @@ begin;
   );
   rollback to s;
 rollback;
+
+\echo '--- 15. Bets that existed before options were converted, whatever their state ---'
+-- The rows planted by `pre/20260909090000_bet_options.sql`. The backfill has
+-- to reach every one of them, including the locked, resolved, cancelled and
+-- past-deadline bets that `bet_positions_require_open` would otherwise refuse
+-- to let it touch.
+begin;
+  select 'every legacy bet has two options' as check,
+         count(*) filter (where n = 2) as with_two,
+         count(*) filter (where n <> 2) as wrong
+    from (
+      select b.id, count(o.id) as n
+        from public.bets b
+        left join public.bet_options o on o.bet_id = b.id
+       where b.group_id = '11111111-0000-4000-8000-000000000000'
+       group by b.id
+    ) counted;
+
+  select 'no position was left without an option' as check, count(*) as orphans
+    from public.bet_positions p
+    join public.bets b on b.id = p.bet_id
+   where b.group_id = '11111111-0000-4000-8000-000000000000'
+     and p.option_id is null;
+
+  \echo '  every side still points at the option it always meant'
+  select b.status,
+         count(*) filter (where p.side = 'a' and o.position = 0) as a_to_first,
+         count(*) filter (where p.side = 'b' and o.position = 1) as b_to_second,
+         count(*) filter (where (p.side = 'a') <> (o.position = 0)) as mismatched
+    from public.bet_positions p
+    join public.bet_options o on o.id = p.option_id
+    join public.bets b on b.id = p.bet_id
+   where b.group_id = '11111111-0000-4000-8000-000000000000'
+   group by b.status
+   order by b.status;
+
+  \echo '  the resolved bet names its winner as an option, not a letter'
+  select b.winning_option as letter, o.position as option_position, o.label
+    from public.bets b
+    join public.bet_options o on o.id = b.winning_option_id
+   where b.id = '11111111-0000-4000-8000-00000000000c';
+
+  \echo '  and the trigger is back on: a locked bet still refuses a new position'
+  savepoint s;
+  insert into public.bet_positions (bet_id, user_id, option_id)
+  values (
+    '11111111-0000-4000-8000-00000000000b',
+    'aaaaaaaa-0000-4000-8000-000000000000',
+    (select id from public.bet_options
+      where bet_id = '11111111-0000-4000-8000-00000000000b' and position = 0)
+  );
+  rollback to s;
+rollback;

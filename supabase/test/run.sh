@@ -75,7 +75,17 @@ psql -q -v ON_ERROR_STOP=1 -d lotus -f "$ROOT/supabase/test/00_supabase_stub.sql
   | grep -v 'wal_level is insufficient' || true
 
 echo "==> migrations"
+# A migration that backfills existing rows only does anything when there are
+# rows to backfill — and against an empty database every backfill is a no-op
+# that passes for the wrong reason. `supabase/test/pre/<migration>.sql`, when
+# one exists, is applied immediately *before* that migration, so it can put the
+# old shape in the table and the migration has real work to do.
 for f in "$ROOT"/supabase/migrations/*.sql; do
+  pre="$ROOT/supabase/test/pre/$(basename "$f")"
+  if [ -f "$pre" ]; then
+    echo "    (pre) $(basename "$pre")"
+    psql -q -v ON_ERROR_STOP=1 -d lotus -f "$pre" 2>&1 | grep -v '^NOTICE' || true
+  fi
   echo "    $(basename "$f")"
   psql -q -v ON_ERROR_STOP=1 -d lotus -f "$f" 2>&1 | grep -v '^NOTICE' || true
 done

@@ -29,7 +29,7 @@ Or paste the files in `migrations/` into the SQL editor, in filename order:
 | `…_email_auth.sql` | Email accounts: `users.email`, `users.profile_completed`, a nullable `phone`, and the signup trigger that seeds a named profile |
 | `…_bet_media.sql` | The `bet_media` table and the private `bet-media` storage bucket with its policies |
 | `…_avatars.sql` | `groups.avatar_url` and the public `avatars` bucket, for profile and group photos |
-| `…_bet_options.sql` | `bet_options`, so a bet can have up to eight, and `resolve_bet_with_entries`, which makes resolution one transaction |
+| `…_bet_options.sql` | `bet_options`, so a bet can have up to eight, and `resolve_bet_with_entries`, which makes resolution one transaction. Backfills every existing bet, so it briefly disables `bet_positions_require_open` — that trigger refuses any write to a position on a bet that is not open, which includes filling in a new column on one |
 | `…_notification_prefs.sql` | Two more notification switches, and the service-role-only functions that decide who a push goes to |
 
 The last two are separate on purpose: the media one touches `storage.objects`,

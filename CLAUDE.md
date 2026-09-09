@@ -521,6 +521,16 @@ refuses every shape of unbalanced ledger, that the push-target functions pick
 the right people and are not callable by a signed-in client, and that a
 settlement moves both balances and still nets to zero. All of that passes.
 
+**A migration that backfills existing rows needs rows to exist.** Against an
+empty database every backfill is a no-op that passes for the wrong reason —
+which is exactly how the options migration shipped a bug that made it fail on
+any real project with settled history: its `bet_positions` update is refused by
+`bet_positions_require_open` on every locked, resolved, cancelled or
+past-deadline bet. `supabase/test/pre/<migration filename>.sql`, when one
+exists, is applied immediately *before* that migration, so the old shape is in
+the table and the migration has real work to do. Write one for any migration
+that touches rows rather than only schema.
+
 The grants `anon` and `authenticated` get are modelled as **default
 privileges, set before the migrations run** — which is how Supabase actually
 does it. They used to be a blanket `GRANT` after them, which silently

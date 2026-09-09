@@ -64,12 +64,25 @@ select b.id, 1, b.option_b_label
 from public.bets b
 where not exists (select 1 from public.bet_options o where o.bet_id = b.id and o.position = 1);
 
+-- `bet_positions_require_open` rejects any write to a position on a bet that
+-- is locked, resolved, cancelled or past its close time — which is the whole
+-- point of it, and which also blocks this backfill. Every position on every
+-- settled bet in the table is exactly the kind of row it is there to protect.
+--
+-- So the trigger comes off for the length of the backfill and goes straight
+-- back on. This is a column being filled in, not a position being changed:
+-- the side each row already recorded is what decides its option, and no row
+-- ends up pointing anywhere different from where it pointed before.
+alter table public.bet_positions disable trigger bet_positions_require_open;
+
 update public.bet_positions p
    set option_id = o.id
   from public.bet_options o
  where o.bet_id = p.bet_id
    and o.position = case p.side when 'a' then 0 else 1 end
    and p.option_id is null;
+
+alter table public.bet_positions enable trigger bet_positions_require_open;
 
 update public.bets b
    set winning_option_id = o.id
