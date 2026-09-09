@@ -1,0 +1,46 @@
+<!--
+  The Lotus Bet mark.
+
+  A lotus of five petals fanning from one point, which is also a hand of cards
+  fanned from the same point — the two things the product is named for and
+  about, in one shape. Every petal is the same path rotated about the base, so
+  the mark is one repeated form rather than five drawn shapes and cannot drift
+  out of symmetry.
+
+  Flat and geometric on purpose. An app icon is seen at 60px on a home screen
+  far more often than at 1024, and strokes or gradients turn to mush there.
+  The three tones are flat fills; the depth comes from the overlap order, not
+  from a gradient.
+
+  Drawn on a 512 box with the mark optically centred — the fan is wider than
+  it is tall, so centring it on the geometric middle leaves it looking low.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- One petal, pointing up from the base at (256, 366). -->
+    <path
+      id="petal"
+      d="M256 366
+         C 206 292, 200 208, 256 122
+         C 312 208, 306 292, 256 366 Z"
+    />
+  </defs>
+
+  <!--
+    The fan is wider than it is tall, so its bounding box is not the viewBox.
+    This centres the mark on its real bounds and scales it to fill the frame —
+    without it the icon reads as a small flower floating in a large square.
+  -->
+  <g transform="translate(256 256) scale(1.16) translate(-256 -251)">
+    <!-- Outer pair, laid down first and furthest back. -->
+    <use href="#petal" fill="#0A4E97" transform="rotate(-54 256 366)" />
+    <use href="#petal" fill="#0A4E97" transform="rotate(54 256 366)" />
+
+    <!-- Inner pair. -->
+    <use href="#petal" fill="#0961BC" transform="rotate(-27 256 366)" />
+    <use href="#petal" fill="#0961BC" transform="rotate(27 256 366)" />
+
+    <!-- The centre petal sits on top, at full strength. -->
+    <use href="#petal" fill="#2E92FF" />
+  </g>
+</svg>

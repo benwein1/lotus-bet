@@ -1,0 +1,690 @@
+# CLAUDE.md — Lotus Bet
+
+Guidance for Claude Code working in this repo. Read this before touching
+anything; the NativeWind, colour-scheme and money-invariant sections in
+particular encode mistakes already made and fixed once.
+
+---
+
+## 1. What this is, and the one rule that never bends
+
+An iOS-first React Native app where friends form groups, post two-outcome
+bets against each other, and the app tracks who owes whom.
+
+**Lotus Bet never touches money.** No payments, no wallets, no in-app
+currency, nothing purchasable, no payment-processor integration. It records
+obligations; users settle up outside the app (cash, Bit, bank transfer).
+
+This is a deliberate product and App Store compliance decision, not an
+oversight and not a gap to fill. Do not add payment features, "wallet
+balance" UI, or anything that could read as holding funds — even if a task
+description seems to imply it. The disclaimer text on the auth, new-bet,
+settle-up and profile screens is load-bearing; don't delete it during a
+redesign.
+
+Other standing scope boundaries:
+
+- **As many outcomes as the creator wants**, between 2 and 8. `bet_options`
+  is the real list; `bets.option_a_label` / `option_b_label` survive as the
+  first two, mirrored by a trigger, so data and clients written before options
+  existed still read. Render from `options`, never from the label columns.
+  The odds bar is a green/red split at two and a stacked bar with a legend
+  past two.
+- **No public or global discovery.** Bets are always scoped to a group; the
+  Home feed shows only bets from groups you are in.
+- **No editing a bet after creation.** The creator can lock, resolve or
+  cancel. That's the whole surface.
+
+---
+
+## 2. Commands
+
+```bash
+npm install
+cp .env.example .env      # fill in Supabase URL + anon key first
+
+npm start                 # Expo dev server; press "i" for iOS simulator
+npm run web               # fastest loop for design work — no Xcode needed
+npm run ios / android
+
+npm test                  # jest — 50 tests, pure logic + a theme drift check
+npm run typecheck         # tsc --noEmit
+npm run lint
+npm run theme             # regenerate global.css from theme-colors.json
+
+supabase/test/run.sh      # migrations + RLS + RPCs against a throwaway Postgres
+```
+
+`run.sh` needs a local PostgreSQL 16 and never touches a real project. It is
+the only thing that exercises the SQL — see §7.
+
+Always run `npm run typecheck && npm test` before claiming a change works.
+They are fast (a few seconds combined) and there is **no CI in this repo** —
+nothing will catch a regression for you.
+
+To check the app actually bundles (catches things typecheck can't, like a
+bad Metro resolution):
+
+```bash
+npx expo export --platform ios --output-dir /tmp/export-check
+```
+
+---
+
+## 3. Stack and layout
+
+Expo SDK 57 · React Native 0.86 · Expo Router · TypeScript (strict, with
+`noUncheckedIndexedAccess`) · NativeWind 4 · Supabase (Postgres, Auth,
+Storage, Realtime, RLS, Edge Functions) · expo-image / expo-video /
+expo-image-picker for bet media.
+
+```
+app/                        Expo Router routes
+  _layout.tsx               root stack + the single auth redirect gate
+  (auth)/                   sign-in · sign-up · profile-setup
+  (tabs)/                   index (the feed) · groups · profile
+  group/create.tsx, join.tsx
+  group/[id]/               index (detail) · new-bet · settle
+  bet/[id].tsx              join a side, resolve, cancel
+src/
+  components/ui.tsx         the shared visual vocabulary — see §4
+  components/icons.tsx      hand-rolled SVG icon set
+  components/animated.ts    NativeWind-registered Animated — import from here
+  components/screen.tsx     Screen · Glass · ContentWidth
+  components/skeletons.tsx  screen-shaped loading placeholders
+  components/bet-card.tsx   FeedCard (full-screen) + BetCard (compact)
+  components/bet-media.tsx  photo/video renderer and pager
+  components/odds-bar.tsx
+  components/lotus-mark.tsx  the app mark, wherever the app shows its own face
+  components/animated-splash.tsx  the hand-off out of the native splash
+  lib/payout.ts             re-export ONLY — see §5
+  lib/settlement.ts         balance netting + greedy debt simplification
+  lib/queries.ts            every Supabase read/write the app makes
+  lib/media.ts              picking, uploading and signing bet media
+  lib/format.ts             agorot ↔ shekels, countdowns, initials, email
+  lib/database.types.ts     hand-written row types
+  lib/supabase.ts           client; `isSupabaseConfigured` guard
+  lib/notifications.ts      push registration + the three server announcements
+  lib/reminders.ts          local deadline reminders (the device half)
+  lib/reminder-rules.ts     …and the pure half, which is what the tests hold
+  lib/odds.ts               percentages that always total exactly 100
+  lib/postgrest.ts          reading PostgREST's "column does not exist"
+  hooks/                    use-async · use-group-realtime · use-settlement ·
+                            use-reduced-motion · use-tab-bar-inset
+  providers/auth-provider.tsx
+  providers/theme-provider.tsx   owns the colour scheme
+  theme.ts                  palettes · motion · elevation · avatarColors
+theme-colors.json           SINGLE SOURCE OF TRUTH for both palettes
+global.css                  GENERATED from it by scripts/build-theme-css.js
+assets/logo/lotus.svg       the mark; scripts/build-icons.mjs renders every size
+supabase/
+  migrations/               schema · RLS · RPCs · email auth · media · avatars ·
+                            bet options · notification prefs (8)
+  functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
+  functions/notify/         the single push fan-out for all three server events
+__tests__/                  payout · settlement · format · theme · odds ·
+                            postgrest · reminders
+```
+
+**All Supabase access goes through `src/lib/queries.ts`.** Screens never
+build queries inline. If a table isn't touched in that file, the client
+never reads it — which is what makes the RLS surface auditable.
+
+---
+
+## 4. Design system — read before any UI work
+
+The direction is **Apple**: the platform's own type scale and metrics, system
+font, translucent floating chrome, spring-driven motion, and colour used
+sparingly and semantically. `.claude/skills/apple-design/SKILL.md` is the
+reference; the rules below are what it means in this codebase.
+
+### Colour: semantic tokens, two schemes
+
+`theme-colors.json` holds **two complete palettes**, `light` and `dark`, with
+identical key sets. `scripts/build-theme-css.js` generates `global.css` from
+it as CSS custom properties under `:root` and `.dark:root`; `tailwind.config.js`
+maps every colour class to `var(--c-*)`. `__tests__/theme.test.ts` fails if
+`global.css` drifts from the JSON — run `npm run theme` after editing it.
+
+The consequence, and the point: **one class name is correct in both schemes.**
+There is not a single `dark:` variant anywhere in the app, and there should
+never need to be.
+
+| Token | Use |
+| --- | --- |
+| `canvas` | the page ground — white on light, black on dark |
+| `sunken` | grouped-list ground, the tone inset cards sit on |
+| `surface` / `surface2` / `surface3` | card → raised → control fill |
+| `hairline` / `hairline-strong` | 1px rules and borders |
+| `primary` / `secondary` / `tertiary` | label → secondary label → placeholder |
+| `inverse` | text on an inverted surface |
+| `accent` (+ `-strong`, `-soft`, `-ink`) | the one decisive colour |
+| `positive` / `negative` (+ `-soft`) | money owed to you / that you owe |
+| `sideA` / `sideB` (+ `-soft`, `-onMedia`) | the two sides of a bet |
+| `chrome` / `chrome-edge` | translucent floating material and its lit edge |
+| `scrim` | dim layer over media |
+| `on-media` (+ `-soft`, `-faint`) | text over a photo or video, both schemes |
+
+**Black and white are the app's colours; light blue is the only accent** — it
+carries every action, and nothing else. **The two sides of a bet are green and
+red**: side A is the people in favour, side B the people against, in the same
+pair of colours the ledger uses for money owed to you and money you owe. One
+learned convention, read the same way on the odds bar, the side buttons and the
+balance rows. `sideA-media` / `sideB-media` are the brighter variants for use
+over a photo; they are deliberately the *same value in both schemes*, because a
+scrim is dark either way.
+
+**Never hardcode a hex in a component.** Reach for `useColors()` only where a
+class cannot go: navigator options, `placeholderTextColor`, `Switch`,
+`RefreshControl`, SVG, gradients, animated styles. `#FFFFFF` on a scrim over
+media is the sole literal, because white-on-media does not follow the scheme.
+
+### Colour scheme plumbing (this bit has already bitten)
+
+- `darkMode: 'class'` in `tailwind.config.js` **must stay**. Under the default
+  `'media'`, NativeWind's web colour-scheme observer calls `colorScheme.set()`
+  when the stylesheet lands and that function throws outright. Every
+  `npm start` on web crashed until this was set.
+- Because it is `'class'`, **nothing follows the OS setting on the web on its
+  own.** `ThemeProvider` resolves the preference (`system` | `light` | `dark`)
+  against React Native's `useColorScheme()` and always hands NativeWind a
+  *concrete* scheme. Passing `'system'` to `setColorScheme` leaves the web
+  build stuck in light mode — verified, then fixed.
+- The user's choice lives in AsyncStorage under `lotusbet.appearance` and is
+  changed from the Appearance control on Profile.
+
+### Type
+
+The **system font** — SF Pro on iOS. Apple ships optical sizing, tracking
+tables and legibility tuning with it, and a downloaded face throws all of that
+away for a novelty that stops the app feeling native. There is no webfont and
+nothing to wait on at launch.
+
+The scale in `tailwind.config.js` is Apple's, with Apple's tracking: `text-2xs`
+11 → `text-sm` 13 (Footnote) → `text-subhead` 15 → `text-callout` 16 →
+`text-base` 17 (Body) → `text-lg` 20 (Title 3) → `text-xl` 22 → `text-2xl` 28
+→ `text-3xl` 34 (Large Title) → 44 / 56 / 72 for display moments. **Tracking is
+size-specific** — large text tightens, small text opens up; a single
+`letter-spacing` value is wrong somewhere.
+
+Hierarchy comes from weight + size together, not size alone: `font-semibold`
+for a headline at body size is a real step.
+
+### Layout and shape
+
+- 4pt grid, `px-gutter` (20) at screen edges, `mb-section` (28) between blocks.
+- Radius says what kind of object something is: `rounded-4xl` (28) for feed
+  cards and media, `rounded-3xl` (22) for cards, `rounded-2xl` (16) for
+  controls and inset groups, `rounded-xl` (12) for small controls, `full` for
+  pills and avatars. Hairlines are never rounded.
+- The inset grouped list (`ListGroup` + `Row`, `FieldGroup` + `TextField`) is
+  the default container. It is the most familiar shape on the platform and
+  needs no chrome of its own.
+
+### Motion
+
+Motion tokens live in `src/theme.ts` in **Apple's two parameters**, not the
+physics triplet: `duration` is the *response* (how fast the value reaches the
+target) and `dampingRatio` controls overshoot. `motion.press` and
+`motion.settle` are critically damped (1.0); `motion.momentum` (0.8) and
+`motion.celebrate` (0.62) are the only places overshoot is allowed, and only
+because a gesture or a payoff earned it.
+
+- **Feedback lands on press-in, never on release.** `PressableScale` springs
+  the instant a finger touches it. A control that only reacts once you let go
+  reads as broken.
+- **Animate `transform` and `opacity` only.** Never width, height, flex,
+  margin or `left` — those re-layout the subtree every frame. `OddsBar`
+  animates `scaleX` on a full-width track with `transformOrigin` at each end so
+  the two bars meet exactly at the split; `Segmented`'s thumb travels on
+  `translateX` off a measured width.
+- **`useReducedMotion()` gates every entrance and spring.** Motion is
+  neutralised, never removed: content still arrives and presses still respond,
+  they just stop travelling.
+
+### Materials
+
+`Glass` (in `screen.tsx`) is a registered `BlurView` over the `chrome` token
+with a lit `chrome-edge` border. Floating chrome — the tab bar — lets content
+scroll underneath it rather than consuming a strip. Bigger surfaces read as
+thicker: the tab bar takes a much higher blur intensity than a chip would.
+
+### Design tells to keep out
+
+- **No tracked ALL-CAPS eyebrows.** `SectionTitle` is sentence case at Title 3.
+- **No middle-dot meta strings** (`A · B · C`). Write the sentence.
+- **No near-black-as-grey.** The dark ramp is genuinely black-first.
+- **One accent, used with meaning** — blue carries every action; green and red
+  carry direction, both on the ledger and on the two sides of a bet. Nothing is
+  coloured for decoration.
+- **Loading states are skeletons, not spinners**, anywhere the shape of the
+  content is known.
+
+### NativeWind gotchas (each of these has already bitten once)
+
+1. **`className` is silently dropped on any component NativeWind doesn't
+   know** — including reanimated's `Animated.View`, `expo-blur`'s `BlurView`,
+   `expo-image`'s `Image`, `expo-video`'s `VideoView`, and anything built with
+   `Animated.createAnimatedComponent`. No error; the styles simply never
+   arrive. This cost a whole redesign pass once.
+
+   The fix is registration, not avoidance. `src/components/animated.ts` calls
+   `cssInterop` on `Animated.View`/`Text`/`ScrollView` and re-exports
+   `Animated`; `ui.tsx` does the same for `AnimatedPressable`, `screen.tsx`
+   for `BlurView`, `bet-media.tsx` for `Image` and `VideoView`.
+   **Import `Animated` from `@/components/animated`, never from
+   `react-native-reanimated` directly.** If you animate or style a new
+   component type, register it too.
+
+2. **No dynamic class names.** `` `border-${tone}` `` compiles to nothing —
+   Tailwind needs literal strings. Spell both branches out:
+   `tone === 'a' ? 'border-sideA' : 'border-sideB'`. See `SidePick` in
+   `bet-card.tsx` and `SideButton` in `app/bet/[id].tsx`.
+
+3. **No opacity modifiers on the semantic colours.** They resolve to
+   `var(--c-*)`, and Tailwind cannot compute an alpha of a `var()`, so
+   `text-primary/60` silently produces no class at all. If you need a
+   translucent token, add it to `theme-colors.json` as its own value — that is
+   what `on-media-soft` and `chrome` are.
+
+4. `contentContainerClassName` **is** supported on ScrollView. Use it.
+
+5. **Never nest a pressable control inside a `Link`.** On iOS the responder
+   system lets the inner one win, so it looks fine; on the web the inner press
+   fires *and* the browser's own anchor activation runs afterwards, doing a
+   full document navigation. That silently broke picking a side from the feed
+   card. `FeedCard` now puts the `Link` and the `SidePick` row side by side as
+   siblings inside the padded column — copy that shape.
+
+6. **`Alert.alert` is a no-op on react-native-web** — the implementation is
+   literally `static alert() {}`. Every confirmation in the app therefore did
+   nothing in a browser: sign out, resolve, cancel and "mark as paid" were dead
+   controls on the one platform the design loop runs on. Confirmations go
+   through `src/lib/confirm.ts`, which falls back to `window.confirm` on web.
+
+5. **Eight-digit hex alpha is not reliable in `LinearGradient`.** A stop that
+   doesn't truly reach zero leaves a hard horizontal seam. The feed card's
+   scrim builds explicit `rgba()` — follow that.
+
+### Component library
+
+`src/components/ui.tsx` is the shared vocabulary; screens compose it and add
+no bespoke chrome of their own.
+
+- `PressableScale` — every tappable surface springs under the finger. Use it
+  instead of a bare `Pressable`. `tap()` / `selectionTap()` are the haptics,
+  already no-ops on web.
+- `Card`, `ListGroup` + `Row`, `Divider`, `Title`, `SectionTitle`, `Overline`,
+  `InfoRow`, `Stat`
+- `FieldGroup` + `TextField` (leading label, iOS form row) and `BlockField`
+  (label above, for long text)
+- `Button` (`variant`: primary/secondary/tinted/plain/destructive ·
+  `size`: sm/md/lg · `icon` · `loading`), `Chip`, `Segmented`, `Badge`,
+  `LiveDot`
+- `Money` — tabular figures, coloured by direction. All money goes through it.
+- `Avatar` / `AvatarStack` — colour is derived from the user id via
+  `avatarColors`, per scheme, so the same person is the same colour everywhere.
+- `Skeleton` plus screen-shaped compositions in `skeletons.tsx`
+- `EmptyState` / `ErrorNotice` / `Loading`
+
+`src/components/icons.tsx` is a hand-rolled SVG set on a 24×24 grid, 1.75
+stroke, defaulting to the active scheme's secondary label colour. Emoji ignore
+`color` and render differently per platform — use these instead. Emoji remain
+only as user-chosen group avatars.
+
+### The feed
+
+`app/(tabs)/index.tsx` is the centre of the app: a `FlatList` of `FeedCard`s,
+one per screenful, snapping so a flick always lands on a whole bet. There is
+no greeting and no stats block — the bet is the content. A card with media
+puts the photo or video full-bleed with everything else over a scrim; a card
+without media gives the question the space the media would have had. Sides can
+be picked straight from the card. Only the card actually on screen plays its
+video (`active` prop, driven by `onViewableItemsChanged`).
+
+Screens leave room for the floating tab bar with `useTabBarInset()`.
+
+### Chrome the tabs don't have
+
+The floating tab bar is **icons only** — three destinations with unambiguous
+glyphs do not need captions, and the label survives where it was actually doing
+work, as the accessibility name. **No tab screen prints its own name at the top
+either**: the bar already says where you are, so Feed, Groups and You open
+straight onto their content.
+
+---
+
+## 5. The money invariants — the highest-risk code in the repo
+
+`supabase/functions/_shared/payout.ts` is the canonical implementation:
+dependency-free, no imports, no I/O, no Deno or React Native globals.
+
+- `src/lib/payout.ts` is a **pure re-export**. Don't put logic in it.
+- It lives under `supabase/functions/` because it began as Edge Function code
+  and because that directory is Deno-shaped: no bundler, no `@/` alias, no
+  React Native. Those constraints are what keep it dependency-free.
+
+That arrangement is deliberate: the unit-tested code is byte-for-byte the
+code whose output becomes the ledger. **Do not fork, copy or reimplement this
+module** — a second implementation is how someone gets paid the wrong amount.
+`resolve_bet_with_entries` is the backstop, not a second opinion: it refuses
+entries that break the invariants, it does not recompute them.
+
+The rules, which are settled product decisions and not open to redesign:
+
+- One fixed pot per bet, set by the creator. It does not scale with joiners.
+- Winners split `floor(pot / W)`; losers cover `floor(pot / L)`.
+- Remainders (`pot % W`, `pot % L`) go one agora at a time to the
+  lowest-sorting `userId`, so both sides net to **exactly** the pot and the
+  result never depends on row order from Postgres.
+- `W === 0` or `L === 0` → the bet resolves with `paidOut: false` and **no
+  ledger rows**. Nothing moves.
+- **Money is integer agorot everywhere.** 1 ILS = 100 agorot. Never floats,
+  never `parseFloat`, never `toFixed` on a stored value.
+
+`__tests__/payout.test.ts` includes property-style tests asserting the books
+balance across every plausible split. If you change this module and those
+tests still pass, you probably didn't break it. If you change the tests to
+make a change pass, stop and reconsider.
+
+---
+
+## 6. Backend model
+
+### Auth
+
+**Email + password.** `signUp` sends the display name in `raw_user_meta_data`,
+and the `handle_new_auth_user` trigger uses it to seed `public.users` with
+`profile_completed = true`; an account without one gets a placeholder name and
+the app routes it to profile-setup. There is no phone OTP and no SMS provider
+any more — `users.phone` stays on the table, nullable, for accounts created
+under the old flow.
+
+If the project has email confirmation on, `signUp` returns no session and the
+sign-up screen shows a "check your inbox" state. Both configurations work.
+
+### Roles and who may write what
+
+- **Clients** (anon key + RLS): read anything in their groups; write their
+  own `bet_positions` and `settlement_confirmations`; create groups, bets and
+  bet media.
+- **`bet_ledger_entries` is read-only for clients.** Only
+  `resolve_bet_with_entries` writes it, as a `SECURITY DEFINER` RPC.
+- Membership is checked through `SECURITY DEFINER` helpers
+  (`is_group_member`, `is_group_admin`, `shares_group_with`, `bet_group_id`)
+  so the policy on `group_members` doesn't recurse into itself. **If you add
+  a policy that queries `group_members` directly, you will create infinite
+  recursion.** Use the helpers.
+- Only a bet's `creator_id` can lock, resolve or cancel it, and only the
+  creator can attach media, only while the bet is `open`.
+- `bet_positions` can only be created, switched or withdrawn while the bet is
+  `open` and before `close_at` — enforced by the `enforce_bet_open` trigger,
+  so it holds no matter which path writes the row.
+
+### Media
+
+`bet_media` rows hold a `storage_path` into the **private** `bet-media`
+bucket, laid out as `<group_id>/<bet_id>/<file>`. The storage policies read
+the group out of the first path segment and reuse `is_group_member`, so the
+bucket and the table enforce exactly the same rule.
+
+Nothing is public. `src/lib/media.ts` signs URLs on read, and `queries.ts`
+batches the signing across a whole result — a feed of ten bets with photos
+costs one round trip, not ten. Uploads happen *after* the bet row exists,
+because its id is part of the path.
+
+### RPC surface (`20260904090200_functions.sql`)
+
+`create_group` · `join_group_with_code` · `join_bet` · `join_bet_option` ·
+`leave_bet` · `lock_bet` · `cancel_bet` · `group_balances` · `my_stats` ·
+`set_push_token` · `resolve_bet_with_entries` ·
+`push_targets_for_bet` / `push_targets_for_group` (service role only)
+
+Anything spanning more than one table lives here rather than in the client,
+so it stays atomic and can't be skipped.
+
+### Resolution
+
+**Resolving a bet is one RPC, not an Edge Function.** `resolve_bet_with_entries`
+inserts every ledger row and flips the bet's status in a single transaction, so
+the bet can no longer be stranded half-resolved by a process that dies between
+the two writes. The client computes the split with `computeBetPayouts` and
+hands the entries over; the RPC does not recompute them, it *checks* them —
+one entry per participant, winners positive, losers negative, credits totalling
+the pot exactly and debits totalling minus the pot. A ledger that does not
+balance is refused rather than written.
+
+The `resolve-bet` Edge Function it replaced has been **deleted**. It could
+only ever name a winner as `'a'` or `'b'`, so once bets grew options it was a
+stale second path into the ledger — and it wrote the status flip separately,
+which is the stranding bug the RPC exists to close.
+
+### Settlement
+
+Resolving writes one signed `bet_ledger_entries` row per participant — a
+balance line, not a pairwise IOU. `group_balances(group_id)` sums those and
+folds in `settlement_confirmations`: a payment of X from A to B moves A up X
+and B down X. That's what stops a settled transaction reappearing.
+
+`src/lib/settlement.ts` then runs greedy debt simplification client-side. It's
+cheap and recomputed on every open — **don't persist the suggested
+transactions.**
+
+### Notifications
+
+Four events, and one switch each on Profile (`users.notify_*`).
+
+Three are **push**, sent by the `notify` Edge Function: a new bet in one of
+your groups, somebody joining a group you are in, and a bet you took a side on
+being called. One function rather than three: they all check the caller may
+announce this, ask the database who wants to hear it, and hand the list to
+Expo — only the sentence differs.
+
+*Who* hears about something is decided in SQL (`push_targets_for_bet`,
+`push_targets_for_group`), not in TypeScript, so it sits next to the RLS that
+decides who may see the thing being announced and is covered by the same
+harness. Both are `SECURITY DEFINER` and **revoked from `authenticated`** —
+they return device tokens, and a group member must not be able to list their
+friends' phones.
+
+The fourth, a **deadline reminder**, is a *local* notification scheduled on the
+device by `src/lib/reminders.ts`. It needs no cron, no push credentials and no
+delivery guesswork, and — unlike remote push — it works in Expo Go. The feed
+rebuilds the whole schedule whenever it changes: everything this module owns is
+cancelled, then what is currently true is scheduled. That is how a reminder
+disappears once you pick a side.
+
+Announcements are fired from `queries.ts`, not from screens, so a caller cannot
+forget one. All of them are `void`-ed and swallow their failure: the user's
+action already succeeded, and a notification that did not go out must never be
+reported as a failed bet.
+
+### Embedding `bet_options`
+
+There are **two foreign keys between `bets` and `bet_options`** — every option's
+key back to its bet, and `bets.winning_option_id` pointing the other way. So a
+plain `bet_options(*)` embed is ambiguous and PostgREST refuses it outright:
+*"Could not embed because more than one relationship was found."* The whole
+select fails, so the feed comes back **empty**, not merely without its options.
+
+`BET_SELECT` therefore names the key: `bet_options!bet_options_bet_id_fkey(*)`.
+That makes a constraint name part of the client's contract, which section 16 of
+the policy checks asserts. Any new table with two keys to the same table needs
+the same treatment.
+
+### bigint coercion
+
+`group_balances` and `my_stats` return `bigint`, which PostgREST may hand
+back as a string. Every read site wraps with `Number(...)`. Keep doing that on
+any new consumer.
+
+---
+
+## 7. Known issues and suspected bugs
+
+**The SQL is now exercised.** `supabase/test/run.sh` spins up a throwaway
+PostgreSQL 16, fakes just enough of the Supabase platform (`auth.users`,
+`auth.uid()`, `storage.objects`, the realtime publication, and the table
+grants Supabase hands out on its own), applies every migration in order, runs
+the seed script on top, and then drives the policies as the `authenticated`
+role with a JWT subject. It checks that a member sees their group and an
+outsider sees nothing without the `group_members` policy recursing, that
+clients cannot write `bet_ledger_entries`, that `join_bet`/`leave_bet` and
+`join_group_with_code` work, that `enforce_bet_open` rejects a position on a
+resolved bet, that a non-creator cannot cancel, that `resolve_bet_with_entries`
+refuses every shape of unbalanced ledger, that the push-target functions pick
+the right people and are not callable by a signed-in client, and that a
+settlement moves both balances and still nets to zero. All of that passes.
+
+**A migration that backfills existing rows needs rows to exist.** Against an
+empty database every backfill is a no-op that passes for the wrong reason —
+which is exactly how the options migration shipped a bug that made it fail on
+any real project with settled history: its `bet_positions` update is refused by
+`bet_positions_require_open` on every locked, resolved, cancelled or
+past-deadline bet. `supabase/test/pre/<migration filename>.sql`, when one
+exists, is applied immediately *before* that migration, so the old shape is in
+the table and the migration has real work to do. Write one for any migration
+that touches rows rather than only schema.
+
+The grants `anon` and `authenticated` get are modelled as **default
+privileges, set before the migrations run** — which is how Supabase actually
+does it. They used to be a blanket `GRANT` after them, which silently
+re-granted anything a migration revoked, so a function locked down to the
+service role tested as locked down while being callable by anyone.
+
+What it does **not** cover is anything the platform provides rather than this
+repo: real storage behaviour, GoTrue, and Edge Function deployment. The
+storage policies are only checked for syntax, not for effect.
+
+Concrete things worth fixing, roughly by severity:
+
+1. **Media upload is not transactional with the bet.** `createBet` inserts the
+   bet, uploads each file, then inserts the `bet_media` rows. A failure part
+   way leaves a posted bet with some or none of its attachments, and orphaned
+   objects in the bucket. That is the better of the two failure modes — the
+   bet survives — but it wants a cleanup path.
+
+2. **Signed URLs expire after an hour.** A feed left open longer than that
+   shows broken media until the next refresh. Realtime and pull-to-refresh
+   both re-sign, so it is only visible on a screen left untouched.
+
+3. **One push token per user.** `users.expo_push_token` is a single column,
+   so a second device silently overwrites the first. Needs its own table when
+   multi-device matters.
+
+4. **`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps** with an
+   eslint-disable. It works because `reload` is stable, but it's fragile — a
+   refactor of `useAsync` could silently stop refreshing the group list.
+
+5. **Realtime subscribes to `bet_positions` unfiltered** (in both
+   `useGroupRealtime` and `useFeedRealtime`) because that table has no
+   `group_id` column. Fine at friend-group scale, wasteful beyond it.
+
+6. **`my_stats.bets_settled` counts ledger rows**, so bets that resolved with
+   nobody on the winning side don't appear in the count. Arguably correct,
+   worth a decision.
+
+7. **Announcements are still client-invoked.** They now live in
+   `queries.ts` rather than in a screen, so no caller can forget one, but a
+   client that dies between the write and the `notify` call still means nobody
+   is told. A database webhook would be more reliable.
+
+### Fixed, but easy to reintroduce
+
+**"cannot add `postgres_changes` callbacks for realtime:… after
+`subscribe()`."** This crashed the group, settle-up and bet screens. Two
+causes, both now guarded in `src/hooks/use-group-realtime.ts`:
+
+- Callers built `refresh` with `useCallback(..., [bets, balances, group])`,
+  but `useAsync` returns a **new object every render**, so the callback's
+  identity changed constantly and the channel was torn down and reopened on
+  every render. `removeChannel` is async, so the reopen raced its own
+  teardown. Depend on `xxx.reload` (a stable `useCallback(..., [])`), never on
+  the state object.
+- Screens stack: settle-up sits on top of group detail and **both** watch the
+  same group, so a channel named only `group:<id>` collided with a live one.
+  Channel names now carry a per-instance `useId()` suffix.
+
+---
+
+## 8. TEMPORARY: offline demo mode
+
+`src/lib/demo.ts` is an in-memory fake of the whole backend, so the app can be
+opened and clicked through with no Supabase project, no email provider and no
+network. The way in is a small "Skip sign-in, use demo data" button on the
+sign-in screen and on the setup screen (`src/components/demo-entry.tsx`).
+
+It is scaffolding, not a feature. Three properties keep it honest:
+
+- The entry point renders only when `DEMO_AVAILABLE` — `__DEV__`, or an
+  explicit `EXPO_PUBLIC_ENABLE_DEMO=1` for testing an exported bundle.
+
+  **It reached a deployable build once, so this is not automatic.** Metro
+  inlines `process.env.EXPO_PUBLIC_*` as literals and *caches them*, so an
+  export run after any demo export inherits `"1"` and ships the "Skip sign-in"
+  button — with the variable itself nowhere in the output, because the value
+  was folded in, not the name. Grepping the bundle for the flag finds nothing;
+  grepping for the button's text always finds it, because the component is
+  imported either way. The only honest check is to load the built page and look
+  for the button. `build:web` therefore passes `--clear`, and any deploy path
+  must keep doing so.
+- Resolving a bet runs the real `computeBetPayouts`, so the demo cannot drift
+  into a second implementation of the money maths.
+- Demo media is inlined as SVG data URIs rather than fetched, so the offline
+  claim stays true.
+
+**To remove it:** delete `src/lib/demo.ts` and `src/components/demo-entry.tsx`,
+then grep for `isDemoMode`, `DemoEntry` and `DemoBadge` — every call site is a
+one-line guard.
+
+---
+
+## 9. How to verify UI work without a backend
+
+There is no committed E2E harness. This loop has found several real bugs and
+is worth rebuilding whenever doing design work:
+
+1. Export with demo mode and a placeholder project, so the sign-in screen
+   renders and the demo button is available:
+
+   ```bash
+   EXPO_PUBLIC_ENABLE_DEMO=1 \
+   EXPO_PUBLIC_SUPABASE_URL=https://demo.supabase.co \
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=demo-anon-key \
+   npx expo export --platform web --output-dir /tmp/web-demo
+   ```
+
+   Metro caches the inlined `process.env.EXPO_PUBLIC_*` values — if a flag
+   doesn't take, re-export with `--clear`.
+
+2. Serve it with SPA fallback so deep links resolve:
+   `npx http-server /tmp/web-demo -p 8124 -P "http://127.0.0.1:8124?"`
+3. Drive it with Playwright (Chromium is preinstalled under
+   `/opt/pw-browsers/`; use `--no-sandbox`), with `colorScheme: 'light'` and
+   `'dark'` contexts so **both schemes** get walked.
+4. Screenshot each route and read the console for errors.
+
+Three things learned the hard way: the **dev server and the export build
+differ** (the `darkMode` crash only reproduces on the dev server);
+**colours in a downscaled screenshot mislead** — verify computed styles rather
+than eyeballing a PNG; and when a scheme looks wrong, probe
+`document.documentElement.className` and `getPropertyValue('--c-canvas')`
+before touching any component.
+
+---
+
+## 10. Conventions
+
+- Comments explain *why*, not *what*. Match the existing density — moderate,
+  reserved for decisions and non-obvious constraints.
+- `@/*` maps to `./src/*`.
+- Money variables end in `Agorot` / columns in `_agorot`. Keep it.
+- New Supabase access goes in `src/lib/queries.ts`, not inline in a screen.
+- Migrations are append-only: add a new timestamped file, never edit an
+  applied one.
+- Route files under `app/` export their screen and nothing else — shared
+  helpers live in `src/` (see `use-tab-bar-inset.ts`).
+- Don't add a dependency without a reason the existing stack can't cover.
+  `useAsync` is deliberately tiny — an MVP with eight screens doesn't need a
+  query cache when Realtime already says when to refetch.
