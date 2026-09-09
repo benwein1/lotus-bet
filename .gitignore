@@ -26,3 +26,6 @@ android/
 .idea/
 .vscode/
 coverage/
+
+# wrangler dev writes local runtime state here.
+.wrangler/

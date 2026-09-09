@@ -618,8 +618,17 @@ sign-in screen and on the setup screen (`src/components/demo-entry.tsx`).
 It is scaffolding, not a feature. Three properties keep it honest:
 
 - The entry point renders only when `DEMO_AVAILABLE` — `__DEV__`, or an
-  explicit `EXPO_PUBLIC_ENABLE_DEMO=1` for testing an exported bundle. It
-  cannot reach a production build.
+  explicit `EXPO_PUBLIC_ENABLE_DEMO=1` for testing an exported bundle.
+
+  **It reached a deployable build once, so this is not automatic.** Metro
+  inlines `process.env.EXPO_PUBLIC_*` as literals and *caches them*, so an
+  export run after any demo export inherits `"1"` and ships the "Skip sign-in"
+  button — with the variable itself nowhere in the output, because the value
+  was folded in, not the name. Grepping the bundle for the flag finds nothing;
+  grepping for the button's text always finds it, because the component is
+  imported either way. The only honest check is to load the built page and look
+  for the button. `build:web` therefore passes `--clear`, and any deploy path
+  must keep doing so.
 - Resolving a bet runs the real `computeBetPayouts`, so the demo cannot drift
   into a second implementation of the money maths.
 - Demo media is inlined as SVG data URIs rather than fetched, so the offline

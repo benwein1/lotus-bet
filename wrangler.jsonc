@@ -1,0 +1,25 @@
+{
+  // Cloudflare Workers, serving the exported web build as static assets.
+  //
+  // There is no `main` here on purpose: with only `assets`, this is a
+  // static-asset Worker with no server code at all. Nothing in Lotus Bet needs
+  // a server — Supabase is the backend, and the web build is a plain SPA.
+  //
+  //   npm run build:web   → writes ./dist
+  //   npx wrangler deploy → uploads it
+  //
+  // Both commands are what the Cloudflare build is configured to run.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lotus-bet",
+  "compatibility_date": "2026-09-09",
+  "assets": {
+    "directory": "./dist",
+
+    // The app is one `index.html` (`output: "single"` in app.json), so every
+    // route has to resolve to it. Without this, `/group/<id>` 404s on refresh
+    // and every shared link is broken — the same reason the local test server
+    // is run with `-P`. "single-page-application" serves index.html with a 200
+    // for anything that is not a real file.
+    "not_found_handling": "single-page-application"
+  }
+}
