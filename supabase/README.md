@@ -28,6 +28,9 @@ Or paste the files in `migrations/` into the SQL editor, in filename order:
 | `…_functions.sql` | Signup trigger, invite codes, group/bet/settlement RPCs, stats |
 | `…_email_auth.sql` | Email accounts: `users.email`, `users.profile_completed`, a nullable `phone`, and the signup trigger that seeds a named profile |
 | `…_bet_media.sql` | The `bet_media` table and the private `bet-media` storage bucket with its policies |
+| `…_avatars.sql` | `groups.avatar_url` and the public `avatars` bucket, for profile and group photos |
+| `…_bet_options.sql` | `bet_options`, so a bet can have up to eight, and `resolve_bet_with_entries`, which makes resolution one transaction |
+| `…_notification_prefs.sql` | Two more notification switches, and the service-role-only functions that decide who a push goes to |
 
 The last two are separate on purpose: the media one touches `storage.objects`,
 which not every project lets you change from the SQL editor. If it fails, the
@@ -43,8 +46,13 @@ attach photos yet.
 - `bet_positions` can only be created, switched or withdrawn while the bet is
   `open` and before its `close_at` — enforced by a trigger, so it holds no
   matter which path writes the row.
-- `bet_ledger_entries` is **read-only** for clients. Only the `resolve-bet`
-  Edge Function writes it, using the service role.
+- `bet_ledger_entries` is **read-only** for clients. Only
+  `resolve_bet_with_entries` writes it, and it refuses a ledger that does not
+  balance: one entry per participant, winners positive, losers negative,
+  credits totalling the pot exactly and debits totalling minus the pot.
+- `push_targets_for_bet` and `push_targets_for_group` are revoked from
+  `authenticated`. They return device tokens, so only the service role — the
+  `notify` function — may call them.
 
 ## 3. Enable email auth
 
@@ -92,19 +100,22 @@ genuinely is not there yet.
 ## 4. Deploy the Edge Functions
 
 ```bash
-npx supabase functions deploy resolve-bet
-npx supabase functions deploy notify-new-bet
+npx supabase functions deploy notify
+npx supabase functions deploy resolve-bet   # legacy; nothing in the app calls it
 ```
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically.
 
 | Function | Called by | Does |
 | --- | --- | --- |
-| `resolve-bet` | The creator, from the bet detail screen | Verifies the caller is the creator, runs `computeBetPayouts`, inserts the ledger rows, flips the bet to `resolved`, pushes each participant their result |
-| `notify-new-bet` | The creator, right after posting a bet | Pushes "new bet" to everyone else in the group who has that toggle on |
+| `notify` | The app, after posting a bet, joining a group, or calling a bet | Checks the caller may announce this, asks the database who wants to hear it, and hands the list to Expo |
+| `resolve-bet` | Nothing, any more | Kept for older clients. Resolution now goes through the `resolve_bet_with_entries` RPC, so the ledger rows and the status flip land in one transaction |
 
 Both authenticate the caller from the `Authorization` header — neither will act
 anonymously.
+
+**The deadline reminder is not here.** It is a local notification scheduled on
+the device, so it needs nothing deployed and works in Expo Go.
 
 ## 5. Push notifications
 

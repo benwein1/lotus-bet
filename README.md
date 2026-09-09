@@ -15,8 +15,8 @@ deliberate product and App Store compliance decision, not a missing feature.
 | App | React Native + Expo (SDK 57), Expo Router, TypeScript |
 | Styling | NativeWind (Tailwind for RN) |
 | Backend | Supabase — Postgres, Auth, Realtime, RLS, Edge Functions |
-| Auth | Supabase phone-number OTP |
-| Push | Expo Notifications (APNs underneath) |
+| Auth | Supabase email + password |
+| Push | Expo Notifications (APNs underneath), plus local deadline reminders |
 
 ## Getting started
 
@@ -32,13 +32,26 @@ crashing.
 ### Setting up the backend
 
 See [`supabase/README.md`](supabase/README.md) for applying the migrations,
-enabling phone auth, and deploying the two Edge Functions.
+enabling email auth, and deploying the Edge Functions.
+
+### Push notifications need two more things
+
+Local deadline reminders work out of the box. The three *server* pushes need:
+
+1. **An EAS project id.** Run `eas init`, or set `EXPO_PUBLIC_EAS_PROJECT_ID`.
+   Without one the app never registers a push token and simply sends nothing —
+   it logs a warning and carries on.
+2. **A development build.** Expo Go dropped remote push on iOS in SDK 53, so
+   `npx expo run:ios` or an EAS build is required to receive them. Everything
+   else in the app, deadline reminders included, works in Expo Go.
 
 ### Checks
 
 ```bash
-npm test          # unit tests — payout maths, settlement, formatting
-npm run typecheck # tsc --noEmit
+npm test              # unit tests — payout maths, settlement, formatting, odds,
+                      # deadline rules, theme drift
+npm run typecheck     # tsc --noEmit
+supabase/test/run.sh  # migrations, RLS and RPCs against a throwaway Postgres
 ```
 
 ## How a bet works
@@ -97,27 +110,33 @@ src/
 supabase/
   migrations/             schema, RLS policies, RPCs
   functions/resolve-bet   declares a winner, writes the ledger, pushes results
-  functions/notify-new-bet announces a new bet to the rest of the group
+  functions/notify        the single push fan-out for all three server events
 __tests__/                unit tests
 ```
 
 ## Notifications
 
-Two pushes, deliberately:
+Four events, one switch each on the Profile tab.
+
+Three are pushes, sent by the `notify` Edge Function:
 
 - A new bet is posted in one of your groups.
-- A bet you joined is resolved (the body carries your result and amount).
+- Somebody joins a group you are in.
+- A bet you took a side on is called (the body carries your result and amount).
 
-Joins are **not** notified — that gets noisy fast in an active group. Both are
-toggleable per user on the Profile tab.
+The fourth is a **local** notification, scheduled on the device: an hour before
+a bet you have not answered closes. It is local on purpose — the phone already
+knows the deadline, so this needs no cron, no push credentials, and it works in
+Expo Go.
 
 ## MVP scope
 
 Not built yet, on purpose:
 
 - No payments, wallets, or purchasable currency of any kind.
-- Two-outcome bets only. The `bets` table is shaped so a `bet_options` table
-  can supersede the two label columns later without rewriting readers.
+- No more than eight options on a bet. Two is still the common case and gets
+  the green/red split bar; past that the odds become a stacked bar with a
+  legend.
 - No public or global bet discovery — bets are always scoped to a group.
 - No editing a bet after creation. The creator can lock, resolve or cancel it,
   and that is all.
