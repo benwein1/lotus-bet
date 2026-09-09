@@ -20,6 +20,8 @@ import type {
 } from './database.types';
 import { demo, isDemoMode } from './demo';
 import { signMedia, uploadBetMedia, type PickedMedia } from './media';
+import { announceBetResolved } from './notifications';
+import { computeBetPayouts } from './payout';
 import { isMissingColumn } from './postgrest';
 import { supabase } from './supabase';
 
@@ -154,7 +156,8 @@ export async function leaveGroup(groupId: string, userId: string): Promise<void>
 
 // --- Bets ------------------------------------------------------------------
 
-const BET_SELECT = '*, positions:bet_positions(user_id, side), media:bet_media(*)';
+const BET_SELECT =
+  '*, options:bet_options(*), positions:bet_positions(user_id, side, option_id), media:bet_media(*)';
 const betSelectWithGroup = (withAvatar: boolean) =>
   `${BET_SELECT}, group:groups(id, name, emoji${withAvatar ? ', avatar_url' : ''})`;
 
@@ -223,17 +226,31 @@ export interface NewBetInput {
   creatorId: string;
   title: string;
   description: string | null;
-  optionALabel: string;
-  optionBLabel: string;
+  /** Two or more, in display order. */
+  optionLabels: string[];
   totalPotAgorot: number;
   closeAt: string | null;
   /** Photos and videos picked on the new-bet screen, uploaded after insert. */
   media?: PickedMedia[];
 }
 
+/** Two is the floor; a bet with one option is not a bet. */
+export const MIN_BET_OPTIONS = 2;
+/** Past this the odds bar stops being readable and the pot slices get silly. */
+export const MAX_BET_OPTIONS = 8;
+
 export async function createBet(input: NewBetInput): Promise<BetRow> {
   if (isDemoMode()) return demo.createBet(input);
 
+  const labels = input.optionLabels.map((label) => label.trim()).filter(Boolean);
+  if (labels.length < MIN_BET_OPTIONS) {
+    throw new Error('A bet needs at least two options.');
+  }
+
+  // The first two labels go on the bet row, where they always have. A trigger
+  // turns them into options 0 and 1, so a bet is never left unjoinable even if
+  // the inserts below fail — and a client built before options existed still
+  // reads the bet correctly.
   const bet = unwrap(
     await supabase
       .from('bets')
@@ -242,14 +259,22 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
         creator_id: input.creatorId,
         title: input.title,
         description: input.description,
-        option_a_label: input.optionALabel,
-        option_b_label: input.optionBLabel,
+        option_a_label: labels[0],
+        option_b_label: labels[1],
         total_pot_agorot: input.totalPotAgorot,
         close_at: input.closeAt,
       })
       .select()
       .single()
   ) as BetRow;
+
+  const extra = labels.slice(2);
+  if (extra.length > 0) {
+    const { error } = await supabase.from('bet_options').insert(
+      extra.map((label, index) => ({ bet_id: bet.id, position: index + 2, label }))
+    );
+    if (error) throw new Error(error.message);
+  }
 
   // Media is uploaded after the bet exists: its id is part of the storage
   // path, which is what lets the bucket policy check group membership. A
@@ -298,9 +323,13 @@ async function attachMediaToBet(
   if (error) throw new Error(error.message);
 }
 
-export async function joinBet(betId: string, side: BetSide): Promise<void> {
-  if (isDemoMode()) return demo.joinBet(betId, side);
-  const { error } = await supabase.rpc('join_bet', { p_bet_id: betId, p_side: side });
+/** Back one of a bet's options. Switching sides is the same call. */
+export async function joinBetOption(betId: string, optionId: string): Promise<void> {
+  if (isDemoMode()) return demo.joinBetOption(betId, optionId);
+  const { error } = await supabase.rpc('join_bet_option', {
+    p_bet_id: betId,
+    p_option_id: optionId,
+  });
   if (error) throw new Error(error.message);
 }
 
@@ -329,24 +358,60 @@ export interface ResolveBetResult {
 }
 
 /**
- * Resolution goes through an Edge Function, not a direct write: the ledger is
- * service-role only, so the payout maths runs once, server-side, atomically.
+ * Declare a winner and write the ledger.
+ *
+ * This used to call the `resolve-bet` Edge Function, which meant resolving
+ * anything at all required that function to be deployed — and when it was not,
+ * the app said "Failed to send a request to the Edge Function" and there was
+ * no way past it. It also inserted the ledger rows and *then* flipped the bet,
+ * so a failure between the two left a bet that could never be resolved,
+ * settled or cancelled.
+ *
+ * The maths still runs in exactly one place: `computeBetPayouts`, the
+ * unit-tested module the Edge Function used, imported here through
+ * `@/lib/payout`. What changed is who calls it and what happens to the result
+ * — a single RPC that writes both the ledger and the status in one
+ * transaction, and refuses any set of entries that does not have the
+ * properties that module guarantees (one per participant, winners paid, losers
+ * charged, both totals exactly the pot). See `…_bet_options.sql`.
  */
 export async function resolveBet(
   betId: string,
-  winningOption: BetSide
+  winningOptionId: string
 ): Promise<ResolveBetResult> {
-  if (isDemoMode()) return demo.resolveBet(betId, winningOption);
+  if (isDemoMode()) return demo.resolveBet(betId, winningOptionId);
 
-  const { data, error } = await supabase.functions.invoke<
-    ResolveBetResult & { error?: string }
-  >('resolve-bet', { body: { betId, winningOption } });
+  // Read the bet back rather than trusting what the screen is holding: the
+  // ledger is written from these positions, so they have to be the current
+  // ones, not whatever was on screen when it was opened.
+  const bet = await fetchBet(betId);
+
+  const payout = computeBetPayouts(
+    bet.total_pot_agorot,
+    (bet.positions ?? []).map((p) => ({ userId: p.user_id, side: p.option_id })),
+    winningOptionId
+  );
+
+  const { error } = await supabase.rpc('resolve_bet_with_entries', {
+    p_bet_id: betId,
+    p_winning_option_id: winningOptionId,
+    p_entries: payout.entries.map((entry) => ({
+      user_id: entry.userId,
+      amount_agorot: entry.amountAgorot,
+    })),
+  });
 
   if (error) throw new Error(error.message);
-  if (!data) throw new Error('The server did not confirm the resolution.');
-  if (data.error) throw new Error(data.error);
 
-  return data;
+  // Best-effort: everyone who took a side gets told. A missing deployment
+  // costs the push, never the resolution.
+  void announceBetResolved(betId).catch(() => {});
+
+  return {
+    paidOut: payout.paidOut,
+    winnerCount: payout.winnerCount,
+    loserCount: payout.loserCount,
+  };
 }
 
 // --- Settlement ------------------------------------------------------------

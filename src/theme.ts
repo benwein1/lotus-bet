@@ -75,6 +75,71 @@ export const elevation = {
   },
 } as const;
 
+/** Which of the two sides an option is, when there are exactly two. */
+export type OptionTone = 'a' | 'b';
+
+/**
+ * The colour of the nth option on a bet.
+ *
+ * Two options keep the convention the whole app is built on: side A green,
+ * side B red, the same pair the ledger uses for money owed to you and money
+ * you owe. That reading is worth more than consistency with the many-option
+ * case, so it is not disturbed.
+ *
+ * Past two there is no "for" and "against" left to encode — an option is just
+ * one of several — so the sequence walks a hue ramp instead. It starts on the
+ * same green and ends on the same red, with blues and ambers between, so a
+ * three-option bet still reads as "the first one" through "the last one"
+ * rather than as an unrelated palette.
+ *
+ * `onMedia` picks the brighter variants, which are the same in both schemes
+ * because a scrim is dark either way.
+ */
+export function optionColor(
+  index: number,
+  count: number,
+  scheme: ColorScheme,
+  onMedia = false
+): string {
+  if (count <= 2) {
+    // Over media the two sides take their brighter variants, which are the
+    // same in both schemes; otherwise they follow the active one. A literal
+    // value, not `var(--c-…)`: this is handed to a plain style, and NativeWind
+    // only resolves custom properties inside a className.
+    const palette = onMedia ? palettes.dark : palettes[scheme];
+    if (index === 0) return onMedia ? palette.sideAOnMedia : palette.sideA;
+    return onMedia ? palette.sideBOnMedia : palette.sideB;
+  }
+
+  const ramp = onMedia || scheme === 'dark' ? OPTION_RAMP_ON_MEDIA : OPTION_RAMP;
+  return ramp[index % ramp.length] ?? ramp[0]!;
+}
+
+// Fixed values rather than palette tokens: these are chart colours, and a
+// stacked bar needs neighbours that stay apart from each other in both
+// schemes rather than each one adapting on its own.
+const OPTION_RAMP = [
+  '#187E42', // the same green side A uses
+  '#0F7A8C',
+  '#086CD0',
+  '#6B4FD8',
+  '#B0439B',
+  '#C7262C', // and the same red side B uses
+  '#B26A0B',
+  '#5C6470',
+] as const;
+
+const OPTION_RAMP_ON_MEDIA = [
+  '#3DDC84',
+  '#3FD0E0',
+  '#5AB0FF',
+  '#A48CFF',
+  '#F07BD4',
+  '#FF7076',
+  '#FFC24D',
+  '#B9C2CE',
+] as const;
+
 /**
  * Deterministic accent per person, so the same face is the same colour on
  * every screen. Two variants because a tint that reads on white disappears on

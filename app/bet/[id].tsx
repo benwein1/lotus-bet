@@ -4,7 +4,7 @@ import { useCallback, useState } from 'react';
 import { Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, ZoomIn } from '@/components/animated';
 
-import { countSides, mySide } from '@/components/bet-card';
+import { betSlices, myOptionId, winningLabel } from '@/components/bet-card';
 import { BetMediaView } from '@/components/bet-media';
 import { AlertIcon, ClockIcon, LockIcon, TrophyIcon } from '@/components/icons';
 import { OddsBar } from '@/components/odds-bar';
@@ -31,14 +31,14 @@ import {
   fetchBet,
   fetchBetLedger,
   fetchGroup,
-  joinBet,
+  joinBetOption,
   leaveBet,
   lockBet,
   resolveBet,
 } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
-import { useColors } from '@/providers/theme-provider';
-import { motion } from '@/theme';
+import { useColors, useScheme } from '@/providers/theme-provider';
+import { motion, optionColor } from '@/theme';
 
 export default function BetDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -94,8 +94,8 @@ export default function BetDetailScreen() {
   }
 
   const data = bet.data;
-  const counts = countSides(data);
-  const side = mySide(data, userId);
+  const slices = betSlices(data);
+  const picked = myOptionId(data, userId);
   const isCreator = data.creator_id === userId;
   const countdown = formatCountdown(data.close_at);
   const deadlinePassed = countdown === 'Closed';
@@ -124,20 +124,21 @@ export default function BetDetailScreen() {
     }
   }
 
-  async function pickSide(next: BetSide) {
+  async function pickOption(next: string) {
     if (Platform.OS !== 'web') {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
     await withBusy(async () => {
-      // Tapping the side you're already on withdraws you from the bet.
-      if (side === next) await leaveBet(betId);
-      else await joinBet(betId, next);
+      // Tapping the option you're already on withdraws you from the bet.
+      if (picked === next) await leaveBet(betId);
+      else await joinBetOption(betId, next);
     });
   }
 
-  function confirmResolve(winning: BetSide) {
-    const label = winning === 'a' ? data.option_a_label : data.option_b_label;
-    const winners = winning === 'a' ? counts.a : counts.b;
+  function confirmResolve(optionId: string) {
+    const slice = slices.find((s) => s.id === optionId);
+    const label = slice?.label ?? 'That option';
+    const winners = slice?.count ?? 0;
 
     ask({
       title: `"${label}" won?`,
@@ -149,7 +150,7 @@ export default function BetDetailScreen() {
       destructive: true,
       onConfirm: () =>
         void withBusy(async () => {
-          await resolveBet(betId, winning);
+          await resolveBet(betId, optionId);
           if (Platform.OS !== 'web') {
             await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           }
@@ -223,11 +224,8 @@ export default function BetDetailScreen() {
                   <Money agorot={data.total_pot_agorot} size="lg" tone="accent" />
                 </View>
                 <OddsBar
-                  countA={counts.a}
-                  countB={counts.b}
-                  labelA={data.option_a_label}
-                  labelB={data.option_b_label}
-                  winningOption={isResolved ? data.winning_option : null}
+                  slices={slices}
+                  winningId={isResolved ? data.winning_option_id ?? null : null}
                   size="lg"
                 />
               </View>
@@ -243,31 +241,25 @@ export default function BetDetailScreen() {
             {canJoin && (
               <Animated.View
                 entering={FadeInDown.delay(120).duration(motion.duration.base)}
-                className="mt-4 flex-row gap-3"
+                className="mt-4 flex-row flex-wrap gap-3"
               >
-                <SideButton
-                  label={data.option_a_label}
-                  tone="a"
-                  selected={side === 'a'}
-                  disabled={busy}
-                  // Joining makes the side one bigger, so preview against n+1.
-                  shareAgorot={previewShareAgorot(
-                    data.total_pot_agorot,
-                    side === 'a' ? counts.a : counts.a + 1
-                  )}
-                  onPress={() => void pickSide('a')}
-                />
-                <SideButton
-                  label={data.option_b_label}
-                  tone="b"
-                  selected={side === 'b'}
-                  disabled={busy}
-                  shareAgorot={previewShareAgorot(
-                    data.total_pot_agorot,
-                    side === 'b' ? counts.b : counts.b + 1
-                  )}
-                  onPress={() => void pickSide('b')}
-                />
+                {slices.map((slice, index) => (
+                  <OptionButton
+                    key={slice.id}
+                    label={slice.label}
+                    index={index}
+                    count={slices.length}
+                    selected={picked === slice.id}
+                    disabled={busy}
+                    // Joining makes that option one bigger, so preview against
+                    // n+1 unless you are already on it.
+                    shareAgorot={previewShareAgorot(
+                      data.total_pot_agorot,
+                      picked === slice.id ? slice.count : slice.count + 1
+                    )}
+                    onPress={() => void pickOption(slice.id)}
+                  />
+                ))}
               </Animated.View>
             )}
 
@@ -298,35 +290,26 @@ export default function BetDetailScreen() {
             {/* Who's in */}
             <View className="mt-7">
               <SectionTitle>Who&apos;s in</SectionTitle>
-              <View className="flex-row gap-3">
-                <SideRoster
-                  label={data.option_a_label}
-                  tone="a"
-                  won={isResolved ? data.winning_option === 'a' : null}
-                  people={(data.positions ?? [])
-                    .filter((p) => p.side === 'a')
-                    .map((p) => ({
-                      id: p.user_id,
-                      name: usersById.get(p.user_id)?.display_name ?? 'Someone',
-                      avatarUrl: usersById.get(p.user_id)?.avatar_url ?? null,
-                    }))}
-                />
-                <SideRoster
-                  label={data.option_b_label}
-                  tone="b"
-                  won={isResolved ? data.winning_option === 'b' : null}
-                  people={(data.positions ?? [])
-                    .filter((p) => p.side === 'b')
-                    .map((p) => ({
-                      id: p.user_id,
-                      name: usersById.get(p.user_id)?.display_name ?? 'Someone',
-                      avatarUrl: usersById.get(p.user_id)?.avatar_url ?? null,
-                    }))}
-                />
+              <View className="flex-row flex-wrap gap-3">
+                {slices.map((slice, index) => (
+                  <OptionRoster
+                    key={slice.id}
+                    label={slice.label}
+                    index={index}
+                    count={slices.length}
+                    won={isResolved ? data.winning_option_id === slice.id : null}
+                    people={(data.positions ?? [])
+                      .filter((p) => p.option_id === slice.id)
+                      .map((p) => ({
+                        id: p.user_id,
+                        name: usersById.get(p.user_id)?.display_name ?? 'Someone',
+                        avatarUrl: usersById.get(p.user_id)?.avatar_url ?? null,
+                      }))}
+                  />
+                ))}
               </View>
             </View>
 
-            {/* Creator controls */}
             {isCreator && !isResolved && !isCancelled && (
               <View className="mt-7">
                 <SectionTitle>You created this bet</SectionTitle>
@@ -336,20 +319,16 @@ export default function BetDetailScreen() {
                     cancelled.
                   </Text>
                   <View className="gap-3">
-                    <Button
-                      title={`"${data.option_a_label}" won`}
-                      variant="secondary"
-                      disabled={busy}
-                      icon={<TrophyIcon size={16} color={colors.text} />}
-                      onPress={() => confirmResolve('a')}
-                    />
-                    <Button
-                      title={`"${data.option_b_label}" won`}
-                      variant="secondary"
-                      disabled={busy}
-                      icon={<TrophyIcon size={16} color={colors.text} />}
-                      onPress={() => confirmResolve('b')}
-                    />
+                    {slices.map((slice) => (
+                      <Button
+                        key={slice.id}
+                        title={`"${slice.label}" won`}
+                        variant="secondary"
+                        disabled={busy}
+                        icon={<TrophyIcon size={16} color={colors.text} />}
+                        onPress={() => confirmResolve(slice.id)}
+                      />
+                    ))}
                     {data.status === 'open' && (
                       <Button
                         title="Lock — no more joining"
@@ -377,29 +356,28 @@ export default function BetDetailScreen() {
   );
 }
 
-function SideButton({
+function OptionButton({
   label,
-  tone,
+  index,
+  count,
   selected,
   disabled,
   shareAgorot,
   onPress,
 }: {
   label: string;
-  tone: 'a' | 'b';
+  index: number;
+  count: number;
   selected: boolean;
   disabled: boolean;
   shareAgorot: number;
   onPress: () => void;
 }) {
-  // Tailwind class names have to be literal for the compiler to see them, so
-  // the two tones are spelled out rather than interpolated.
-  const container = selected
-    ? tone === 'a'
-      ? 'border-sideA bg-sideA-soft'
-      : 'border-sideB bg-sideB-soft'
-    : 'border-hairline bg-surface';
-  const labelColor = selected ? (tone === 'a' ? 'text-sideA' : 'text-sideB') : 'text-primary';
+  const scheme = useScheme();
+  // With an arbitrary number of options there is no literal class name to
+  // write, so the colour is an inline style. Tailwind cannot see an
+  // interpolated class — see §4.
+  const color = optionColor(index, count, scheme);
 
   return (
     <PressableScale
@@ -407,14 +385,23 @@ function SideButton({
       disabled={disabled}
       scaleTo={0.955}
       accessibilityRole="button"
-      // Explicit, or the name is the label *and* the payout line under it.
       accessibilityLabel={selected ? `Withdraw from ${label}` : `Back ${label}`}
       accessibilityState={{ selected, disabled }}
-      className={`flex-1 rounded-3xl border-2 px-4 py-4 ${container} ${
-        disabled ? 'opacity-50' : ''
-      }`}
+      style={{
+        borderColor: selected ? color : undefined,
+        // Two fill the row; three or more take half and wrap.
+        flexBasis: count === 2 ? 0 : '47%',
+        flexGrow: 1,
+      }}
+      className={`rounded-3xl border-2 px-4 py-4 ${
+        selected ? '' : 'border-hairline bg-surface'
+      } ${disabled ? 'opacity-50' : ''}`}
     >
-      <Text numberOfLines={2} className={`text-base font-semibold ${labelColor}`}>
+      <Text
+        numberOfLines={2}
+        style={selected ? { color } : undefined}
+        className={`text-base font-semibold ${selected ? '' : 'text-primary'}`}
+      >
         {label}
       </Text>
       <Text className="mt-1.5 text-sm text-secondary">
@@ -424,30 +411,38 @@ function SideButton({
   );
 }
 
-function SideRoster({
+function OptionRoster({
   label,
-  tone,
+  index,
+  count,
   won,
   people,
 }: {
   label: string;
-  tone: 'a' | 'b';
+  index: number;
+  count: number;
   /** null while unresolved; true/false once a winner is declared. */
   won: boolean | null;
   people: { id: string; name: string; avatarUrl?: string | null }[];
 }) {
   const colors = useColors();
+  const scheme = useScheme();
   const dimmed = won === false;
-  const labelColor = dimmed ? 'text-tertiary' : tone === 'a' ? 'text-sideA' : 'text-sideB';
+  const color = optionColor(index, count, scheme);
 
   return (
     <View
-      className={`flex-1 rounded-3xl border bg-surface p-4 ${
+      style={{ flexBasis: count === 2 ? 0 : '47%', flexGrow: 1 }}
+      className={`rounded-3xl border bg-surface p-4 ${
         won === true ? 'border-positive' : 'border-hairline'
       } ${dimmed ? 'opacity-60' : ''}`}
     >
       <View className="mb-3 flex-row items-center gap-1.5">
-        <Text numberOfLines={1} className={`flex-1 text-subhead font-semibold ${labelColor}`}>
+        <Text
+          numberOfLines={1}
+          style={dimmed ? undefined : { color }}
+          className={`flex-1 text-subhead font-semibold ${dimmed ? 'text-tertiary' : ''}`}
+        >
           {label}
         </Text>
         {won === true && <TrophyIcon size={14} color={colors.positive} />}
@@ -456,8 +451,8 @@ function SideRoster({
       {people.length === 0 ? (
         <Text className="text-sm text-tertiary">Nobody yet</Text>
       ) : (
-        people.map((person, index) => (
-          <View key={`${person.id}-${index}`} className="mb-2 flex-row items-center gap-2">
+        people.map((person, personIndex) => (
+          <View key={`${person.id}-${personIndex}`} className="mb-2 flex-row items-center gap-2">
             <Avatar name={person.name} id={person.id} uri={person.avatarUrl} size={24} />
             <Text numberOfLines={1} className="flex-1 text-sm text-primary">
               {person.name}
@@ -486,10 +481,10 @@ function ResolvedSummary({
 }) {
   const colors = useColors();
   const reduced = useReducedMotion();
-  const counts = countSides(bet);
-  const side = mySide(bet, userId);
-  const winners = bet.winning_option === 'a' ? counts.a : counts.b;
-  const winningLabel = bet.winning_option === 'a' ? bet.option_a_label : bet.option_b_label;
+  const slices = betSlices(bet);
+  const side = myOptionId(bet, userId);
+  const winners = slices.find((s) => s.id === bet.winning_option_id)?.count ?? 0;
+  const winner = winningLabel(bet) ?? 'That option';
 
   if (winners === 0) {
     return (
@@ -498,7 +493,7 @@ function ResolvedSummary({
           <AlertIcon size={18} color={colors.textSecondary} />
           <View className="flex-1">
             <Text className="text-subhead font-semibold text-primary">
-              {winningLabel} won — but nobody backed it.
+              {winner} won — but nobody backed it.
             </Text>
             <Text className="mt-0.5 text-sm text-secondary">
               No money changes hands on this one.
@@ -509,7 +504,7 @@ function ResolvedSummary({
     );
   }
 
-  const iWon = side !== null && side === bet.winning_option;
+  const iWon = side !== null && side === bet.winning_option_id;
   const watchedOnly = side === null;
 
   return (
@@ -556,7 +551,7 @@ function ResolvedSummary({
         )}
 
         <Text className="text-subhead text-secondary">
-          <Text className="font-semibold text-primary">{winningLabel}</Text> took it
+          <Text className="font-semibold text-primary">{winner}</Text> took it
         </Text>
 
         {side !== null && myAmountAgorot !== null && (

@@ -202,9 +202,12 @@ describe('computeBetPayouts', () => {
   it('rejects invalid pots, sides and duplicate positions', () => {
     expect(() => computeBetPayouts(0, [], 'a')).toThrow(/positive integer/);
     expect(() => computeBetPayouts(1.5, [], 'a')).toThrow(/positive integer/);
+    // An option key is any non-empty string now that a bet can have more than
+    // two of them, so 'c' is a legitimate option — but an empty one is not.
+    expect(() => computeBetPayouts(100, [], '')).toThrow(/option key/);
     expect(() =>
-      computeBetPayouts(100, [], 'c' as unknown as 'a')
-    ).toThrow(/winningSide/);
+      computeBetPayouts(100, [{ userId: u(1), side: '' }], 'a')
+    ).toThrow(/option key/);
     expect(() =>
       computeBetPayouts(
         100,
@@ -215,6 +218,110 @@ describe('computeBetPayouts', () => {
         'a'
       )
     ).toThrow(/more than one side/);
+  });
+});
+
+/**
+ * More than two options.
+ *
+ * The rule does not change and neither did the arithmetic: everyone on the
+ * winning option shares the pot, and *everyone else together* covers it — one
+ * pot, not one pot per losing option. These assert that directly, because the
+ * temptation when adding options is to start paying out per-option.
+ */
+describe('computeBetPayouts with more than two options', () => {
+  const sum = (entries: { amountAgorot: number }[]) =>
+    entries.reduce((total, e) => total + e.amountAgorot, 0);
+
+  it('pays the winning option and charges every other option together', () => {
+    const result = computeBetPayouts(
+      9000,
+      [
+        { userId: u(1), side: 'opt-red' },
+        { userId: u(2), side: 'opt-red' },
+        { userId: u(3), side: 'opt-blue' },
+        { userId: u(4), side: 'opt-green' },
+        { userId: u(5), side: 'opt-green' },
+      ],
+      'opt-red'
+    );
+
+    expect(result.paidOut).toBe(true);
+    expect(result.winnerCount).toBe(2);
+    // Blue and green together, not counted per option.
+    expect(result.loserCount).toBe(3);
+
+    const byUser = new Map(result.entries.map((e) => [e.userId, e.amountAgorot]));
+    expect(byUser.get(u(1))).toBe(4500);
+    expect(byUser.get(u(2))).toBe(4500);
+    // 9000 across three losers: 3000 each, no remainder.
+    expect(byUser.get(u(3))).toBe(-3000);
+    expect(byUser.get(u(4))).toBe(-3000);
+    expect(byUser.get(u(5))).toBe(-3000);
+    expect(sum(result.entries)).toBe(0);
+  });
+
+  it('still balances when neither side divides evenly', () => {
+    const result = computeBetPayouts(
+      1000,
+      [
+        { userId: u(1), side: 'x' },
+        { userId: u(2), side: 'x' },
+        { userId: u(3), side: 'x' },
+        { userId: u(4), side: 'y' },
+        { userId: u(5), side: 'z' },
+        { userId: u(6), side: 'w' },
+      ],
+      'x'
+    );
+
+    const credits = result.entries.filter((e) => e.amountAgorot > 0);
+    const debits = result.entries.filter((e) => e.amountAgorot < 0);
+    expect(sum(credits)).toBe(1000);
+    expect(sum(debits)).toBe(-1000);
+    expect(sum(result.entries)).toBe(0);
+  });
+
+  it('moves nothing when nobody backed the option that won', () => {
+    const result = computeBetPayouts(
+      5000,
+      [
+        { userId: u(1), side: 'a' },
+        { userId: u(2), side: 'b' },
+      ],
+      'c'
+    );
+    expect(result.paidOut).toBe(false);
+    expect(result.winnerCount).toBe(0);
+    expect(result.entries).toEqual([]);
+  });
+
+  it('moves nothing when everyone backed the same option', () => {
+    const result = computeBetPayouts(
+      5000,
+      [
+        { userId: u(1), side: 'a' },
+        { userId: u(2), side: 'a' },
+        { userId: u(3), side: 'a' },
+      ],
+      'a'
+    );
+    expect(result.paidOut).toBe(false);
+    expect(result.loserCount).toBe(0);
+    expect(result.entries).toEqual([]);
+  });
+
+  it('does not depend on the order options or people came back in', () => {
+    const people = [
+      { userId: u(4), side: 'q' },
+      { userId: u(1), side: 'p' },
+      { userId: u(5), side: 'r' },
+      { userId: u(2), side: 'p' },
+      { userId: u(3), side: 'q' },
+    ];
+    const forwards = computeBetPayouts(777, people, 'p');
+    const backwards = computeBetPayouts(777, [...people].reverse(), 'p');
+    expect(forwards).toEqual(backwards);
   });
 });
 

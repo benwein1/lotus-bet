@@ -16,6 +16,7 @@
  */
 import { computeBetPayouts } from './payout';
 import type {
+  BetOptionRow,
   BetLedgerEntryRow,
   BetMedia,
   BetRow,
@@ -146,17 +147,54 @@ interface DemoState {
   groups: GroupRow[];
   members: GroupMemberRow[];
   bets: BetRow[];
+  options: BetOptionRow[];
   media: BetMedia[];
-  positions: { bet_id: string; user_id: string; side: BetSide }[];
+  positions: { bet_id: string; user_id: string; side: BetSide | null; option_id: string }[];
   ledger: BetLedgerEntryRow[];
   settlements: SettlementConfirmationRow[];
   profile: UserRow;
 }
 
-let state: DemoState = seed();
+let state: DemoState = withOptions(seed());
 
 function reset(fresh = false): void {
-  state = fresh ? emptySeed() : seed();
+  state = fresh ? emptySeed() : withOptions(seed());
+}
+
+/**
+ * Give every seeded bet its options and point every seeded position at one.
+ *
+ * The database does this with two triggers — `bets_seed_options` and
+ * `bet_positions_fill_option` — so the demo does it here rather than making
+ * the seed literal spell out an option id nine times. Same rule, same result:
+ * the first two options come from the label columns, and a position's letter
+ * picks the option in that slot.
+ */
+function withOptions(seeded: SeededState): DemoState {
+  const options: BetOptionRow[] = seeded.bets.flatMap((bet) =>
+    [bet.option_a_label, bet.option_b_label].map((label, position) => ({
+      id: `${bet.id}-opt-${position}`,
+      bet_id: bet.id,
+      position,
+      label,
+      created_at: bet.created_at,
+    }))
+  );
+
+  return {
+    ...seeded,
+    options,
+    positions: seeded.positions.map((p) => ({
+      ...p,
+      option_id: `${p.bet_id}-opt-${p.side === 'a' ? 0 : 1}`,
+    })),
+    bets: seeded.bets.map((bet) => ({
+      ...bet,
+      winning_option_id: bet.winning_option
+        ? `${bet.id}-opt-${bet.winning_option === 'a' ? 0 : 1}`
+        : null,
+    })),
+  };
 }
 
 /** A signed-up account that has not done anything yet. */
@@ -166,6 +204,7 @@ function emptySeed(): DemoState {
     groups: [],
     members: [],
     bets: [],
+    options: [],
     positions: [],
     ledger: [],
     settlements: [],
@@ -173,7 +212,11 @@ function emptySeed(): DemoState {
   };
 }
 
-function seed(): DemoState {
+type SeededState = Omit<DemoState, 'options' | 'positions'> & {
+  positions: { bet_id: string; user_id: string; side: BetSide }[];
+};
+
+function seed(): SeededState {
   const groupId = 'demo-group-1';
   const now = Date.now();
   const iso = (offsetHours: number) => new Date(now + offsetHours * 3_600_000).toISOString();
@@ -334,9 +377,12 @@ function withPositions(bet: BetRow, includeGroup = false): BetWithPositions {
   const group = state.groups.find((g) => g.id === bet.group_id);
   return {
     ...bet,
+    options: state.options
+      .filter((o) => o.bet_id === bet.id)
+      .sort((a, b) => a.position - b.position),
     positions: state.positions
       .filter((p) => p.bet_id === bet.id)
-      .map((p) => ({ user_id: p.user_id, side: p.side })),
+      .map((p) => ({ user_id: p.user_id, side: p.side, option_id: p.option_id })),
     media: state.media
       .filter((m) => m.bet_id === bet.id)
       .sort((a, b) => a.position - b.position),
@@ -438,22 +484,38 @@ export const demo = {
   },
 
   async createBet(input: NewBetInput): Promise<BetRow> {
+    const labels = input.optionLabels.map((l) => l.trim()).filter(Boolean);
+    if (labels.length < 2) throw new Error('A bet needs at least two options.');
+
+    const id = `demo-bet-${Date.now()}`;
     const bet: BetRow = {
-      id: `demo-bet-${Date.now()}`,
+      id,
       group_id: input.groupId,
       creator_id: DEMO_USER_ID,
       title: input.title,
       description: input.description,
-      option_a_label: input.optionALabel,
-      option_b_label: input.optionBLabel,
+      option_a_label: labels[0]!,
+      option_b_label: labels[1]!,
       total_pot_agorot: input.totalPotAgorot,
       status: 'open',
       winning_option: null,
+      winning_option_id: null,
       close_at: input.closeAt,
       created_at: new Date().toISOString(),
       resolved_at: null,
     };
     state.bets.push(bet);
+    // Mirrors the database trigger: the first two labels become options 0 and
+    // 1, and anything beyond follows.
+    labels.forEach((label, index) => {
+      state.options.push({
+        id: `${id}-opt-${index}`,
+        bet_id: id,
+        position: index,
+        label,
+        created_at: bet.created_at,
+      });
+    });
 
     // The picked file URIs render straight from the device, so a bet posted in
     // demo mode shows its attachments the same way a real one would.
@@ -477,12 +539,25 @@ export const demo = {
     return clone(bet);
   },
 
-  async joinBet(betId: string, side: BetSide): Promise<void> {
+  async joinBetOption(betId: string, optionId: string): Promise<void> {
+    const option = state.options.find((o) => o.id === optionId && o.bet_id === betId);
+    if (!option) throw new Error('That option does not belong to this bet');
+
+    const side = option.position === 0 ? 'a' : option.position === 1 ? 'b' : null;
     const existing = state.positions.find(
       (p) => p.bet_id === betId && p.user_id === DEMO_USER_ID
     );
-    if (existing) existing.side = side;
-    else state.positions.push({ bet_id: betId, user_id: DEMO_USER_ID, side });
+    if (existing) {
+      existing.option_id = optionId;
+      existing.side = side;
+    } else {
+      state.positions.push({
+        bet_id: betId,
+        user_id: DEMO_USER_ID,
+        option_id: optionId,
+        side,
+      });
+    }
   },
 
   async leaveBet(betId: string): Promise<void> {
@@ -502,18 +577,20 @@ export const demo = {
   },
 
   /** Runs the real payout maths, so the demo cannot drift from production. */
-  async resolveBet(betId: string, winningOption: BetSide): Promise<ResolveBetResult> {
+  async resolveBet(betId: string, winningOptionId: string): Promise<ResolveBetResult> {
     const bet = state.bets.find((b) => b.id === betId);
     if (!bet) throw new Error('Bet not found');
 
     const participants = state.positions
       .filter((p) => p.bet_id === betId)
-      .map((p) => ({ userId: p.user_id, side: p.side }));
+      .map((p) => ({ userId: p.user_id, side: p.option_id }));
 
-    const payout = computeBetPayouts(bet.total_pot_agorot, participants, winningOption);
+    const payout = computeBetPayouts(bet.total_pot_agorot, participants, winningOptionId);
 
+    const winner = state.options.find((o) => o.id === winningOptionId);
     bet.status = 'resolved';
-    bet.winning_option = winningOption;
+    bet.winning_option_id = winningOptionId;
+    bet.winning_option = winner?.position === 0 ? 'a' : winner?.position === 1 ? 'b' : null;
     bet.resolved_at = new Date().toISOString();
 
     for (const entry of payout.entries) {

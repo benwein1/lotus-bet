@@ -71,14 +71,34 @@ export async function clearPushToken(): Promise<void> {
 }
 
 /**
- * Ask the server to announce a freshly created bet to the rest of the group.
- * Best-effort: a failed announcement must not fail bet creation.
+ * Ask the server to tell the people who should hear about something.
+ *
+ * Every call here is best-effort and deliberately swallows its failure. Push
+ * needs a deployed Edge Function and Expo's API; the user's action — posting
+ * a bet, joining a group, calling a result — has already succeeded by the time
+ * this runs, and must not be reported as failed because a notification did
+ * not go out. When the function is not deployed this is simply a no-op.
  */
-export async function announceNewBet(betId: string): Promise<void> {
+async function announce(kind: string, payload: Record<string, unknown>): Promise<void> {
   if (isDemoMode()) return;
   try {
-    await supabase.functions.invoke('notify-new-bet', { body: { betId } });
+    await supabase.functions.invoke('notify', { body: { kind, ...payload } });
   } catch (err) {
-    console.warn('Could not announce new bet', err);
+    console.warn(`Could not send the "${kind}" notification`, err);
   }
+}
+
+/** A new bet is up in a group you are in. */
+export async function announceNewBet(betId: string): Promise<void> {
+  return announce('bet_created', { betId });
+}
+
+/** Somebody joined a group you are in. */
+export async function announceGroupJoin(groupId: string): Promise<void> {
+  return announce('member_joined', { groupId });
+}
+
+/** A bet you took a side on has been called. */
+export async function announceBetResolved(betId: string): Promise<void> {
+  return announce('bet_resolved', { betId });
 }

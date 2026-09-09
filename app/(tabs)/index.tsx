@@ -23,11 +23,14 @@ import { useFeedRealtime } from '@/hooks/use-group-realtime';
 import { isNewSince, useLastSeen } from '@/hooks/use-last-seen';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
-import type { BetSide, BetWithPositions } from '@/lib/database.types';
-import { fetchFeedBets, fetchMyGroups, joinBet } from '@/lib/queries';
+import type { BetWithPositions } from '@/lib/database.types';
+import { fetchFeedBets, fetchMyGroups, joinBetOption } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
 import { motion } from '@/theme';
+
+/** How much of the next card shows under the current one. */
+const SLIVER = 64;
 
 /**
  * The feed. One bet fills most of the screen, and scrolling is how you get to
@@ -58,8 +61,9 @@ export default function FeedScreen() {
   const { since } = useLastSeen();
 
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [busy, setBusy] = useState<{ id: string; side: BetSide } | null>(null);
+  const [busy, setBusy] = useState<{ betId: string; optionId: string } | null>(null);
   const [scrolledAway, setScrolledAway] = useState(false);
+  const [listHeight, setListHeight] = useState<number | null>(null);
   const listRef = useRef<FlatList<BetWithPositions>>(null);
 
   // `feed` is a new object every render; `feed.reload` is stable.
@@ -81,7 +85,18 @@ export default function FeedScreen() {
 
   // The card is most of the screen, not all of it: the sliver of the next one
   // is what tells you there is more below.
-  const cardHeight = Math.max(360, height - tabInset - 96);
+  //
+  // Measured, not derived from the window. `useWindowDimensions` reports the
+  // whole screen including the status bar and the home indicator, so deriving
+  // a card height from it was right in a browser — where both are zero — and
+  // wrong on every phone, by the height of the notch. The list reports the box
+  // it actually got; `height` is only the first-paint estimate before layout
+  // lands.
+  // The list's own box, minus the floating bar it scrolls under, minus a
+  // sliver of the next card — that sliver is the whole reason the feed reads
+  // as scrollable rather than as one screen.
+  const available = listHeight ?? height - tabInset;
+  const cardHeight = Math.max(360, available - tabInset - SLIVER);
   const snapInterval = cardHeight + 16;
 
   const bets = useMemo(() => {
@@ -105,10 +120,10 @@ export default function FeedScreen() {
     setScrolledAway((first?.index ?? 0) > 0);
   });
 
-  async function pickSide(betId: string, side: BetSide) {
-    setBusy({ id: betId, side });
+  async function pickOption(betId: string, optionId: string) {
+    setBusy({ betId, optionId });
     try {
-      await joinBet(betId, side);
+      await joinBetOption(betId, optionId);
       await reloadFeed({ silent: true });
     } catch {
       // The realtime refresh will put the card back the way it really is.
@@ -136,114 +151,119 @@ export default function FeedScreen() {
           </View>
         )}
 
-        {feed.loading ? (
-          <ContentWidth className="px-gutter pt-2">
-            <BetFeedSkeleton cardHeight={cardHeight} />
-          </ContentWidth>
-        ) : bets.length === 0 ? (
-          <ContentWidth className="flex-1 justify-center px-gutter">
-            {/* An empty feed used to be a sentence and a button to another
-                tab. Somebody with no bets does not need to be told they have
-                no bets — they need one to post. */}
-            <BetSuggestions
-              groups={myGroups}
-              count={3}
-              heading="Nothing running yet"
-              subheading="Pick one to get started, or write your own. Everything stays editable."
-            />
-          </ContentWidth>
-        ) : (
-          <>
-            <FlatList
-              ref={listRef}
-              data={bets}
-              keyExtractor={(bet) => bet.id}
-              // A snap interval of exactly one card means a flick always lands
-              // on a whole bet rather than halfway between two.
-              snapToInterval={snapInterval}
-              decelerationRate="fast"
-              snapToAlignment="start"
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{
-                paddingTop: 8,
-                paddingBottom: tabInset,
-                paddingHorizontal: 20,
-              }}
-              onViewableItemsChanged={onViewableItemsChanged.current}
-              viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
-              refreshControl={
-                <RefreshControl
-                  refreshing={feed.refreshing}
-                  onRefresh={() => feed.reload()}
-                  tintColor={colors.textTertiary}
-                />
-              }
-              renderItem={({ item }) => (
-                <ContentWidth className="mb-4">
-                  <FeedCard
-                    bet={item}
-                    currentUserId={userId}
-                    height={cardHeight}
-                    active={activeId === item.id}
-                    isNew={isNewSince(item.created_at, since, item.creator_id, userId)}
-                    onPickSide={(side) => pickSide(item.id, side)}
-                    busySide={busy?.id === item.id ? busy.side : null}
+        <View
+          className="flex-1"
+          onLayout={(event) => setListHeight(event.nativeEvent.layout.height)}
+        >
+          {feed.loading ? (
+            <ContentWidth className="px-gutter pt-2">
+              <BetFeedSkeleton cardHeight={cardHeight} />
+            </ContentWidth>
+          ) : bets.length === 0 ? (
+            <ContentWidth className="flex-1 justify-center px-gutter">
+              {/* An empty feed used to be a sentence and a button to another
+                  tab. Somebody with no bets does not need to be told they have
+                  no bets — they need one to post. */}
+              <BetSuggestions
+                groups={myGroups}
+                count={3}
+                heading="Nothing running yet"
+                subheading="Pick one to get started, or write your own. Everything stays editable."
+              />
+            </ContentWidth>
+          ) : (
+            <>
+              <FlatList
+                ref={listRef}
+                data={bets}
+                keyExtractor={(bet) => bet.id}
+                // A snap interval of exactly one card means a flick always lands
+                // on a whole bet rather than halfway between two.
+                snapToInterval={snapInterval}
+                decelerationRate="fast"
+                snapToAlignment="start"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{
+                  paddingTop: 8,
+                  paddingBottom: tabInset,
+                  paddingHorizontal: 20,
+                }}
+                onViewableItemsChanged={onViewableItemsChanged.current}
+                viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={feed.refreshing}
+                    onRefresh={() => feed.reload()}
+                    tintColor={colors.textTertiary}
                   />
-                </ContentWidth>
-              )}
-              ListFooterComponent={
-                <ContentWidth className="pb-2 pt-6">
-                  {/* The end of the feed is where people leave. Giving it
-                      something to do is worth more than a full stop. */}
-                  <BetSuggestions
-                    groups={myGroups}
-                    count={2}
-                    heading="That's everything"
-                    subheading="You're caught up. Start one of these in your groups and give them something to argue about."
-                  />
+                }
+                renderItem={({ item }) => (
+                  <ContentWidth className="mb-4">
+                    <FeedCard
+                      bet={item}
+                      currentUserId={userId}
+                      height={cardHeight}
+                      active={activeId === item.id}
+                      isNew={isNewSince(item.created_at, since, item.creator_id, userId)}
+                      onPickOption={(optionId) => pickOption(item.id, optionId)}
+                      busyOptionId={busy?.betId === item.id ? busy.optionId : null}
+                    />
+                  </ContentWidth>
+                )}
+                ListFooterComponent={
+                  <ContentWidth className="pb-2 pt-6">
+                    {/* The end of the feed is where people leave. Giving it
+                        something to do is worth more than a full stop. */}
+                    <BetSuggestions
+                      groups={myGroups}
+                      count={2}
+                      heading="That's everything"
+                      subheading="You're caught up. Start one of these in your groups and give them something to argue about."
+                    />
 
-                  <Text className="mt-8 text-center text-xs leading-4 text-tertiary">
-                    Lotus Bet tracks obligations only. Settle up with your friends however you
-                    normally do.
-                  </Text>
-                </ContentWidth>
-              }
-            />
+                    <Text className="mt-8 text-center text-xs leading-4 text-tertiary">
+                      Lotus Bet tracks obligations only. Settle up with your friends however you
+                      normally do.
+                    </Text>
+                  </ContentWidth>
+                }
+              />
 
-            {/* Back to the top, and how much you missed. Only once there is
-                somewhere to go back to. */}
-            {scrolledAway && (
-              <Animated.View
-                entering={reduced ? FadeIn.duration(motion.duration.fast) : FadeInDown.duration(220)}
-                exiting={FadeOut.duration(140)}
-                pointerEvents="box-none"
-                className="absolute inset-x-0 top-0 items-center pt-2"
-              >
-                <PressableScale
-                  scaleTo={0.94}
-                  onPress={() => {
-                    tap();
-                    listRef.current?.scrollToOffset({ offset: 0, animated: true });
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    newCount > 0
-                      ? `${newCount} new ${newCount === 1 ? 'bet' : 'bets'}, back to the top`
-                      : 'Back to the top'
-                  }
-                  className="flex-row items-center gap-1.5 rounded-full border border-chrome-edge bg-accent px-3.5 py-2"
+              {/* Back to the top, and how much you missed. Only once there is
+                  somewhere to go back to. */}
+              {scrolledAway && (
+                <Animated.View
+                  entering={reduced ? FadeIn.duration(motion.duration.fast) : FadeInDown.duration(220)}
+                  exiting={FadeOut.duration(140)}
+                  pointerEvents="box-none"
+                  className="absolute inset-x-0 top-0 items-center pt-2"
                 >
-                  <ChevronUpIcon size={15} color={colors.accentInk} />
-                  <Text className="text-sm font-semibold text-accent-ink">
-                    {newCount > 0
-                      ? `${newCount} new ${newCount === 1 ? 'bet' : 'bets'}`
-                      : 'Back to top'}
-                  </Text>
-                </PressableScale>
-              </Animated.View>
-            )}
-          </>
-        )}
+                  <PressableScale
+                    scaleTo={0.94}
+                    onPress={() => {
+                      tap();
+                      listRef.current?.scrollToOffset({ offset: 0, animated: true });
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      newCount > 0
+                        ? `${newCount} new ${newCount === 1 ? 'bet' : 'bets'}, back to the top`
+                        : 'Back to the top'
+                    }
+                    className="flex-row items-center gap-1.5 rounded-full border border-chrome-edge bg-accent px-3.5 py-2"
+                  >
+                    <ChevronUpIcon size={15} color={colors.accentInk} />
+                    <Text className="text-sm font-semibold text-accent-ink">
+                      {newCount > 0
+                        ? `${newCount} new ${newCount === 1 ? 'bet' : 'bets'}`
+                        : 'Back to top'}
+                    </Text>
+                  </PressableScale>
+                </Animated.View>
+              )}
+            </>
+          )}
+        </View>
       </SafeAreaView>
     </Screen>
   );

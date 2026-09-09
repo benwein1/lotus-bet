@@ -11,12 +11,25 @@
  * Money is always integer agorot (1 ILS = 100 agorot). Never floats.
  */
 
-export type BetSide = 'a' | 'b';
+/**
+ * Which option a participant backed.
+ *
+ * Was `'a' | 'b'`. A bet can now carry any number of options, so this is the
+ * option's id — but note what did *not* change: the arithmetic below never
+ * cared how many options there were. "Winners" has always meant everyone on
+ * the winning option and "losers" everyone else, which is the two-option case
+ * of exactly the same rule. Widening the key is the whole generalisation.
+ */
+export type BetOptionKey = string;
+
+/** @deprecated The old two-outcome spelling. Use `BetOptionKey`. */
+export type BetSide = BetOptionKey;
 
 /** A participant in a bet, as stored in `bet_positions`. */
 export interface BetParticipant {
   userId: string;
-  side: BetSide;
+  /** The option they backed. */
+  side: BetOptionKey;
 }
 
 /** One row destined for `bet_ledger_entries`. */
@@ -29,9 +42,9 @@ export interface LedgerEntry {
 export interface PayoutResult {
   /** True when the pot actually moved. False when nobody backed the winner. */
   paidOut: boolean;
-  /** Number of users on the winning side. */
+  /** Number of users on the winning option. */
   winnerCount: number;
-  /** Number of users on the losing side. */
+  /** Number of users on every other option, taken together. */
   loserCount: number;
   /** One entry per participant that has a non-zero result, ordered by userId. */
   entries: LedgerEntry[];
@@ -79,7 +92,9 @@ export function splitEvenly(
  * - Winners share the pot: each gets `floor(pot / W)` plus at most one leftover
  *   agora, distributed deterministically by userId.
  * - Losers cover the pot: each owes `floor(pot / L)` plus at most one leftover
- *   agora, distributed the same way.
+ *   agora, distributed the same way. With more than two options, *every*
+ *   option other than the winning one is the losing side — they cover the pot
+ *   between all of them, not one pot per option.
  * - Both sides therefore net to exactly `totalPotAgorot`.
  * - If nobody backed the winning side (W === 0), nothing is paid out at all —
  *   the bet still resolves, it just has no winners and no ledger entries.
@@ -89,21 +104,21 @@ export function splitEvenly(
 export function computeBetPayouts(
   totalPotAgorot: number,
   participants: readonly BetParticipant[],
-  winningSide: BetSide
+  winningSide: BetOptionKey
 ): PayoutResult {
   if (!Number.isSafeInteger(totalPotAgorot) || totalPotAgorot <= 0) {
     throw new Error(
       `computeBetPayouts: totalPotAgorot must be a positive integer, got ${totalPotAgorot}`
     );
   }
-  if (winningSide !== 'a' && winningSide !== 'b') {
-    throw new Error(`computeBetPayouts: winningSide must be 'a' or 'b'`);
+  if (typeof winningSide !== 'string' || winningSide.length === 0) {
+    throw new Error('computeBetPayouts: winningSide must be a non-empty option key');
   }
 
   const seen = new Set<string>();
   for (const p of participants) {
-    if (p.side !== 'a' && p.side !== 'b') {
-      throw new Error(`computeBetPayouts: participant side must be 'a' or 'b'`);
+    if (typeof p.side !== 'string' || p.side.length === 0) {
+      throw new Error('computeBetPayouts: participant side must be a non-empty option key');
     }
     if (seen.has(p.userId)) {
       throw new Error(

@@ -223,9 +223,16 @@ values
   ('00000000-0000-4000-8000-0000000000a3', '00000000-0000-4000-8000-000000000004', 'b')
 on conflict (bet_id, user_id) do nothing;
 
+-- `winning_option_id` is what marks a bet resolved now — the letter is kept in
+-- step for older clients, but the constraint keys off the option row.
 update public.bets
    set status = 'resolved',
        winning_option = v.winner,
+       winning_option_id = (
+         select o.id from public.bet_options o
+          where o.bet_id = v.id
+            and o.position = case v.winner when 'a' then 0 else 1 end
+       ),
        resolved_at = now() - v.age
 from (values
   ('00000000-0000-4000-8000-0000000000a1'::uuid, 'a', interval '8 days'),

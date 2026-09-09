@@ -3,34 +3,38 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Switch, Text, View } from 'react-native';
 
-import { CameraIcon, CloseIcon, PhotoIcon, VideoIcon } from '@/components/icons';
+import { CameraIcon, CloseIcon, PhotoIcon, PlusIcon, VideoIcon } from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
 import {
   BlockField,
   Button,
   Chip,
   ErrorNotice,
-  Overline,
   PressableScale,
   SectionTitle,
   TextField,
   FieldGroup,
+  selectionTap,
 } from '@/components/ui';
 import { formatAgorot, parseIlsToAgorot } from '@/lib/format';
 import { captureMedia, pickMedia, MAX_ATTACHMENTS, type PickedMedia } from '@/lib/media';
 import { announceNewBet } from '@/lib/notifications';
-import { createBet } from '@/lib/queries';
+import { createBet, MAX_BET_OPTIONS, MIN_BET_OPTIONS } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
-import { useColors } from '@/providers/theme-provider';
+import { useColors, useScheme } from '@/providers/theme-provider';
+import { optionColor } from '@/theme';
 
-// Two-outcome only for the MVP; these presets cover most of what people
-// actually bet on in a group chat.
+// The common two-sided pairs, offered as a shortcut while a bet still has
+// exactly two options.
 const LABEL_PRESETS: [string, string][] = [
   ['Yes', 'No'],
   ['Over', 'Under'],
   ['Home', 'Away'],
   ['Will', "Won't"],
 ];
+
+/** Placeholders that read as a real bet rather than "Option 3". */
+const OPTION_PLACEHOLDERS = ['Yes', 'No', 'Too close to call', 'Something else', 'Nobody knows'];
 
 const POT_PRESETS = [20, 50, 100, 200];
 
@@ -57,11 +61,13 @@ export default function NewBetScreen() {
   const router = useRouter();
   const { session } = useAuth();
   const colors = useColors();
+  const scheme = useScheme();
 
   const [title, setTitle] = useState(seedTitle ?? '');
   const [description, setDescription] = useState('');
-  const [labelA, setLabelA] = useState(seedA ?? 'Yes');
-  const [labelB, setLabelB] = useState(seedB ?? 'No');
+  // Two is the floor, and the first two are what land in `option_a_label` /
+  // `option_b_label` on the row.
+  const [options, setOptions] = useState<string[]>([seedA ?? 'Yes', seedB ?? 'No']);
   const [pot, setPot] = useState(seedPot ?? '');
   const [media, setMedia] = useState<PickedMedia[]>([]);
   const [hasDeadline, setHasDeadline] = useState(false);
@@ -70,14 +76,33 @@ export default function NewBetScreen() {
   const [busy, setBusy] = useState(false);
 
   const potAgorot = parseIlsToAgorot(pot);
-  const labelsClash =
-    labelA.trim().length > 0 && labelA.trim().toLowerCase() === labelB.trim().toLowerCase();
+  const trimmed = options.map((label) => label.trim());
+  const filled = trimmed.filter(Boolean);
+  // Case-insensitive, because "Yes" and "yes" are the same answer and a bet
+  // with both is unresolvable by anyone reading it.
+  const labelsClash = new Set(filled.map((l) => l.toLowerCase())).size !== filled.length;
   const canSubmit =
     title.trim().length >= 3 &&
-    labelA.trim().length > 0 &&
-    labelB.trim().length > 0 &&
+    filled.length === trimmed.length &&
+    filled.length >= MIN_BET_OPTIONS &&
     !labelsClash &&
     potAgorot !== null;
+
+  function setOption(index: number, value: string) {
+    setOptions((current) => current.map((label, i) => (i === index ? value : label)));
+  }
+
+  function addOption() {
+    if (options.length >= MAX_BET_OPTIONS) return;
+    selectionTap();
+    setOptions((current) => [...current, '']);
+  }
+
+  function removeOption(index: number) {
+    if (options.length <= MIN_BET_OPTIONS) return;
+    selectionTap();
+    setOptions((current) => current.filter((_, i) => i !== index));
+  }
 
   async function addFromLibrary() {
     setError(null);
@@ -110,8 +135,7 @@ export default function NewBetScreen() {
         creatorId: session.user.id,
         title: title.trim(),
         description: description.trim() || null,
-        optionALabel: labelA.trim(),
-        optionBLabel: labelB.trim(),
+        optionLabels: trimmed,
         totalPotAgorot: potAgorot!,
         closeAt: hasDeadline
           ? new Date(Date.now() + deadlineHours * 60 * 60 * 1000).toISOString()
@@ -184,46 +208,70 @@ export default function NewBetScreen() {
               </Text>
             </View>
 
-            <SectionTitle>The two sides</SectionTitle>
-            <View className="mb-3 flex-row gap-3">
-              <View className="flex-1">
-                <Overline className="mb-1.5 px-1 text-sideA">Side A</Overline>
-                <BlockField
-                  label=""
-                  value={labelA}
-                  onChangeText={setLabelA}
-                  placeholder="Yes"
-                  maxLength={40}
-                />
-              </View>
-              <View className="flex-1">
-                <Overline className="mb-1.5 px-1 text-sideB">Side B</Overline>
-                <BlockField
-                  label=""
-                  value={labelB}
-                  onChangeText={setLabelB}
-                  placeholder="No"
-                  maxLength={40}
-                />
-              </View>
-            </View>
+            <SectionTitle>The options</SectionTitle>
+            <Text className="mb-3 mt-1 px-1 text-sm leading-[18px] text-secondary">
+              Two at least, {MAX_BET_OPTIONS} at most. Whoever backs the one that happens
+              splits the pot; everybody else covers it between them.
+            </Text>
 
-            <View className="mb-3 flex-row flex-wrap gap-2">
-              {LABEL_PRESETS.map(([a, b]) => (
-                <Chip
-                  key={`${a}/${b}`}
-                  label={`${a} / ${b}`}
-                  selected={labelA === a && labelB === b}
-                  onPress={() => {
-                    setLabelA(a);
-                    setLabelB(b);
-                  }}
-                />
+            <View className="mb-3 gap-2.5">
+              {options.map((label, index) => (
+                <View key={index} className="flex-row items-center gap-2">
+                  <View
+                    style={{ backgroundColor: optionColor(index, options.length, scheme) }}
+                    className="h-2.5 w-2.5 rounded-full"
+                  />
+                  <View className="flex-1">
+                    <BlockField
+                      value={label}
+                      onChangeText={(value) => setOption(index, value)}
+                      placeholder={OPTION_PLACEHOLDERS[index] ?? `Option ${index + 1}`}
+                      maxLength={40}
+                    />
+                  </View>
+                  {options.length > MIN_BET_OPTIONS && (
+                    <PressableScale
+                      onPress={() => removeOption(index)}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove option ${index + 1}`}
+                      className="h-9 w-9 items-center justify-center rounded-full bg-surface2"
+                    >
+                      <CloseIcon size={14} color={colors.textSecondary} />
+                    </PressableScale>
+                  )}
+                </View>
               ))}
             </View>
+
+            {options.length < MAX_BET_OPTIONS && (
+              <Button
+                title="Add another option"
+                variant="secondary"
+                className="mb-3"
+                icon={<PlusIcon size={16} color={colors.text} />}
+                onPress={addOption}
+              />
+            )}
+
+            {/* The presets only make sense while it is still a two-sided bet;
+                once there is a third option there is no pair to swap in. */}
+            {options.length === 2 && (
+              <View className="mb-3 flex-row flex-wrap gap-2">
+                {LABEL_PRESETS.map(([a, b]) => (
+                  <Chip
+                    key={`${a}/${b}`}
+                    label={`${a} / ${b}`}
+                    selected={options[0] === a && options[1] === b}
+                    onPress={() => setOptions([a!, b!])}
+                  />
+                ))}
+              </View>
+            )}
+
             {labelsClash && (
               <Text className="mb-3 text-sm text-negative">
-                The two sides need different labels.
+                Two options cannot have the same label.
               </Text>
             )}
 

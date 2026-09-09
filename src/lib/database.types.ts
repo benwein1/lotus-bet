@@ -6,6 +6,14 @@
  * Kept by hand for now so the repo type-checks without a live project.
  */
 
+/**
+ * The option a position backs.
+ *
+ * A bet used to have exactly two, spelled 'a' and 'b'. It can have any number
+ * now, and an option is identified by its row id — see `BetOptionRow`. The
+ * letters survive on the first two options only, so that data written before
+ * options existed still reads.
+ */
 export type BetSide = 'a' | 'b';
 export type BetStatus = 'open' | 'locked' | 'resolved' | 'cancelled';
 export type GroupRole = 'admin' | 'member';
@@ -56,14 +64,31 @@ export interface BetRow {
   creator_id: string;
   title: string;
   description: string | null;
+  /**
+   * The first two options, also mirrored as `bet_options` rows 0 and 1.
+   * Still NOT NULL, so every bet has at least two options no matter what
+   * wrote it. Render from `options`, not from these.
+   */
   option_a_label: string;
   option_b_label: string;
   total_pot_agorot: number;
   status: BetStatus;
+  /** Only meaningful when the winner was one of the first two options. */
   winning_option: BetSide | null;
+  /** The option that won. This is what "resolved" actually means. */
+  winning_option_id?: string | null;
   close_at: string | null;
   created_at: string;
   resolved_at: string | null;
+}
+
+export interface BetOptionRow {
+  id: string;
+  bet_id: string;
+  /** Display order. 0 and 1 mirror the label columns on `bets`. */
+  position: number;
+  label: string;
+  created_at: string;
 }
 
 export type BetMediaKind = 'image' | 'video';
@@ -86,7 +111,9 @@ export interface BetMediaRow {
 export interface BetPositionRow {
   bet_id: string;
   user_id: string;
-  side: BetSide;
+  /** Null past the second option — there is no letter for a third. */
+  side: BetSide | null;
+  option_id: string;
   joined_at: string;
 }
 
@@ -139,7 +166,9 @@ export interface BetMedia extends BetMediaRow {
 }
 
 export interface BetWithPositions extends BetRow {
-  positions: { user_id: string; side: BetSide }[];
+  positions: { user_id: string; side: BetSide | null; option_id: string }[];
+  /** Ordered by `position`. Always at least two. */
+  options: BetOptionRow[];
   media?: BetMedia[];
   group?: Pick<GroupRow, 'id' | 'name' | 'emoji' | 'avatar_url'>;
 }

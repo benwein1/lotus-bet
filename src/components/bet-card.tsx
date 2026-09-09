@@ -6,13 +6,13 @@ import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { BetMediaView } from '@/components/bet-media';
 import { GroupGlyph } from '@/components/group-glyph';
 import { ClockIcon, LockIcon } from '@/components/icons';
-import { OddsBar } from '@/components/odds-bar';
+import { OddsBar, type OddsSlice } from '@/components/odds-bar';
 import { Badge, LiveDot, Money, PressableScale, tap } from '@/components/ui';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import type { BetSide, BetStatus, BetWithPositions } from '@/lib/database.types';
 import { formatCountdown } from '@/lib/format';
-import { useColors } from '@/providers/theme-provider';
-import { elevation, motion, tabular } from '@/theme';
+import { useColors, useScheme } from '@/providers/theme-provider';
+import { elevation, motion, optionColor, tabular } from '@/theme';
 
 const STATUS_TONE: Record<BetStatus, 'open' | 'locked' | 'resolved' | 'cancelled'> = {
   open: 'open',
@@ -21,16 +21,40 @@ const STATUS_TONE: Record<BetStatus, 'open' | 'locked' | 'resolved' | 'cancelled
   cancelled: 'cancelled',
 };
 
-export function countSides(bet: BetWithPositions): { a: number; b: number } {
+/**
+ * A bet's options with a headcount each, in display order — what the odds bar
+ * and every roster on the bet screen are drawn from.
+ *
+ * Defensive about `options` being empty: the database guarantees at least two
+ * through a trigger, but a bet read by a client that has not refreshed since
+ * the options migration would have none, and an empty odds bar is a better
+ * outcome than a crash.
+ */
+export function betSlices(bet: BetWithPositions): OddsSlice[] {
   const positions = bet.positions ?? [];
-  return {
-    a: positions.filter((p) => p.side === 'a').length,
-    b: positions.filter((p) => p.side === 'b').length,
-  };
+  const options = [...(bet.options ?? [])].sort((a, b) => a.position - b.position);
+
+  return options.map((option) => ({
+    id: option.id,
+    label: option.label,
+    count: positions.filter((p) => p.option_id === option.id).length,
+  }));
 }
 
-export function mySide(bet: BetWithPositions, userId: string): BetSide | null {
-  return (bet.positions ?? []).find((p) => p.user_id === userId)?.side ?? null;
+/** The option this user backed, if any. */
+export function myOptionId(bet: BetWithPositions, userId: string): string | null {
+  return (bet.positions ?? []).find((p) => p.user_id === userId)?.option_id ?? null;
+}
+
+/** The label of the option this user backed. */
+export function myOptionLabel(bet: BetWithPositions, userId: string): string | null {
+  const id = myOptionId(bet, userId);
+  return (bet.options ?? []).find((o) => o.id === id)?.label ?? null;
+}
+
+/** The label of the option that won, once it has been called. */
+export function winningLabel(bet: BetWithPositions): string | null {
+  return (bet.options ?? []).find((o) => o.id === bet.winning_option_id)?.label ?? null;
 }
 
 /**
@@ -47,8 +71,8 @@ export function FeedCard({
   height,
   active = false,
   isNew = false,
-  onPickSide,
-  busySide = null,
+  onPickOption,
+  busyOptionId = null,
 }: {
   bet: BetWithPositions;
   currentUserId: string;
@@ -57,16 +81,16 @@ export function FeedCard({
   active?: boolean;
   /** Posted since the user last looked at the feed. */
   isNew?: boolean;
-  onPickSide?: (side: BetSide) => void;
-  busySide?: BetSide | null;
+  onPickOption?: (optionId: string) => void;
+  busyOptionId?: string | null;
 }) {
   const colors = useColors();
-  const counts = countSides(bet);
-  const side = mySide(bet, currentUserId);
+  const slices = betSlices(bet);
+  const picked = myOptionId(bet, currentUserId);
   const countdown = bet.status === 'open' ? formatCountdown(bet.close_at) : null;
   const media = bet.media ?? [];
   const hasMedia = media.length > 0;
-  const joinable = bet.status === 'open' && Boolean(onPickSide);
+  const joinable = bet.status === 'open' && Boolean(onPickOption);
 
   // Over an image the palette has to stop following the colour scheme: white
   // on a scrim is legible over anything, a semantic label colour is not.
@@ -206,42 +230,32 @@ export function FeedCard({
               </View>
 
               <View className="mt-5">
-                <OddsBar
-                  countA={counts.a}
-                  countB={counts.b}
-                  labelA={bet.option_a_label}
-                  labelB={bet.option_b_label}
-                  onMedia={hasMedia}
-                />
+                <OddsBar slices={slices} onMedia={hasMedia} />
               </View>
             </View>
           </PressableScale>
         </Link>
 
         {joinable && (
-          <View className="mt-5 flex-row gap-3">
-            <SidePick
-              label={bet.option_a_label}
-              tone="a"
-              selected={side === 'a'}
-              onMedia={hasMedia}
-              busy={busySide === 'a'}
-              onPress={() => {
-                tap();
-                onPickSide?.('a');
-              }}
-            />
-            <SidePick
-              label={bet.option_b_label}
-              tone="b"
-              selected={side === 'b'}
-              onMedia={hasMedia}
-              busy={busySide === 'b'}
-              onPress={() => {
-                tap();
-                onPickSide?.('b');
-              }}
-            />
+          // Two options sit side by side; more wrap onto as many rows as they
+          // need. `flex-wrap` with a basis rather than a grid, because the
+          // labels are user-written and a fixed column would truncate them.
+          <View className="mt-5 flex-row flex-wrap gap-2.5">
+            {slices.map((slice, index) => (
+              <OptionPick
+                key={slice.id}
+                label={slice.label}
+                index={index}
+                count={slices.length}
+                selected={picked === slice.id}
+                onMedia={hasMedia}
+                busy={busyOptionId === slice.id}
+                onPress={() => {
+                  tap();
+                  onPickOption?.(slice.id);
+                }}
+              />
+            ))}
           </View>
         )}
       </View>
@@ -250,50 +264,32 @@ export function FeedCard({
 }
 
 /**
- * Picking a side without leaving the feed. Tailwind needs literal class
- * strings, so both branches are spelled out rather than interpolated.
+ * Picking an option without leaving the feed.
+ *
+ * The colour comes from `optionColor` as an inline style rather than a class:
+ * with an arbitrary number of options there is no literal class name to write,
+ * and Tailwind cannot see an interpolated one. This is the case §4 leaves open
+ * for reaching past a className.
  */
-function SidePick({
+function OptionPick({
   label,
-  tone,
+  index,
+  count,
   selected,
   onMedia,
   busy,
   onPress,
 }: {
   label: string;
-  tone: 'a' | 'b';
+  index: number;
+  count: number;
   selected: boolean;
   onMedia: boolean;
   busy: boolean;
   onPress: () => void;
 }) {
-  // Grows with the label rather than clipping it at larger type sizes.
-  const base = 'min-h-12 flex-1 items-center justify-center rounded-2xl border px-3 py-2';
-
-  const container = selected
-    ? tone === 'a'
-      ? 'border-sideA bg-sideA'
-      : 'border-sideB bg-sideB'
-    : onMedia
-      ? 'border-chrome-edge bg-scrim'
-      : 'border-hairline bg-surface2';
-
-  // Unselected, the label carries the side's colour so green and red mean the
-  // same thing here as they do on the bar above.
-  // A green fill and a red fill do not take the same label colour, and neither
-  // takes the accent's — hence a dedicated ink token per side.
-  const text = selected
-    ? tone === 'a'
-      ? 'text-sideA-ink'
-      : 'text-sideB-ink'
-    : onMedia
-      ? tone === 'a'
-        ? 'text-sideA-media'
-        : 'text-sideB-media'
-      : tone === 'a'
-        ? 'text-sideA'
-        : 'text-sideB';
+  const scheme = useScheme();
+  const color = optionColor(index, count, scheme, onMedia);
 
   return (
     <PressableScale
@@ -302,10 +298,23 @@ function SidePick({
       disabled={busy}
       accessibilityRole="button"
       accessibilityState={{ selected, busy }}
-      accessibilityLabel={`Back ${label}`}
-      className={`${base} ${container} ${busy ? 'opacity-60' : ''}`}
+      accessibilityLabel={selected ? `Withdraw from ${label}` : `Back ${label}`}
+      style={{
+        backgroundColor: selected ? color : undefined,
+        borderColor: selected ? color : undefined,
+        // Two fill the row; three or more take half of it and wrap.
+        flexBasis: count === 2 ? 0 : '47%',
+        flexGrow: 1,
+      }}
+      className={`min-h-12 items-center justify-center rounded-2xl border px-3 py-2 ${
+        selected ? '' : onMedia ? 'border-chrome-edge bg-scrim' : 'border-hairline bg-surface2'
+      } ${busy ? 'opacity-60' : ''}`}
     >
-      <Text numberOfLines={1} className={`text-subhead font-semibold ${text}`}>
+      <Text
+        numberOfLines={1}
+        style={selected ? undefined : { color }}
+        className={`text-subhead font-semibold ${selected ? 'text-on-media' : ''}`}
+      >
         {label}
       </Text>
     </PressableScale>
@@ -330,16 +339,16 @@ export function BetCard({
 }) {
   const colors = useColors();
   const reduced = useReducedMotion();
-  const counts = countSides(bet);
-  const side = mySide(bet, currentUserId);
+  const slices = betSlices(bet);
+  const picked = myOptionId(bet, currentUserId);
   const countdown = bet.status === 'open' ? formatCountdown(bet.close_at) : null;
   const isResolved = bet.status === 'resolved';
   const isCancelled = bet.status === 'cancelled';
-  const iWon = isResolved && side !== null && side === bet.winning_option;
+  const iWon = isResolved && picked !== null && picked === bet.winning_option_id;
   const media = bet.media ?? [];
 
-  const myLabel = side === 'a' ? bet.option_a_label : bet.option_b_label;
-  const winningLabel = bet.winning_option === 'a' ? bet.option_a_label : bet.option_b_label;
+  const myLabel = myOptionLabel(bet, currentUserId);
+  const winner = winningLabel(bet);
 
   return (
     <Animated.View
@@ -410,17 +419,14 @@ export function BetCard({
 
             <View className="mt-4">
               <OddsBar
-                countA={counts.a}
-                countB={counts.b}
-                labelA={bet.option_a_label}
-                labelB={bet.option_b_label}
-                winningOption={isResolved ? bet.winning_option : null}
+                slices={slices}
+                winningId={isResolved ? bet.winning_option_id ?? null : null}
                 size="sm"
               />
             </View>
           </View>
 
-          {side && !isResolved && !isCancelled && (
+          {picked && !isResolved && !isCancelled && (
             <View className="flex-row items-center gap-2 border-t border-hairline bg-accent-soft px-5 py-2.5">
               <Text className="text-sm text-accent">
                 You&apos;re on <Text className="font-semibold">{myLabel}</Text>
@@ -428,7 +434,7 @@ export function BetCard({
             </View>
           )}
 
-          {isResolved && side && (
+          {isResolved && picked && (
             <View
               className={`flex-row items-center justify-between gap-2 border-t border-hairline px-5 py-2.5 ${
                 iWon ? 'bg-positive-soft' : 'bg-negative-soft'
@@ -437,7 +443,7 @@ export function BetCard({
               <Text className={`text-sm font-semibold ${iWon ? 'text-positive' : 'text-negative'}`}>
                 {iWon ? 'You won' : 'You lost'}
               </Text>
-              <Text className="text-sm text-secondary">{winningLabel} took it</Text>
+              <Text className="text-sm text-secondary">{winner} took it</Text>
             </View>
           )}
         </PressableScale>
