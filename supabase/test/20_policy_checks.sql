@@ -392,3 +392,23 @@ begin;
   );
   rollback to s;
 rollback;
+
+\echo '--- 16. The foreign keys the client embeds on ---'
+-- `BET_SELECT` in `src/lib/queries.ts` names a constraint by hand:
+-- `bet_options!bet_options_bet_id_fkey`. It has to, because there are two keys
+-- between `bets` and `bet_options` and PostgREST refuses an ambiguous embed —
+-- taking the whole select down with it, so the feed comes back empty rather
+-- than merely missing its options. That makes the constraint *name* part of the
+-- client's contract, and worth failing here rather than in the app.
+select conname, conrelid::regclass as on_table, confrelid::regclass as points_to
+  from pg_constraint
+ where contype = 'f'
+   and conname in ('bet_options_bet_id_fkey', 'bets_winning_option_id_fkey')
+ order by conname;
+
+select 'both keys present' as check,
+       count(*) filter (where conname = 'bet_options_bet_id_fkey') as embed_key,
+       count(*) filter (where conname = 'bets_winning_option_id_fkey') as winner_key
+  from pg_constraint
+ where contype = 'f'
+   and conname in ('bet_options_bet_id_fkey', 'bets_winning_option_id_fkey');

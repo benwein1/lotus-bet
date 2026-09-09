@@ -101,7 +101,6 @@ genuinely is not there yet.
 
 ```bash
 npx supabase functions deploy notify
-npx supabase functions deploy resolve-bet   # legacy; nothing in the app calls it
 ```
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically.
@@ -109,10 +108,14 @@ npx supabase functions deploy resolve-bet   # legacy; nothing in the app calls i
 | Function | Called by | Does |
 | --- | --- | --- |
 | `notify` | The app, after posting a bet, joining a group, or calling a bet | Checks the caller may announce this, asks the database who wants to hear it, and hands the list to Expo |
-| `resolve-bet` | Nothing, any more | Kept for older clients. Resolution now goes through the `resolve_bet_with_entries` RPC, so the ledger rows and the status flip land in one transaction |
 
-Both authenticate the caller from the `Authorization` header — neither will act
-anonymously.
+There used to be a second function, `resolve-bet`. It is gone: resolution goes
+through the `resolve_bet_with_entries` RPC so the ledger rows and the status
+flip land in one transaction, and the old function could only ever name a
+winner as `'a'` or `'b'`.
+
+`notify` authenticates the caller from the `Authorization` header — it will not
+act anonymously.
 
 **The deadline reminder is not here.** It is a local notification scheduled on
 the device, so it needs nothing deployed and works in Expo Go.

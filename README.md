@@ -76,7 +76,7 @@ Winners get `floor(10000/3) = 3333` each and one of them gets the spare agora
 
 This lives in [`supabase/functions/_shared/payout.ts`](supabase/functions/_shared/payout.ts):
 a dependency-free pure module, re-exported to the app as `@/lib/payout` and
-imported directly by the `resolve-bet` Edge Function, so the tested code is the
+the only implementation of the maths, so the tested code is the
 code that writes the ledger. It is covered by property-style tests that assert
 the books balance for every plausible split.
 
@@ -109,7 +109,6 @@ src/
   providers/              auth + profile context
 supabase/
   migrations/             schema, RLS policies, RPCs
-  functions/resolve-bet   declares a winner, writes the ledger, pushes results
   functions/notify        the single push fan-out for all three server events
 __tests__/                unit tests
 ```

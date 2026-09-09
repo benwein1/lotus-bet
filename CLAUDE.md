@@ -121,7 +121,6 @@ supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
                             bet options · notification prefs (8)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
-  functions/resolve-bet/    legacy; resolution now goes through an RPC
   functions/notify/         the single push fan-out for all three server events
 __tests__/                  payout · settlement · format · theme · odds ·
                             postgrest · reminders
@@ -362,13 +361,15 @@ straight onto their content.
 dependency-free, no imports, no I/O, no Deno or React Native globals.
 
 - `src/lib/payout.ts` is a **pure re-export**. Don't put logic in it.
-- `supabase/functions/resolve-bet/index.ts` imports the shared module
-  directly.
+- It lives under `supabase/functions/` because it began as Edge Function code
+  and because that directory is Deno-shaped: no bundler, no `@/` alias, no
+  React Native. Those constraints are what keep it dependency-free.
 
 That arrangement is deliberate: the unit-tested code is byte-for-byte the
-code that writes the ledger. **Do not fork, copy or reimplement this
-module** — if the app and the Edge Function ever run different maths,
-someone gets paid the wrong amount.
+code whose output becomes the ledger. **Do not fork, copy or reimplement this
+module** — a second implementation is how someone gets paid the wrong amount.
+`resolve_bet_with_entries` is the backstop, not a second opinion: it refuses
+entries that break the invariants, it does not recompute them.
 
 The rules, which are settled product decisions and not open to redesign:
 
@@ -408,8 +409,8 @@ sign-up screen shows a "check your inbox" state. Both configurations work.
 - **Clients** (anon key + RLS): read anything in their groups; write their
   own `bet_positions` and `settlement_confirmations`; create groups, bets and
   bet media.
-- **`bet_ledger_entries` is read-only for clients.** Only the `resolve-bet`
-  Edge Function writes it, using the service role.
+- **`bet_ledger_entries` is read-only for clients.** Only
+  `resolve_bet_with_entries` writes it, as a `SECURITY DEFINER` RPC.
 - Membership is checked through `SECURITY DEFINER` helpers
   (`is_group_member`, `is_group_admin`, `shares_group_with`, `bet_group_id`)
   so the policy on `group_members` doesn't recurse into itself. **If you add
@@ -454,8 +455,10 @@ one entry per participant, winners positive, losers negative, credits totalling
 the pot exactly and debits totalling minus the pot. A ledger that does not
 balance is refused rather than written.
 
-`supabase/functions/resolve-bet/` is left in place for anything still calling
-it, but nothing in the app does.
+The `resolve-bet` Edge Function it replaced has been **deleted**. It could
+only ever name a winner as `'a'` or `'b'`, so once bets grew options it was a
+stale second path into the ledger — and it wrote the status flip separately,
+which is the stranding bug the RPC exists to close.
 
 ### Settlement
 
@@ -496,6 +499,19 @@ Announcements are fired from `queries.ts`, not from screens, so a caller cannot
 forget one. All of them are `void`-ed and swallow their failure: the user's
 action already succeeded, and a notification that did not go out must never be
 reported as a failed bet.
+
+### Embedding `bet_options`
+
+There are **two foreign keys between `bets` and `bet_options`** — every option's
+key back to its bet, and `bets.winning_option_id` pointing the other way. So a
+plain `bet_options(*)` embed is ambiguous and PostgREST refuses it outright:
+*"Could not embed because more than one relationship was found."* The whole
+select fails, so the feed comes back **empty**, not merely without its options.
+
+`BET_SELECT` therefore names the key: `bet_options!bet_options_bet_id_fkey(*)`.
+That makes a constraint name part of the client's contract, which section 16 of
+the policy checks asserts. Any new table with two keys to the same table needs
+the same treatment.
 
 ### bigint coercion
 

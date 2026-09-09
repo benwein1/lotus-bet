@@ -162,8 +162,15 @@ export async function leaveGroup(groupId: string, userId: string): Promise<void>
 
 // --- Bets ------------------------------------------------------------------
 
+// `bet_options!bet_options_bet_id_fkey` names the foreign key to embed on, and
+// it has to. There are *two* keys between `bets` and `bet_options` — the one
+// every option has back to its bet, and `bets.winning_option_id` pointing the
+// other way — so an unqualified `bet_options(*)` is ambiguous and PostgREST
+// rejects the whole select with "more than one relationship was found". It
+// takes the entire feed down with it, because a failed select returns no rows
+// at all rather than rows without the embed.
 const BET_SELECT =
-  '*, options:bet_options(*), positions:bet_positions(user_id, side, option_id), media:bet_media(*)';
+  '*, options:bet_options!bet_options_bet_id_fkey(*), positions:bet_positions(user_id, side, option_id), media:bet_media(*)';
 const betSelectWithGroup = (withAvatar: boolean) =>
   `${BET_SELECT}, group:groups(id, name, emoji${withAvatar ? ', avatar_url' : ''})`;
 
