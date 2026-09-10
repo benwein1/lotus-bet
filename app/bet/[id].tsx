@@ -4,7 +4,9 @@ import { useCallback, useState } from 'react';
 import { Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, ZoomIn } from '@/components/animated';
 
+import { BetActions, betSocial } from '@/components/bet-actions';
 import { betSlices, myOptionId, winningLabel } from '@/components/bet-card';
+import { BetComments } from '@/components/bet-comments';
 import { BetMediaView } from '@/components/bet-media';
 import { AlertIcon, ClockIcon, LockIcon, TrophyIcon } from '@/components/icons';
 import { OddsBar } from '@/components/odds-bar';
@@ -35,6 +37,7 @@ import {
   leaveBet,
   lockBet,
   resolveBet,
+  setBetLike,
 } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors, useScheme } from '@/providers/theme-provider';
@@ -95,6 +98,7 @@ export default function BetDetailScreen() {
 
   const data = bet.data;
   const slices = betSlices(data);
+  const social = betSocial(data, userId);
   const picked = myOptionId(data, userId);
   const isCreator = data.creator_id === userId;
   const countdown = formatCountdown(data.close_at);
@@ -309,6 +313,23 @@ export default function BetDetailScreen() {
                 ))}
               </View>
             </View>
+
+            {/* Reactions sit between the bet and the creator's controls: the
+                bet is what you came for, the talk about it is next, and the
+                buttons that end it are last. */}
+            <View className="mt-7 flex-row items-center justify-between">
+              <BetActions
+                liked={social.liked}
+                likeCount={social.likeCount}
+                commentCount={social.commentCount}
+                onToggleLike={async (next) => {
+                  await setBetLike(betId, userId, next);
+                  void bet.reload({ silent: true });
+                }}
+              />
+            </View>
+
+            <BetComments betId={betId} currentUserId={userId} />
 
             {isCreator && !isResolved && !isCancelled && (
               <View className="mt-7">

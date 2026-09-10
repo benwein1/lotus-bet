@@ -1,8 +1,9 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 
+import { BetActions, betSocial } from '@/components/bet-actions';
 import { BetMediaView } from '@/components/bet-media';
 import { GroupGlyph } from '@/components/group-glyph';
 import { ClockIcon, LockIcon } from '@/components/icons';
@@ -73,6 +74,7 @@ export function FeedCard({
   isNew = false,
   onPickOption,
   busyOptionId = null,
+  onToggleLike,
 }: {
   bet: BetWithPositions;
   currentUserId: string;
@@ -83,8 +85,11 @@ export function FeedCard({
   isNew?: boolean;
   onPickOption?: (optionId: string) => void;
   busyOptionId?: string | null;
+  onToggleLike?: (next: boolean) => Promise<void> | void;
 }) {
   const colors = useColors();
+  const router = useRouter();
+  const social = betSocial(bet, currentUserId);
   const slices = betSlices(bet);
   const picked = myOptionId(bet, currentUserId);
   const countdown = bet.status === 'open' ? formatCountdown(bet.close_at) : null;
@@ -256,6 +261,24 @@ export function FeedCard({
                 }}
               />
             ))}
+          </View>
+        )}
+
+        {/* Also a sibling of the Link, for the same reason the option row is:
+            a pressable inside an anchor fires twice on the web, once as the
+            button and once as the browser navigating. */}
+        {onToggleLike && (
+          <View className="mt-5">
+            <BetActions
+              liked={social.liked}
+              likeCount={social.likeCount}
+              commentCount={social.commentCount}
+              onToggleLike={onToggleLike}
+              onPressComments={() =>
+                router.push({ pathname: '/bet/[id]', params: { id: bet.id } })
+              }
+              onMedia={hasMedia}
+            />
           </View>
         )}
       </View>

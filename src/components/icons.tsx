@@ -308,6 +308,41 @@ export function EyeIcon({ active, ...props }: IconProps) {
   );
 }
 
+/**
+ * The heart, and the one colour decision worth writing down.
+ *
+ * Instagram's heart turns red. Ours turns **accent blue**, because in this app
+ * red already means "money you owe" and green "money owed to you" — on the
+ * odds bar, on the side buttons and on every balance row. A red heart would
+ * hand red a third, unrelated job in the one place people are reading amounts.
+ * Blue is the colour that carries actions here, and liking is an action.
+ */
+export function HeartIcon({ active, ...props }: IconProps) {
+  return (
+    <Icon {...props}>
+      <Path
+        d="M12 20.3s-7.4-4.6-7.4-9.5a4.3 4.3 0 0 1 7.4-3 4.3 4.3 0 0 1 7.4 3c0 4.9-7.4 9.5-7.4 9.5z"
+        fill={active ? (props.color ?? undefined) : 'none'}
+        fillOpacity={active ? 1 : 0}
+      />
+    </Icon>
+  );
+}
+
+/**
+ * A speech bubble with its tail at the bottom left.
+ *
+ * Never filled: a comment count is information, not a state you are in. Only
+ * the heart has an on and an off.
+ */
+export function CommentIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Path d="M20.4 12.1a7.9 7.9 0 0 1-8.4 7.8 9 9 0 0 1-2.6-.4L4.8 20.8l1.3-4.2a7.5 7.5 0 0 1-1.5-4.5 7.9 7.9 0 0 1 8.4-7.8 8 8 0 0 1 7.4 7.8z" />
+    </Icon>
+  );
+}
+
 export function BellIcon(props: IconProps) {
   return (
     <Icon {...props}>

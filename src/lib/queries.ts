@@ -6,6 +6,7 @@
  * client never reads it.
  */
 import type {
+  BetComment,
   BetLedgerEntryRow,
   BetMediaRow,
   BetRow,
@@ -15,6 +16,7 @@ import type {
   GroupMemberRow,
   GroupRow,
   MyStatsRow,
+  PersonBalance,
   SettlementConfirmationRow,
   UserRow,
 } from './database.types';
@@ -23,6 +25,7 @@ import { signMedia, uploadBetMedia, type PickedMedia } from './media';
 import { announceBetResolved, announceGroupJoin, announceNewBet } from './notifications';
 import { computeBetPayouts } from './payout';
 import { isMissingColumn } from './postgrest';
+import { personBalances, type BalanceLine } from './settlement';
 import { supabase } from './supabase';
 
 function unwrap<T>(result: { data: T | null; error: { message: string } | null }): T {
@@ -169,8 +172,12 @@ export async function leaveGroup(groupId: string, userId: string): Promise<void>
 // rejects the whole select with "more than one relationship was found". It
 // takes the entire feed down with it, because a failed select returns no rows
 // at all rather than rows without the embed.
+//
+// `bet_likes` and `bet_comments` each have exactly one key back to `bets`, so
+// they need no such hint — but check that again before embedding any new table
+// that also points at `bets` twice.
 const BET_SELECT =
-  '*, options:bet_options!bet_options_bet_id_fkey(*), positions:bet_positions(user_id, side, option_id), media:bet_media(*)';
+  '*, options:bet_options!bet_options_bet_id_fkey(*), positions:bet_positions(user_id, side, option_id), media:bet_media(*), likes:bet_likes(user_id), comments:bet_comments(count)';
 const betSelectWithGroup = (withAvatar: boolean) =>
   `${BET_SELECT}, group:groups(id, name, emoji${withAvatar ? ', avatar_url' : ''})`;
 
@@ -484,7 +491,131 @@ export async function undoSettlement(confirmationId: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+// --- Likes and comments ----------------------------------------------------
+
+/**
+ * Like or unlike, decided by what you want the result to be rather than by
+ * what is currently there.
+ *
+ * The caller already knows whether the heart was filled — it just tapped it —
+ * and passing that in means no read before the write, so the heart never
+ * lags a round trip behind the finger. The primary key makes a double-insert
+ * a no-op rather than a second like, so a fast double-tap is harmless.
+ */
+export async function setBetLike(
+  betId: string,
+  userId: string,
+  liked: boolean
+): Promise<void> {
+  if (isDemoMode()) return demo.setBetLike(betId, userId, liked);
+
+  const { error } = liked
+    ? await supabase
+        .from('bet_likes')
+        .upsert({ bet_id: betId, user_id: userId }, { onConflict: 'bet_id,user_id' })
+    : await supabase.from('bet_likes').delete().eq('bet_id', betId).eq('user_id', userId);
+
+  if (error) throw new Error(error.message);
+}
+
+export async function fetchBetComments(betId: string): Promise<BetComment[]> {
+  if (isDemoMode()) return demo.fetchBetComments(betId);
+
+  const { data, error } = await supabase
+    .from('bet_comments')
+    .select('*, author:users(id, display_name, avatar_url)')
+    .eq('bet_id', betId)
+    .order('created_at', { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as unknown as BetComment[];
+}
+
+export async function postBetComment(
+  betId: string,
+  userId: string,
+  body: string
+): Promise<BetComment> {
+  if (isDemoMode()) return demo.postBetComment(betId, userId, body);
+
+  const trimmed = body.trim();
+  if (!trimmed) throw new Error('Write something first.');
+
+  const { data, error } = await supabase
+    .from('bet_comments')
+    .insert({ bet_id: betId, user_id: userId, body: trimmed })
+    .select('*, author:users(id, display_name, avatar_url)')
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data as unknown as BetComment;
+}
+
+export async function deleteBetComment(commentId: string): Promise<void> {
+  if (isDemoMode()) return demo.deleteBetComment(commentId);
+  const { error } = await supabase.from('bet_comments').delete().eq('id', commentId);
+  if (error) throw new Error(error.message);
+}
+
 // --- Profile ---------------------------------------------------------------
+
+/**
+ * Every person you owe, or who owes you, netted across all of your groups.
+ *
+ * One round trip for the balances (`my_group_balances`), one for the names.
+ * The netting itself is `personBalances`, which runs the same `simplifyDebts`
+ * the settle-up screen runs — so a figure here and a figure there can never
+ * disagree, which they would within a week if this were reimplemented in SQL.
+ */
+export async function fetchMyPersonBalances(userId: string): Promise<PersonBalance[]> {
+  if (isDemoMode()) return demo.fetchMyPersonBalances(userId);
+
+  const { data, error } = await supabase.rpc('my_group_balances');
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as { group_id: string; user_id: string; amount_agorot: number }[];
+  if (rows.length === 0) return [];
+
+  const groups = await fetchMyGroups();
+  const nameByGroup = new Map(groups.map((g) => [g.id, g.name]));
+
+  const byGroup = new Map<string, BalanceLine[]>();
+  for (const row of rows) {
+    const lines = byGroup.get(row.group_id) ?? [];
+    // `bigint` comes back from PostgREST as a string often enough that every
+    // read site coerces it. Keep doing that.
+    lines.push({ userId: row.user_id, amountAgorot: Number(row.amount_agorot) });
+    byGroup.set(row.group_id, lines);
+  }
+
+  const totals = personBalances(
+    [...byGroup.entries()].map(([groupId, balances]) => ({
+      groupId,
+      groupName: nameByGroup.get(groupId) ?? 'A group',
+      balances,
+    })),
+    userId
+  );
+  if (totals.length === 0) return [];
+
+  const { data: people, error: peopleError } = await supabase
+    .from('users')
+    .select('id, display_name, avatar_url')
+    .in('id', totals.map((t) => t.userId));
+
+  if (peopleError) throw new Error(peopleError.message);
+  const byId = new Map((people ?? []).map((p) => [p.id, p]));
+
+  return totals.map((total) => ({
+    user: byId.get(total.userId) ?? {
+      id: total.userId,
+      display_name: 'Someone',
+      avatar_url: null,
+    },
+    amountAgorot: total.amountAgorot,
+    groupNames: total.groupNames,
+  }));
+}
 
 export interface HistoryEntry {
   id: string;

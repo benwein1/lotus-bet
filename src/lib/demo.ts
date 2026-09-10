@@ -15,9 +15,13 @@
  * - The entry point only renders in development (see `DEMO_AVAILABLE`).
  */
 import { computeBetPayouts } from './payout';
+import { personBalances } from './settlement';
 import type {
-  BetOptionRow,
+  BetComment,
+  BetCommentRow,
   BetLedgerEntryRow,
+  BetLikeRow,
+  BetOptionRow,
   BetMedia,
   BetRow,
   BetSide,
@@ -26,6 +30,7 @@ import type {
   GroupMemberRow,
   GroupRow,
   MyStatsRow,
+  PersonBalance,
   SettlementConfirmationRow,
   UserRow,
 } from './database.types';
@@ -154,6 +159,8 @@ interface DemoState {
   positions: { bet_id: string; user_id: string; side: BetSide | null; option_id: string }[];
   ledger: BetLedgerEntryRow[];
   settlements: SettlementConfirmationRow[];
+  likes: BetLikeRow[];
+  comments: BetCommentRow[];
   profile: UserRow;
 }
 
@@ -210,6 +217,8 @@ function emptySeed(): DemoState {
     positions: [],
     ledger: [],
     settlements: [],
+    likes: [],
+    comments: [],
     media: [],
   };
 }
@@ -355,6 +364,8 @@ function seed(): SeededState {
       },
     ],
     settlements: [],
+    likes: [],
+    comments: [],
   };
 }
 
@@ -388,6 +399,10 @@ function withPositions(bet: BetRow, includeGroup = false): BetWithPositions {
     media: state.media
       .filter((m) => m.bet_id === bet.id)
       .sort((a, b) => a.position - b.position),
+    likes: state.likes
+      .filter((l) => l.bet_id === bet.id)
+      .map((l) => ({ user_id: l.user_id })),
+    comments: [{ count: state.comments.filter((c) => c.bet_id === bet.id).length }],
     ...(includeGroup && group
       ? { group: { id: group.id, name: group.name, emoji: group.emoji } }
       : {}),
@@ -710,6 +725,72 @@ export const demo = {
   async updateProfile(patch: Partial<UserRow>): Promise<UserRow> {
     state.profile = { ...state.profile, ...patch };
     return clone(state.profile);
+  },
+
+  async setBetLike(betId: string, userId: string, liked: boolean): Promise<void> {
+    state.likes = state.likes.filter((l) => !(l.bet_id === betId && l.user_id === userId));
+    if (liked) {
+      state.likes.push({ bet_id: betId, user_id: userId, created_at: new Date().toISOString() });
+    }
+  },
+
+  async fetchBetComments(betId: string): Promise<BetComment[]> {
+    return clone(
+      state.comments
+        .filter((c) => c.bet_id === betId)
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((c) => ({ ...c, author: USERS[c.user_id] ?? null }))
+    );
+  },
+
+  async postBetComment(betId: string, userId: string, body: string): Promise<BetComment> {
+    const trimmed = body.trim();
+    if (!trimmed) throw new Error('Write something first.');
+    const row: BetCommentRow = {
+      id: `demo-comment-${Date.now()}`,
+      bet_id: betId,
+      user_id: userId,
+      body: trimmed,
+      created_at: new Date().toISOString(),
+    };
+    state.comments.push(row);
+    return clone({ ...row, author: USERS[userId] ?? null });
+  },
+
+  async deleteBetComment(commentId: string): Promise<void> {
+    state.comments = state.comments.filter((c) => c.id !== commentId);
+  },
+
+  async fetchMyPersonBalances(userId: string): Promise<PersonBalance[]> {
+    const ledgers = state.groups
+      .filter((g) => myGroupIds().includes(g.id))
+      .map((group) => ({
+        groupId: group.id,
+        groupName: group.name,
+        balances: state.members
+          .filter((m) => m.group_id === group.id)
+          .map((m) => ({
+            userId: m.user_id,
+            amountAgorot:
+              state.ledger
+                .filter((e) => e.group_id === group.id && e.user_id === m.user_id)
+                .reduce((sum, e) => sum + e.amount_agorot, 0) +
+              state.settlements
+                .filter((s) => s.group_id === group.id && s.from_user_id === m.user_id)
+                .reduce((sum, s) => sum + s.amount_agorot, 0) -
+              state.settlements
+                .filter((s) => s.group_id === group.id && s.to_user_id === m.user_id)
+                .reduce((sum, s) => sum + s.amount_agorot, 0),
+          })),
+      }));
+
+    // The same netting the real path uses, so the demo cannot drift into a
+    // second answer for "what do we owe each other".
+    return personBalances(ledgers, userId).map((total) => ({
+      user: USERS[total.userId] ?? { id: total.userId, display_name: 'Someone', avatar_url: null },
+      amountAgorot: total.amountAgorot,
+      groupNames: total.groupNames,
+    }));
   },
 
   currentProfile(): UserRow {

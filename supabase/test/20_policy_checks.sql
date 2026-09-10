@@ -412,3 +412,79 @@ select 'both keys present' as check,
   from pg_constraint
  where contype = 'f'
    and conname in ('bet_options_bet_id_fkey', 'bets_winning_option_id_fkey');
+
+\echo '--- 17. Likes and comments follow the bet they are attached to ---'
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+
+  \echo '  (a) a member can like and comment on a bet in their group'
+  insert into public.bet_likes (bet_id, user_id)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001');
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001', 'Easy money');
+  select 'visible to the member' as check,
+         (select count(*) from public.bet_likes) as likes,
+         (select count(*) from public.bet_comments) as comments;
+
+  \echo '  (b) liking twice is refused by the key, not counted twice'
+  savepoint s;
+  insert into public.bet_likes (bet_id, user_id)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001');
+  rollback to s;
+
+  \echo '  (c) you cannot like as somebody else'
+  savepoint s;
+  insert into public.bet_likes (bet_id, user_id)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000002');
+  rollback to s;
+
+  \echo '  (d) a comment cannot be edited — there is no update policy'
+  with edited as (
+    update public.bet_comments set body = 'Actually I said the opposite' returning 1
+  )
+  select 'rows an edit could touch' as check, count(*) as rows from edited;
+
+  \echo '  (e) an outsider sees neither, and cannot add either'
+  set local request.jwt.claim.sub = 'bbbbbbbb-0000-4000-8000-000000000000';
+  select 'what the outsider sees' as check,
+         (select count(*) from public.bet_likes) as likes,
+         (select count(*) from public.bet_comments) as comments;
+
+  savepoint s;
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000', 'bbbbbbbb-0000-4000-8000-000000000000', 'let me in');
+  rollback to s;
+
+  \echo '  (f) and cannot delete a comment that is not theirs'
+  with removed as (
+    delete from public.bet_comments returning 1
+  )
+  select 'rows a delete could touch' as check, count(*) as rows from removed;
+rollback;
+
+\echo '--- 18. my_group_balances agrees with group_balances ---'
+-- The Profile ledger and the settle-up screen must never quote different
+-- numbers. They read different functions, so the two are compared here rather
+-- than trusted to stay in step.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  select 'rows disagreeing with group_balances' as check, count(*) as mismatches
+    from public.my_group_balances() mine
+    join public.groups g on g.id = mine.group_id
+    join lateral public.group_balances(mine.group_id) theirs
+      on theirs.user_id = mine.user_id
+   where mine.amount_agorot is distinct from theirs.amount_agorot;
+
+  select 'groups covered, and they all net to zero' as check,
+         count(distinct group_id) as groups,
+         sum(amount_agorot) as total
+    from public.my_group_balances();
+
+  \echo '  an outsider gets nothing back at all'
+  set local request.jwt.claim.sub = 'bbbbbbbb-0000-4000-8000-000000000000';
+  select 'rows for somebody in no group' as check, count(*) as rows
+    from public.my_group_balances();
+rollback;

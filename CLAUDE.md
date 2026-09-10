@@ -95,6 +95,9 @@ src/
   components/bet-card.tsx   FeedCard (full-screen) + BetCard (compact)
   components/bet-media.tsx  photo/video renderer and pager
   components/odds-bar.tsx
+  components/bet-actions.tsx  the like/comment row; liking is optimistic
+  components/bet-comments.tsx the thread and its send box
+  components/payment-sheet.tsx amount entry for a part payment
   components/lotus-mark.tsx  the app mark, wherever the app shows its own face
   components/animated-splash.tsx  the hand-off out of the native splash
   lib/payout.ts             re-export ONLY — see §5
@@ -119,7 +122,7 @@ global.css                  GENERATED from it by scripts/build-theme-css.js
 assets/logo/lotus.svg       the mark; scripts/build-icons.mjs renders every size
 supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
-                            bet options · notification prefs (8)
+                            bet options · notification prefs · social (9)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
 __tests__/                  payout · settlement · format · theme · odds ·
@@ -289,6 +292,13 @@ thicker: the tab bar takes a much higher blur intensity than a chip would.
    what `on-media-soft` and `chrome` are.
 
 4. `contentContainerClassName` **is** supported on ScrollView. Use it.
+
+4b. **`flex-1` on a `TextInput` does not let it shrink.** It sets a zero basis
+   but leaves `min-width: auto`, so on the web the input keeps its intrinsic
+   width and the row it is in cannot get smaller. `PaymentSheet` measured 326px
+   wide around 448px of content, and `autoFocus` then scrolled the card 73px
+   sideways and cut its title in half — invisibly, because the card clips. Any
+   `TextInput` sharing a row needs an explicit `minWidth: 0`.
 
 5. **Never nest a pressable control inside a `Link`.** On iOS the responder
    system lets the inner one win, so it looks fine; on the web the inner press
@@ -513,6 +523,29 @@ That makes a constraint name part of the client's contract, which section 16 of
 the policy checks asserts. Any new table with two keys to the same table needs
 the same treatment.
 
+### Likes, comments and the Profile ledger
+
+`bet_likes` and `bet_comments` are protected by `bet_group_id` +
+`is_group_member` — the same rule as the bet itself, so a reaction can never be
+visible where the thing it reacts to is not. A comment has **no UPDATE
+policy**: it can be withdrawn but not edited, because an editable comment on a
+bet people wagered against is a way to rewrite what was agreed after the fact.
+
+**Liking is optimistic.** `BetActions` owns the state while the write is in
+flight and rolls itself back if it throws; the caller's job is only the write.
+The heart fills **accent blue, not red** — red already means "money you owe"
+throughout this app, and a red heart would give it a third job in the one place
+people read amounts.
+
+The Profile ledger ("who owes who") is netted per person across every group.
+Crucially it does **not** compute that in SQL: `my_group_balances()` returns the
+same per-group balances `group_balances` does, for all your groups at once, and
+`personBalances` in `settlement.ts` runs the same `simplifyDebts` the settle-up
+screen runs. There is no such thing as a pairwise debt in the ledger — a bet
+writes a balance line per person, and who pays whom is a *suggestion*. Netting
+it a second time in SQL would drift from settle-up within a week. Section 18 of
+the policy checks asserts the two functions agree.
+
 ### bigint coercion
 
 `group_balances` and `my_stats` return `bigint`, which PostgREST may hand
@@ -569,23 +602,28 @@ Concrete things worth fixing, roughly by severity:
    shows broken media until the next refresh. Realtime and pull-to-refresh
    both re-sign, so it is only visible on a screen left untouched.
 
-3. **One push token per user.** `users.expo_push_token` is a single column,
+3. **A part payment is capped at what is outstanding.** `PaymentSheet` refuses
+   an amount above the suggested figure, because overpaying would flip the
+   balance and quietly make the other person the debtor. A genuine overpayment
+   is a new debt the other way and has nowhere to be recorded yet.
+
+4. **One push token per user.** `users.expo_push_token` is a single column,
    so a second device silently overwrites the first. Needs its own table when
    multi-device matters.
 
-4. **`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps** with an
+5. **`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps** with an
    eslint-disable. It works because `reload` is stable, but it's fragile — a
    refactor of `useAsync` could silently stop refreshing the group list.
 
-5. **Realtime subscribes to `bet_positions` unfiltered** (in both
+6. **Realtime subscribes to `bet_positions` unfiltered** (in both
    `useGroupRealtime` and `useFeedRealtime`) because that table has no
    `group_id` column. Fine at friend-group scale, wasteful beyond it.
 
-6. **`my_stats.bets_settled` counts ledger rows**, so bets that resolved with
+7. **`my_stats.bets_settled` counts ledger rows**, so bets that resolved with
    nobody on the winning side don't appear in the count. Arguably correct,
    worth a decision.
 
-7. **Announcements are still client-invoked.** They now live in
+8. **Announcements are still client-invoked.** They now live in
    `queries.ts` rather than in a screen, so no caller can forget one, but a
    client that dies between the write and the `notify` call still means nobody
    is told. A database webhook would be more reliable.

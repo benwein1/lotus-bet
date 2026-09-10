@@ -173,10 +173,53 @@ export interface BetMedia extends BetMediaRow {
   url: string;
 }
 
+export interface BetLikeRow {
+  bet_id: string;
+  user_id: string;
+  created_at: string;
+}
+
+export interface BetCommentRow {
+  id: string;
+  bet_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+}
+
+/** A comment with its author attached, which is the only way one is rendered. */
+export interface BetComment extends BetCommentRow {
+  author: Pick<UserRow, 'id' | 'display_name' | 'avatar_url'> | null;
+}
+
 export interface BetWithPositions extends BetRow {
   positions: { user_id: string; side: BetSide | null; option_id: string }[];
   /** Ordered by `position`. Always at least two. */
   options: BetOptionRow[];
   media?: BetMedia[];
   group?: Pick<GroupRow, 'id' | 'name' | 'emoji' | 'avatar_url'>;
+  /**
+   * Who liked this. The whole list rather than a count, because the card needs
+   * both the number *and* whether you are in it, and at friend-group scale
+   * that is a handful of rows either way.
+   */
+  likes?: { user_id: string }[];
+  /** Just the count — the comments themselves are only read on the bet screen. */
+  comments?: { count: number }[];
+}
+
+/**
+ * What one person owes another, netted across every group they share.
+ *
+ * Derived from `simplifyDebts`, not stored: there is no such thing as a
+ * pairwise debt in the ledger — a bet writes a balance line per person, and
+ * who hands money to whom is a suggestion. This is that suggestion, summed per
+ * counterparty so Profile and settle-up can never quote different numbers.
+ */
+export interface PersonBalance {
+  user: Pick<UserRow, 'id' | 'display_name' | 'avatar_url'>;
+  /** Positive: they owe you. Negative: you owe them. */
+  amountAgorot: number;
+  /** The groups the figure came from, for the secondary line. */
+  groupNames: string[];
 }
