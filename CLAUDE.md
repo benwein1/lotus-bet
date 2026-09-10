@@ -31,7 +31,14 @@ Other standing scope boundaries:
   The odds bar is a green/red split at two and a stacked bar with a legend
   past two.
 - **No public or global discovery.** Bets are always scoped to a group; the
-  Home feed shows only bets from groups you are in.
+  Home feed shows only bets from groups you are in. A one-on-one challenge is
+  no exception — it creates a real two-person group (`groups.kind = 'duel'`)
+  that the Groups tab hides. **Looking somebody up is exact-handle only**, and
+  that is a security property, not a missing feature: a prefix or fuzzy search
+  over `users` is an endpoint anyone could walk to harvest every account.
+- **A bet can be private to some of its group.** `bets.visibility = 'private'`
+  plus a `bet_invitees` list. It narrows an audience; it never reaches outside
+  the group.
 - **No editing a bet after creation.** The creator can lock, resolve or
   cancel. That's the whole surface.
 
@@ -84,6 +91,7 @@ app/                        Expo Router routes
   (auth)/                   sign-in · sign-up · profile-setup
   (tabs)/                   index (the feed) · groups · profile
   group/create.tsx, join.tsx
+  challenge.tsx             start a one-on-one by handle
   group/[id]/               index (detail) · new-bet · settle
   bet/[id].tsx              join a side, resolve, cancel
 src/
@@ -122,7 +130,8 @@ global.css                  GENERATED from it by scripts/build-theme-css.js
 assets/logo/lotus.svg       the mark; scripts/build-icons.mjs renders every size
 supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
-                            bet options · notification prefs · social (9)
+                            bet options · notification prefs · social ·
+                            private bets and duels (10)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
 __tests__/                  payout · settlement · format · theme · odds ·
@@ -448,7 +457,8 @@ because its id is part of the path.
 
 `create_group` · `join_group_with_code` · `join_bet` · `join_bet_option` ·
 `leave_bet` · `lock_bet` · `cancel_bet` · `group_balances` · `my_stats` ·
-`set_push_token` · `resolve_bet_with_entries` ·
+`set_push_token` · `resolve_bet_with_entries` · `can_see_bet` ·
+`find_user_by_username` · `create_duel` ·
 `push_targets_for_bet` / `push_targets_for_group` (service role only)
 
 Anything spanning more than one table lives here rather than in the client,
@@ -545,6 +555,40 @@ screen runs. There is no such thing as a pairwise debt in the ledger — a bet
 writes a balance line per person, and who pays whom is a *suggestion*. Netting
 it a second time in SQL would drift from settle-up within a week. Section 18 of
 the policy checks asserts the two functions agree.
+
+### Who can see a bet
+
+**`can_see_bet(id)` is the single gate**, and every policy that guards a bet or
+anything attached to one goes through it — `bets`, `bet_options`,
+`bet_positions`, `bet_media`, `bet_likes`, `bet_comments`, `bet_invitees`. It
+is group membership *plus* the invitee list. Keeping it in one function is the
+whole point: a private bet whose comments were still readable, or whose options
+leaked, would be private in name only. If you add a table that hangs off a bet,
+gate it on `can_see_bet`, never on `is_group_member(bet_group_id(...))`.
+
+### Duels
+
+A one-on-one challenge is a **real two-person group** with `kind = 'duel'`, not
+a second kind of object. That is the entire reason it was cheap: every policy,
+balance, settlement, notification and realtime path already works on groups and
+keeps working untouched.
+
+`create_duel` **reuses** an existing duel between the same two people rather
+than making another. Without that, a running total with one friend fragments
+across a dozen identical groups and the Profile ledger stops meaning anything.
+
+`fetchMyGroups` filters duels out (the Groups tab would otherwise become a
+roster of everyone you have ever bet against); `fetchAllMyGroups` keeps them,
+which is what the Profile ledger reads.
+
+### Usernames
+
+Assigned on signup by `handle_new_auth_user`, and backfilled for older accounts
+by the same `suggest_username` function — **one implementation, called from
+both**. They were written separately at first and the trigger was simply
+forgotten, so every account created *after* the migration had no handle and
+could not be challenged by anyone. The backfill made the existing rows look
+fine, which is exactly what hid it.
 
 ### bigint coercion
 

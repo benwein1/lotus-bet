@@ -175,6 +175,15 @@ export default function ProfileScreen() {
                 <Text numberOfLines={1} className="mt-3.5 text-xl font-bold text-primary">
                   {profile.display_name}
                 </Text>
+                {/* The handle sits above the email because it is the one
+                    people need *from* you — it is how somebody challenges you
+                    without sharing a group. Absent on a project that has not
+                    applied `…_private_and_duels.sql` yet. */}
+                {profile.username ? (
+                  <Text numberOfLines={1} className="mt-1 text-callout font-semibold text-accent">
+                    @{profile.username}
+                  </Text>
+                ) : null}
                 <Text numberOfLines={1} className="mt-0.5 text-subhead text-secondary">
                   {profile.email ?? profile.phone ?? ''}
                 </Text>

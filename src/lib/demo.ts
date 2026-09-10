@@ -31,6 +31,7 @@ import type {
   GroupRow,
   MyStatsRow,
   PersonBalance,
+  UserLookup,
   SettlementConfirmationRow,
   UserRow,
 } from './database.types';
@@ -79,6 +80,9 @@ function user(id: string, name: string, email: string): UserRow {
     email,
     phone: null,
     display_name: name,
+    // The handle other people would challenge them by, derived the same way
+    // the migration's backfill does it.
+    username: email.split('@')[0],
     profile_completed: true,
     avatar_url: null,
     expo_push_token: null,
@@ -417,7 +421,12 @@ const byNewest = (a: { created_at: string }, b: { created_at: string }) =>
 export const demo = {
   async fetchMyGroups(): Promise<GroupWithMembers[]> {
     const ids = myGroupIds();
-    return clone(state.groups.filter((g) => ids.includes(g.id)).sort(byNewest).map(withMembers));
+    return clone(
+      state.groups
+        .filter((g) => ids.includes(g.id) && g.kind !== 'duel')
+        .sort(byNewest)
+        .map(withMembers)
+    );
   },
 
   async fetchGroup(groupId: string): Promise<GroupWithMembers> {
@@ -727,6 +736,57 @@ export const demo = {
     return clone(state.profile);
   },
 
+  async fetchAllMyGroups(): Promise<GroupWithMembers[]> {
+    const ids = myGroupIds();
+    return clone(state.groups.filter((g) => ids.includes(g.id)).sort(byNewest).map(withMembers));
+  },
+
+  async findUserByUsername(username: string): Promise<UserLookup | null> {
+    const handle = username.trim().replace(/^@/, '').toLowerCase();
+    const match = Object.values(USERS).find(
+      (u) => u.id !== DEMO_USER_ID && (u.username ?? '').toLowerCase() === handle
+    );
+    if (!match) return null;
+    return clone({
+      id: match.id,
+      display_name: match.display_name,
+      username: match.username ?? '',
+      avatar_url: match.avatar_url,
+    });
+  },
+
+  async createDuel(username: string): Promise<GroupRow> {
+    const them = await demo.findUserByUsername(username);
+    if (!them) throw new Error('No one is using that username');
+
+    // Same reuse rule as the real RPC: challenging the same person twice must
+    // land in the same group or their running total with you fragments.
+    const existing = state.groups.find(
+      (g) =>
+        g.kind === 'duel' &&
+        state.members.filter((m) => m.group_id === g.id).length === 2 &&
+        state.members.some((m) => m.group_id === g.id && m.user_id === DEMO_USER_ID) &&
+        state.members.some((m) => m.group_id === g.id && m.user_id === them.id)
+    );
+    if (existing) return clone(existing);
+
+    const group: GroupRow = {
+      id: `demo-duel-${Date.now()}`,
+      name: `${state.profile.display_name} v ${them.display_name}`,
+      emoji: '⚔️',
+      kind: 'duel',
+      created_by: DEMO_USER_ID,
+      invite_code: randomCode(),
+      created_at: new Date().toISOString(),
+    };
+    state.groups.push(group);
+    state.members.push(
+      { group_id: group.id, user_id: DEMO_USER_ID, role: 'admin', joined_at: group.created_at },
+      { group_id: group.id, user_id: them.id, role: 'member', joined_at: group.created_at }
+    );
+    return clone(group);
+  },
+
   async setBetLike(betId: string, userId: string, liked: boolean): Promise<void> {
     state.likes = state.likes.filter((l) => !(l.bet_id === betId && l.user_id === userId));
     if (liked) {
@@ -766,7 +826,7 @@ export const demo = {
       .filter((g) => myGroupIds().includes(g.id))
       .map((group) => ({
         groupId: group.id,
-        groupName: group.name,
+        groupName: group.kind === 'duel' ? 'Just the two of you' : group.name,
         balances: state.members
           .filter((m) => m.group_id === group.id)
           .map((m) => ({

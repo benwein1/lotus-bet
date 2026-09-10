@@ -343,6 +343,23 @@ export function CommentIcon(props: IconProps) {
   );
 }
 
+/**
+ * Two crossed blades — one against one.
+ *
+ * The only icon in the set that is not a literal object from the app. It reads
+ * as a duel at a glance in a way that two avatars or a "vs" glyph does not,
+ * and it is the same mark the duel group carries.
+ */
+export function SwordsIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Path d="M4.2 3.6h3l9.6 12.2-2 2.2z" />
+      <Path d="M19.8 3.6h-3L7.2 15.8l2 2.2z" />
+      <Path d="M5.6 19.4 8 21.2M18.4 19.4 16 21.2" />
+    </Icon>
+  );
+}
+
 export function BellIcon(props: IconProps) {
   return (
     <Icon {...props}>

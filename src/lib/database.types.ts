@@ -26,6 +26,12 @@ export interface UserRow {
   phone: string | null;
   display_name: string;
   /**
+   * The handle other people challenge you by. Assigned on signup and
+   * backfilled for older accounts, so it is only optional for a project that
+   * has not applied `…_private_and_duels.sql` yet.
+   */
+  username?: string | null;
+  /**
    * False until the user has actually named themselves.
    *
    * Optional because a project that has not yet had `…_email_auth.sql` applied
@@ -51,6 +57,12 @@ export interface UserRow {
 export interface GroupRow {
   id: string;
   name: string;
+  /**
+   * A `duel` is the two-person group behind a one-on-one challenge. It is a
+   * real group — same policies, same balances, same settle-up — just hidden
+   * from the Groups tab and shown under the other person's name.
+   */
+  kind?: 'group' | 'duel';
   emoji: string | null;
   /** Public URL in the `avatars` bucket. Null means fall back to `emoji`. */
   avatar_url?: string | null;
@@ -81,6 +93,8 @@ export interface BetRow {
   option_b_label: string;
   total_pot_agorot: number;
   status: BetStatus;
+  /** `private` means only the creator and the invitees can see it at all. */
+  visibility?: 'group' | 'private';
   /** Only meaningful when the winner was one of the first two options. */
   winning_option: BetSide | null;
   /** The option that won. This is what "resolved" actually means. */
@@ -171,6 +185,19 @@ export interface GroupSummary extends GroupRow {
 /** A media row with a short-lived signed URL attached, ready to render. */
 export interface BetMedia extends BetMediaRow {
   url: string;
+}
+
+export interface BetInviteeRow {
+  bet_id: string;
+  user_id: string;
+}
+
+/** What `find_user_by_username` hands back — deliberately the minimum. */
+export interface UserLookup {
+  id: string;
+  display_name: string;
+  username: string;
+  avatar_url: string | null;
 }
 
 export interface BetLikeRow {

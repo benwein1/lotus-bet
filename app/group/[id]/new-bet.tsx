@@ -18,7 +18,8 @@ import {
 } from '@/components/ui';
 import { formatAgorot, parseIlsToAgorot } from '@/lib/format';
 import { captureMedia, pickMedia, MAX_ATTACHMENTS, type PickedMedia } from '@/lib/media';
-import { createBet, MAX_BET_OPTIONS, MIN_BET_OPTIONS } from '@/lib/queries';
+import { MAX_BET_OPTIONS, MIN_BET_OPTIONS, createBet, fetchGroup } from '@/lib/queries';
+import { useAsync } from '@/hooks/use-async';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors, useScheme } from '@/providers/theme-provider';
 import { optionColor } from '@/theme';
@@ -73,6 +74,13 @@ export default function NewBetScreen() {
   const [deadlineHours, setDeadlineHours] = useState(24);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Empty means everyone in the group. Naming anybody makes the bet private to
+  // them and you.
+  const [invited, setInvited] = useState<string[]>([]);
+
+  const group = useAsync(() => fetchGroup(groupId), [groupId]);
+  const others = (group.data?.members ?? []).filter((m) => m.user_id !== session?.user.id);
+  const isPrivate = invited.length > 0;
 
   const potAgorot = parseIlsToAgorot(pot);
   const trimmed = options.map((label) => label.trim());
@@ -140,6 +148,7 @@ export default function NewBetScreen() {
           ? new Date(Date.now() + deadlineHours * 60 * 60 * 1000).toISOString()
           : null,
         media,
+        inviteeIds: invited,
       });
 
       // Fire-and-forget: the bet exists whether or not the pushes land.
@@ -303,6 +312,66 @@ export default function NewBetScreen() {
               winning side splits {potAgorot ? formatAgorot(potAgorot) : 'it'} between them; the
               losing side covers the same amount between them.
             </Text>
+
+            {/* Only worth showing when there is somebody to leave out. In a
+                two-person group — every duel — the bet is already private to
+                the pair, so the control would be a decision with one answer. */}
+            {others.length > 1 && (
+              <View className="mb-7">
+                <SectionTitle>Who can see it</SectionTitle>
+                <View className="rounded-2xl border border-hairline bg-surface p-3">
+                  <View className="flex-row gap-2">
+                    <Chip
+                      label="Everyone in the group"
+                      selected={!isPrivate}
+                      onPress={() => setInvited([])}
+                    />
+                    <Chip
+                      label="Only who I pick"
+                      selected={isPrivate}
+                      onPress={() =>
+                        setInvited((current) =>
+                          current.length > 0 ? current : [others[0]!.user_id]
+                        )
+                      }
+                    />
+                  </View>
+
+                  {isPrivate && (
+                    // A rule, because without one the names wrap into the mode
+                    // row and "Dor Levi" reads as a third way to answer "who
+                    // can see it" rather than an answer to "which of them".
+                    <View className="mt-3 flex-row flex-wrap gap-2 border-t border-hairline pt-3">
+                      {others.map((member) => {
+                        const picked = invited.includes(member.user_id);
+                        return (
+                          <Chip
+                            key={member.user_id}
+                            multi
+                            label={member.user?.display_name ?? 'Someone'}
+                            selected={picked}
+                            onPress={() =>
+                              setInvited((current) =>
+                                picked
+                                  ? current.filter((u) => u !== member.user_id)
+                                  : [...current, member.user_id]
+                              )
+                            }
+                          />
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+                <Text className="mt-2.5 px-1 text-sm leading-[18px] text-secondary">
+                  {isPrivate
+                    ? invited.length === 1
+                      ? 'Just the two of you. Nobody else in the group sees this bet at all.'
+                      : `You and ${invited.length} others. Nobody else in the group sees this bet at all.`
+                    : 'Everyone in the group can see it and take a side.'}
+                </Text>
+              </View>
+            )}
 
             <View className="mb-4 flex-row items-center justify-between rounded-2xl border border-hairline bg-surface px-4 py-3.5">
               <View className="flex-1 pr-3">

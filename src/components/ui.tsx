@@ -417,11 +417,20 @@ export function Chip({
   selected = false,
   onPress,
   className = '',
+  multi = false,
 }: {
   label: string;
   selected?: boolean;
   onPress?: () => void;
   className?: string;
+  /**
+   * True when this chip is one of several that can be on at once.
+   *
+   * It only changes what a screen reader is told, and that is the point: the
+   * default `radio` announces the group as mutually exclusive, so a row of
+   * invitees read as "pick one of these" when any number can be picked.
+   */
+  multi?: boolean;
 }) {
   return (
     <PressableScale
@@ -430,8 +439,8 @@ export function Chip({
         selectionTap();
         onPress?.();
       }}
-      accessibilityRole="radio"
-      accessibilityState={{ selected }}
+      accessibilityRole={multi ? 'checkbox' : 'radio'}
+      accessibilityState={multi ? { checked: selected } : { selected }}
       className={`rounded-full border px-3.5 py-2 ${
         selected ? 'border-accent bg-accent-soft' : 'border-hairline bg-surface2'
       } ${className}`}

@@ -117,6 +117,7 @@ function RootNavigator() {
           discoverable — there is always a visible way out. */}
       <Stack.Screen name="group/create" options={modalOptions('New group')} />
       <Stack.Screen name="group/join" options={modalOptions('Join a group')} />
+      <Stack.Screen name="challenge" options={modalOptions('Challenge someone')} />
       <Stack.Screen name="group/[id]/index" options={{ title: '' }} />
       <Stack.Screen name="group/[id]/new-bet" options={modalOptions('New bet')} />
       <Stack.Screen name="group/[id]/settle" options={{ title: 'Settle up' }} />

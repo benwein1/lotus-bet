@@ -445,15 +445,18 @@ begin;
   )
   select 'rows an edit could touch' as check, count(*) as rows from edited;
 
+  -- `dddddddd-…` is the account that belongs to no group. (`bbbbbbbb-…` is the
+  -- *group* id; using it here would have tested "a subject that is nobody",
+  -- which passes for the wrong reason.)
   \echo '  (e) an outsider sees neither, and cannot add either'
-  set local request.jwt.claim.sub = 'bbbbbbbb-0000-4000-8000-000000000000';
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
   select 'what the outsider sees' as check,
          (select count(*) from public.bet_likes) as likes,
          (select count(*) from public.bet_comments) as comments;
 
   savepoint s;
   insert into public.bet_comments (bet_id, user_id, body)
-  values ('cccccccc-0000-4000-8000-000000000000', 'bbbbbbbb-0000-4000-8000-000000000000', 'let me in');
+  values ('cccccccc-0000-4000-8000-000000000000', 'dddddddd-0000-4000-8000-000000000000', 'let me in');
   rollback to s;
 
   \echo '  (f) and cannot delete a comment that is not theirs'
@@ -484,7 +487,140 @@ begin;
     from public.my_group_balances();
 
   \echo '  an outsider gets nothing back at all'
-  set local request.jwt.claim.sub = 'bbbbbbbb-0000-4000-8000-000000000000';
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
   select 'rows for somebody in no group' as check, count(*) as rows
     from public.my_group_balances();
+rollback;
+
+\echo '--- 19. A private bet is invisible to the rest of the group ---'
+-- This is the riskiest change in the schema: every policy guarding a bet or
+-- anything attached to one now goes through `can_see_bet`. A private bet whose
+-- options, positions, likes or comments were still readable would be private
+-- in name only, so each one is checked separately rather than assumed.
+begin;
+  \echo '  (0) before it is private, an ordinary member can see it'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000004';
+  select 'member, bet still public' as who, count(*) as bets
+    from public.bets where id = 'cccccccc-0000-4000-8000-000000000000';
+  reset role;
+
+  -- Setup outside the role: making a bet private is the creator's act, but
+  -- planting the attachments is fixture work.
+  update public.bets set visibility = 'private'
+   where id = 'cccccccc-0000-4000-8000-000000000000';
+  insert into public.bet_invitees (bet_id, user_id)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001')
+  on conflict do nothing;
+  insert into public.bet_likes (bet_id, user_id)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001')
+  on conflict do nothing;
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001', 'ours only');
+
+  set local role authenticated;
+
+  \echo '  (a) an invitee sees the bet and everything on it'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select 'invitee' as who,
+         (select count(*) from public.bets where id = 'cccccccc-0000-4000-8000-000000000000') as bets,
+         (select count(*) from public.bet_options where bet_id = 'cccccccc-0000-4000-8000-000000000000') as options,
+         (select count(*) from public.bet_positions where bet_id = 'cccccccc-0000-4000-8000-000000000000') as positions,
+         (select count(*) from public.bet_likes where bet_id = 'cccccccc-0000-4000-8000-000000000000') as likes,
+         (select count(*) from public.bet_comments where bet_id = 'cccccccc-0000-4000-8000-000000000000') as comments;
+
+  \echo '  (b) the creator always sees it, invited or not'
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select 'creator' as who,
+         (select count(*) from public.bets where id = 'cccccccc-0000-4000-8000-000000000000') as bets;
+
+  \echo '  (c) a group member who was NOT invited sees none of it'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000004';
+  select 'uninvited member' as who,
+         (select count(*) from public.bets where id = 'cccccccc-0000-4000-8000-000000000000') as bets,
+         (select count(*) from public.bet_options where bet_id = 'cccccccc-0000-4000-8000-000000000000') as options,
+         (select count(*) from public.bet_positions where bet_id = 'cccccccc-0000-4000-8000-000000000000') as positions,
+         (select count(*) from public.bet_likes where bet_id = 'cccccccc-0000-4000-8000-000000000000') as likes,
+         (select count(*) from public.bet_comments where bet_id = 'cccccccc-0000-4000-8000-000000000000') as comments;
+
+  \echo '  (d) and cannot join it or comment on it'
+  savepoint s;
+  insert into public.bet_positions (bet_id, user_id, option_id)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000004',
+          (select id from public.bet_options
+            where bet_id = 'cccccccc-0000-4000-8000-000000000000' and position = 0));
+  rollback to s;
+
+  savepoint s;
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000004', 'let me in');
+  rollback to s;
+
+  \echo '  (e) other bets in the same group are untouched'
+  select 'other bets this member can still see' as check, count(*) as bets
+    from public.bets
+   where group_id = (select group_id from public.bets where id = 'cccccccc-0000-4000-8000-000000000000')
+     and id <> 'cccccccc-0000-4000-8000-000000000000';
+rollback;
+
+\echo '--- 20. Usernames and duels ---'
+begin;
+  \echo '  (a) the backfill gave every existing account a handle'
+  select 'accounts without a username' as check, count(*) as missing
+    from public.users where username is null;
+  select 'handles are unique' as check,
+         count(*) as accounts, count(distinct lower(username)) as distinct_handles
+    from public.users;
+
+  -- Read the handles *before* dropping into the role. Under RLS a client
+  -- cannot see the row of somebody they share no group with — which is the
+  -- entire premise of this feature: you type a handle you already know, you do
+  -- not look it up in a list.
+  select username as mine from public.users where id = '00000000-0000-4000-8000-000000000001' \gset
+  select username as theirs from public.users where id = 'dddddddd-0000-4000-8000-000000000000' \gset
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+
+  \echo '  (b) lookup is exact, case-insensitive, and never returns yourself'
+  select 'found by exact handle, upper-cased' as check, count(*) as rows
+    from public.find_user_by_username(upper(:'theirs'));
+
+  select 'a prefix finds nobody — this is not a search' as check, count(*) as rows
+    from public.find_user_by_username(substr(:'theirs', 1, 2));
+
+  select 'you cannot look up yourself' as check, count(*) as rows
+    from public.find_user_by_username(:'mine');
+
+  \echo '  (c) a challenge creates a hidden two-person group with someone you share nothing with'
+  -- Counted in a separate statement: rows inserted inside a function are not
+  -- visible to the snapshot of the query that called it.
+  select 'duel created' as check, (public.create_duel(:'theirs')).kind as kind;
+  select 'members it has' as check, count(*) as members
+    from public.group_members m
+   where m.group_id = (select g.id from public.groups g where g.kind = 'duel' limit 1);
+
+  \echo '  (d) challenging them again reuses it, never forks the ledger'
+  -- `.id`, not `IS NOT NULL` on the whole row: a composite is only "not null"
+  -- when every column is, and a duel has no avatar.
+  select 'second call returned a group' as check,
+         (public.create_duel(:'theirs')).id is not null as ok;
+
+  select 'duels between us, after calling twice' as check, count(*) as groups
+    from public.groups g
+   where g.kind = 'duel'
+     and exists (select 1 from public.group_members m
+                  where m.group_id = g.id and m.user_id = '00000000-0000-4000-8000-000000000001')
+     and exists (select 1 from public.group_members m
+                  where m.group_id = g.id and m.user_id = 'dddddddd-0000-4000-8000-000000000000');
+
+  \echo '  (e) both people can now see the duel, and its bets would be theirs alone'
+  select 'members of the duel' as check, count(*) as rows
+    from public.groups g join public.group_members m on m.group_id = g.id
+   where g.kind = 'duel';
+
+  \echo '  (f) an unknown handle is refused rather than creating an empty duel'
+  savepoint s;
+  select public.create_duel('nobody_by_that_name');
+  rollback to s;
 rollback;
