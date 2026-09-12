@@ -251,31 +251,44 @@ export default function BetDetailScreen() {
               </View>
             )}
 
-            {/* Pick a side */}
-            {canJoin && (
-              <Animated.View
-                entering={FadeInDown.delay(120).duration(motion.duration.base)}
-                className="mt-4 flex-row flex-wrap gap-3"
-              >
-                {slices.map((slice, index) => (
-                  <OptionButton
-                    key={slice.id}
-                    label={slice.label}
-                    index={index}
-                    count={slices.length}
-                    selected={picked === slice.id}
-                    disabled={busy}
-                    // Joining makes that option one bigger, so preview against
-                    // n+1 unless you are already on it.
-                    shareAgorot={previewShareAgorot(
-                      data.total_pot_agorot,
-                      picked === slice.id ? slice.count : slice.count + 1
-                    )}
-                    onPress={() => void pickOption(slice.id)}
-                  />
-                ))}
-              </Animated.View>
-            )}
+            {/* One row of squares: the tap target and the roster in the same
+                object. See OptionCard for why these used to be two rows. */}
+            <Animated.View
+              entering={FadeInDown.delay(120).duration(motion.duration.base)}
+              className="mt-4 flex-row flex-wrap gap-3"
+            >
+              {slices.map((slice, index) => (
+                <OptionCard
+                  key={slice.id}
+                  label={slice.label}
+                  index={index}
+                  count={slices.length}
+                  selected={picked === slice.id}
+                  pressable={canJoin}
+                  disabled={busy}
+                  // Joining makes that option one bigger, so preview against
+                  // n+1 unless you are already on it. No preview once the bet
+                  // is closed — the number would be a promise nobody can take.
+                  shareAgorot={
+                    canJoin
+                      ? previewShareAgorot(
+                          data.total_pot_agorot,
+                          picked === slice.id ? slice.count : slice.count + 1
+                        )
+                      : null
+                  }
+                  won={isResolved ? data.winning_option_id === slice.id : null}
+                  people={(data.positions ?? [])
+                    .filter((p) => p.option_id === slice.id)
+                    .map((p) => ({
+                      id: p.user_id,
+                      name: usersById.get(p.user_id)?.display_name ?? 'Someone',
+                      avatarUrl: usersById.get(p.user_id)?.avatar_url ?? null,
+                    }))}
+                  onPress={() => void pickOption(slice.id)}
+                />
+              ))}
+            </Animated.View>
 
             {!canJoin && !isResolved && !isCancelled && (
               <View className="mt-4 flex-row items-center gap-3 rounded-2xl border border-hairline bg-surface px-4 py-3.5">
@@ -313,29 +326,6 @@ export default function BetDetailScreen() {
                 onChanged={() => bet.reload({ silent: true })}
               />
             )}
-
-            {/* Who's in */}
-            <View className="mt-7">
-              <SectionTitle>Who&apos;s in</SectionTitle>
-              <View className="flex-row flex-wrap gap-3">
-                {slices.map((slice, index) => (
-                  <OptionRoster
-                    key={slice.id}
-                    label={slice.label}
-                    index={index}
-                    count={slices.length}
-                    won={isResolved ? data.winning_option_id === slice.id : null}
-                    people={(data.positions ?? [])
-                      .filter((p) => p.option_id === slice.id)
-                      .map((p) => ({
-                        id: p.user_id,
-                        name: usersById.get(p.user_id)?.display_name ?? 'Someone',
-                        avatarUrl: usersById.get(p.user_id)?.avatar_url ?? null,
-                      }))}
-                  />
-                ))}
-              </View>
-            </View>
 
             {/* Reactions sit between the bet and the creator's controls: the
                 bet is what you came for, the talk about it is next, and the
@@ -400,96 +390,71 @@ export default function BetDetailScreen() {
   );
 }
 
-function OptionButton({
+/**
+ * One square per outcome: the tap target *and* the roster of who is on it.
+ *
+ * There used to be two rows — a row of buttons to pick a side, then a second
+ * row underneath listing who had picked what. Two rows of the same N squares,
+ * in the same order, in the same colours, saying different halves of one
+ * thing. You picked "Yes" in the top row and then looked down to a *different*
+ * "Yes" to see who else had.
+ *
+ * Merging them makes the square the whole object: its label, what you would
+ * win, who is already on it, and pressing it puts you there. The roster is
+ * what makes the choice interesting — you are not betting on an outcome so
+ * much as against the people who took the other one — so it belongs on the
+ * thing you press, not in a separate list below.
+ *
+ * The states it has to carry at once:
+ * - open and joinable  → pressable, shows the payoff preview
+ * - locked / past deadline → not pressable, still shows who is in
+ * - resolved → winner outlined and badged, losers dimmed, nothing pressable
+ */
+function OptionCard({
   label,
   index,
   count,
   selected,
+  pressable,
   disabled,
   shareAgorot,
+  won,
+  people,
   onPress,
 }: {
   label: string;
   index: number;
   count: number;
   selected: boolean;
+  /** False once the bet is locked, past its deadline, resolved or cancelled. */
+  pressable: boolean;
   disabled: boolean;
-  shareAgorot: number;
+  /** Null while the bet is still joinable — there is no payoff to preview. */
+  shareAgorot: number | null;
+  /** Null while unresolved; true/false once a winner is declared. */
+  won: boolean | null;
+  people: { id: string; name: string; avatarUrl?: string | null }[];
   onPress: () => void;
 }) {
+  const colors = useColors();
   const scheme = useScheme();
   // With an arbitrary number of options there is no literal class name to
   // write, so the colour is an inline style. Tailwind cannot see an
   // interpolated class — see §4.
   const color = optionColor(index, count, scheme);
-
-  return (
-    <PressableScale
-      onPress={onPress}
-      disabled={disabled}
-      scaleTo={0.955}
-      accessibilityRole="button"
-      accessibilityLabel={selected ? `Withdraw from ${label}` : `Back ${label}`}
-      accessibilityState={{ selected, disabled }}
-      style={{
-        borderColor: selected ? color : undefined,
-        // Two fill the row; three or more take half and wrap.
-        flexBasis: count === 2 ? 0 : '47%',
-        flexGrow: 1,
-      }}
-      className={`rounded-3xl border-2 px-4 py-4 ${
-        selected ? '' : 'border-hairline bg-surface'
-      } ${disabled ? 'opacity-50' : ''}`}
-    >
-      <Text
-        numberOfLines={2}
-        style={selected ? { color } : undefined}
-        className={`text-base font-semibold ${selected ? '' : 'text-primary'}`}
-      >
-        {label}
-      </Text>
-      <Text className="mt-1.5 text-sm text-secondary">
-        {selected ? 'Tap to withdraw' : `Win ~${formatAgorot(shareAgorot)}`}
-      </Text>
-    </PressableScale>
-  );
-}
-
-function OptionRoster({
-  label,
-  index,
-  count,
-  won,
-  people,
-}: {
-  label: string;
-  index: number;
-  count: number;
-  /** null while unresolved; true/false once a winner is declared. */
-  won: boolean | null;
-  people: { id: string; name: string; avatarUrl?: string | null }[];
-}) {
-  const colors = useColors();
-  const scheme = useScheme();
   const dimmed = won === false;
-  const color = optionColor(index, count, scheme);
 
-  return (
-    <View
-      style={{ flexBasis: count === 2 ? 0 : '47%', flexGrow: 1 }}
-      className={`rounded-3xl border bg-surface p-4 ${
-        won === true ? 'border-positive' : 'border-hairline'
-      } ${dimmed ? 'opacity-60' : ''}`}
-    >
+  const body = (
+    <>
       <View className="mb-3 flex-row items-center gap-1.5">
         <Text
-          numberOfLines={1}
+          numberOfLines={2}
           style={dimmed ? undefined : { color }}
-          className={`flex-1 text-subhead font-semibold ${dimmed ? 'text-tertiary' : ''}`}
+          className={`flex-1 text-base font-semibold ${dimmed ? 'text-tertiary' : ''}`}
         >
           {label}
         </Text>
-        {won === true && <TrophyIcon size={14} color={colors.positive} />}
+        {won === true && <TrophyIcon size={15} color={colors.positive} />}
       </View>
 
       {people.length === 0 ? (
@@ -504,8 +469,71 @@ function OptionRoster({
           </View>
         ))
       )}
-    </View>
+
+      {/* The payoff line sits under the roster, not over it: the people are
+          the reason to choose, the number is the consequence of choosing. */}
+      {shareAgorot !== null && (
+        <Text className="mt-1 text-sm text-secondary">
+          {selected ? 'Tap to withdraw' : `Win ~${formatAgorot(shareAgorot)}`}
+        </Text>
+      )}
+    </>
   );
+
+  // Two fill the row; three or more take half and wrap.
+  const sizing = { flexBasis: count === 2 ? 0 : '47%' as const, flexGrow: 1 };
+
+  if (!pressable) {
+    return (
+      <View
+        style={sizing}
+        className={`rounded-3xl border bg-surface p-4 ${
+          won === true ? 'border-positive' : 'border-hairline'
+        } ${dimmed ? 'opacity-60' : ''}`}
+      >
+        {body}
+      </View>
+    );
+  }
+
+  return (
+    <PressableScale
+      onPress={onPress}
+      disabled={disabled}
+      scaleTo={0.955}
+      accessibilityRole="button"
+      accessibilityLabel={
+        selected
+          ? `Withdraw from ${label}. ${describeRoster(people)}`
+          : `Back ${label}. ${describeRoster(people)}`
+      }
+      accessibilityState={{ selected, disabled }}
+      style={{ ...sizing, borderColor: selected ? color : undefined }}
+      className={`rounded-3xl border-2 p-4 ${
+        selected ? '' : 'border-hairline bg-surface'
+      } ${disabled ? 'opacity-50' : ''}`}
+    >
+      {body}
+    </PressableScale>
+  );
+}
+
+/**
+ * The roster as a sentence, for the accessibility label.
+ *
+ * A screen reader announcing the button has to say who is on it too, or the
+ * merge loses exactly the information it was meant to surface — the avatars
+ * are decorative to it.
+ */
+function describeRoster(people: { name: string }[]): string {
+  if (people.length === 0) return 'Nobody on this side yet.';
+  if (people.length === 1) return `${people[0]!.name} is on this side.`;
+  if (people.length <= 3) {
+    const names = people.map((p) => p.name);
+    const last = names.pop();
+    return `${names.join(', ')} and ${last} are on this side.`;
+  }
+  return `${people[0]!.name} and ${people.length - 1} others are on this side.`;
 }
 
 /**
