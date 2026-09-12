@@ -14,6 +14,7 @@
  *   the actual money maths rather than a second implementation of it.
  * - The entry point only renders in development (see `DEMO_AVAILABLE`).
  */
+import type { PickedMedia } from './media';
 import { computeBetPayouts } from './payout';
 import { personBalances } from './settlement';
 import type {
@@ -614,6 +615,7 @@ export const demo = {
         group_id: bet.group_id,
         uploaded_by: DEMO_USER_ID,
         kind: item.kind,
+        purpose: 'attachment',
         storage_path: item.uri,
         url: item.uri,
         width: item.width,
@@ -625,6 +627,42 @@ export const demo = {
     });
 
     return clone(bet);
+  },
+
+  async addBetProof(
+    betId: string,
+    media: PickedMedia[],
+    existingProofCount: number
+  ): Promise<void> {
+    const bet = state.bets.find((b) => b.id === betId);
+    if (!bet) throw new Error('Bet not found');
+    // The real policy refuses this; the demo has to refuse it too, or the
+    // offline build shows behaviour the backend does not have.
+    if (bet.status !== 'resolved') {
+      throw new Error('Proof can only be added once the bet is resolved.');
+    }
+
+    media.forEach((item, index) => {
+      state.media.push({
+        id: `demo-proof-${betId}-${existingProofCount + index}-${Date.now()}`,
+        bet_id: betId,
+        group_id: bet.group_id,
+        uploaded_by: DEMO_USER_ID,
+        kind: item.kind,
+        purpose: 'proof',
+        storage_path: item.uri,
+        url: item.uri,
+        width: item.width,
+        height: item.height,
+        duration_ms: item.durationMs,
+        position: existingProofCount + index,
+        created_at: new Date().toISOString(),
+      });
+    });
+  },
+
+  async deleteBetMedia(mediaId: string): Promise<void> {
+    state.media = state.media.filter((m) => m.id !== mediaId);
   },
 
   async joinBetOption(betId: string, optionId: string): Promise<void> {

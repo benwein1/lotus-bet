@@ -106,6 +106,7 @@ src/
   components/odds-bar.tsx
   components/bet-actions.tsx  the like/comment row; liking is optimistic
   components/bet-comments.tsx the thread and its send box
+  components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
   components/payment-sheet.tsx amount entry for a part payment
   components/lotus-mark.tsx  the app mark, wherever the app shows its own face
   components/animated-splash.tsx  the hand-off out of the native splash
@@ -115,6 +116,7 @@ src/
   lib/settlement.ts         balance netting + greedy debt simplification
   lib/queries.ts            every Supabase read/write the app makes
   lib/media.ts              picking, uploading and signing bet media
+  lib/media-rules.ts        …and its pure half, which is what the tests hold
   lib/format.ts             agorot ↔ shekels, countdowns, initials, email
   lib/database.types.ts     hand-written row types
   lib/supabase.ts           client; `isSupabaseConfigured` guard
@@ -134,11 +136,12 @@ assets/logo/lotus.svg       the mark; scripts/build-icons.mjs renders every size
 supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
                             bet options · notification prefs · social ·
-                            private bets and duels · group invites (11)
+                            private bets and duels · group invites ·
+                            proof of outcome (12)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
 __tests__/                  payout · settlement · format · theme · odds ·
-                            postgrest · reminders · invite-links
+                            postgrest · reminders · invite-links · media-split
 ```
 
 **All Supabase access goes through `src/lib/queries.ts`.** Screens never
@@ -569,6 +572,48 @@ is group membership *plus* the invitee list. Keeping it in one function is the
 whole point: a private bet whose comments were still readable, or whose options
 leaked, would be private in name only. If you add a table that hangs off a bet,
 gate it on `can_see_bet`, never on `is_group_member(bet_group_id(...))`.
+
+### Proof of outcome
+
+`bet_media` carries **two kinds of file, told apart by `purpose`**. An
+`attachment` is the creator's illustration, posted with the bet while it is
+open — that was the table's only job until now, and the old insert policy said
+so (`creator_id = auth.uid() and status = 'open'`). A `proof` is the receipt,
+added *after* the bet is called.
+
+They live in one table because they are the same object: same bucket, same
+`<group_id>/<bet_id>/<file>` path, same signing code, same viewer. What differs
+is when each may be written and where it is shown, and one column carries that.
+
+**Proof belongs to the people who were in the bet, not to its creator.** The
+policy accepts an insert from the creator *or* anyone with a `bet_positions`
+row, and only once `status = 'resolved'`. A group member who never picked a
+side is a spectator, and a spectator's photo is not evidence. It is gated on
+`can_see_bet`, like everything else hanging off a bet, so a private bet's proof
+is exactly as private as the bet.
+
+The two rules do not overlap: the attachment policy now also requires
+`purpose = 'attachment'`, which it did not before — without that a creator
+could file an open bet's illustration as "proof" and have it render in the
+receipt gallery.
+
+Deleting is `uploaded_by = auth.uid()`: you can withdraw what you put up, and
+nobody else can, **including the bet's creator**. The old rule required you to
+be uploader *and* creator, which was the same person in every row that could
+exist then and would now stop a participant removing their own photo.
+
+`splitMedia` (in `media-rules.ts`, pure so it is testable) keeps the two apart
+on the way out. **A row with no `purpose` is an attachment** — not a guess: until
+the column existed the creator posting a bet was the only way a row could be
+made. Get this wrong in the permissive direction and a photo somebody added
+after the result silently becomes the bet's own face at the top of the screen.
+
+Compression lives in one table in `media.ts`. Proof is squeezed harder than an
+illustration (quality 0.6 vs 0.85, Medium vs High, 30s vs 60s) because a receipt
+only has to be legible enough to end an argument and is uploaded on a phone in
+a bar; the illustration sits full-bleed in the feed. `expo-image-picker`
+re-encodes before handing back a URI, so there is no second compression
+dependency.
 
 ### Invite links
 

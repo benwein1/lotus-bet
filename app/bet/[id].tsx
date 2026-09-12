@@ -8,6 +8,8 @@ import { BetActions, betSocial } from '@/components/bet-actions';
 import { betSlices, myOptionId, winningLabel } from '@/components/bet-card';
 import { BetComments } from '@/components/bet-comments';
 import { BetMediaView } from '@/components/bet-media';
+import { BetProof } from '@/components/bet-proof';
+import { splitMedia } from '@/lib/media';
 import { AlertIcon, ClockIcon, LockIcon, TrophyIcon } from '@/components/icons';
 import { OddsBar } from '@/components/odds-bar';
 import { ContentWidth, Screen } from '@/components/screen';
@@ -106,7 +108,15 @@ export default function BetDetailScreen() {
   const canJoin = data.status === 'open' && !deadlinePassed;
   const isResolved = data.status === 'resolved';
   const isCancelled = data.status === 'cancelled';
-  const media = data.media ?? [];
+  // The hero at the top of the screen is the bet's *illustration*; proof of
+  // outcome is a separate gallery further down. Without the split, a photo
+  // somebody added after the result would silently become the bet's face.
+  const { attachments: media, proof } = splitMedia(data.media ?? []);
+
+  // The same rule the RLS policy enforces, mirrored here only so the button is
+  // absent rather than present-and-refused. The server is still the gate.
+  const iHadASide = (data.positions ?? []).some((p) => p.user_id === userId);
+  const canAddProof = isResolved && (isCreator || iHadASide);
 
   const myLedgerAmount =
     (ledger.data ?? []).find((entry) => entry.user_id === userId)?.amount_agorot ?? null;
@@ -289,6 +299,19 @@ export default function BetDetailScreen() {
 
             {isResolved && (
               <ResolvedSummary bet={data} userId={userId} myAmountAgorot={myLedgerAmount} />
+            )}
+
+            {/* Proof sits directly under the result it is proof of, and above
+                "Who's in" — the answer, then the evidence, then the roster. */}
+            {isResolved && (
+              <BetProof
+                bet={data}
+                proof={proof}
+                currentUserId={userId}
+                canAdd={canAddProof}
+                usersById={usersById}
+                onChanged={() => bet.reload({ silent: true })}
+              />
             )}
 
             {/* Who's in */}

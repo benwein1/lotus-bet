@@ -8,6 +8,7 @@
 import type {
   BetComment,
   BetLedgerEntryRow,
+  BetMediaPurpose,
   BetMediaRow,
   BetRow,
   BetSide,
@@ -391,13 +392,16 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
 async function attachMediaToBet(
   bet: BetRow,
   media: PickedMedia[],
-  uploaderId: string
+  uploaderId: string,
+  purpose: BetMediaPurpose = 'attachment',
+  positionFrom = 0
 ): Promise<void> {
   const uploaded = [] as {
     bet_id: string;
     group_id: string;
     uploaded_by: string;
     kind: string;
+    purpose: BetMediaPurpose;
     storage_path: string;
     width: number | null;
     height: number | null;
@@ -412,15 +416,46 @@ async function attachMediaToBet(
       group_id: bet.group_id,
       uploaded_by: uploaderId,
       kind: result.kind,
+      purpose,
       storage_path: result.storagePath,
       width: result.width,
       height: result.height,
       duration_ms: result.durationMs,
-      position: index,
+      position: positionFrom + index,
     });
   }
 
   const { error } = await supabase.from('bet_media').insert(uploaded);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Attach proof of outcome to a bet that has already been called.
+ *
+ * Deliberately not folded into `createBet`'s media path: that one runs once,
+ * owned by the creator, before anybody has seen the bet. This one runs any
+ * number of times, from any of the people who had a side, long after the
+ * argument started — so it appends rather than replaces, and `position`
+ * continues from what is already there instead of restarting at zero and
+ * shuffling the gallery every time somebody adds a photo.
+ *
+ * The RLS policy is the real gate (resolved bet, participant or creator); this
+ * only has to hand it well-formed rows.
+ */
+export async function addBetProof(
+  bet: BetRow,
+  media: PickedMedia[],
+  uploaderId: string,
+  existingProofCount = 0
+): Promise<void> {
+  if (media.length === 0) return;
+  if (isDemoMode()) return demo.addBetProof(bet.id, media, existingProofCount);
+  await attachMediaToBet(bet, media, uploaderId, 'proof', existingProofCount);
+}
+
+export async function deleteBetMedia(mediaId: string): Promise<void> {
+  if (isDemoMode()) return demo.deleteBetMedia(mediaId);
+  const { error } = await supabase.from('bet_media').delete().eq('id', mediaId);
   if (error) throw new Error(error.message);
 }
 
