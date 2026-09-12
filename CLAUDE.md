@@ -88,7 +88,7 @@ expo-image-picker for bet media.
 ```
 app/                        Expo Router routes
   _layout.tsx               root stack + the single auth redirect gate
-  (auth)/                   sign-in · sign-up · profile-setup
+  (auth)/                   sign-in · sign-up · profile-setup · reset-password
   (tabs)/                   index (the feed) · groups · profile
   group/create.tsx, join.tsx
   join/[token].tsx          what a shared invite link opens
@@ -358,6 +358,27 @@ stroke, defaulting to the active scheme's secondary label colour. Emoji ignore
 `color` and render differently per platform — use these instead. Emoji remain
 only as user-chosen group avatars.
 
+### The bet detail screen
+
+**One row of squares, not two.** There used to be a row of buttons to pick a
+side and a second row underneath listing who had picked what — two rows of the
+same N squares, same order, same colours, saying different halves of one thing.
+You picked "Yes" in the top row and then looked down to a *different* "Yes" to
+see who else had.
+
+`OptionCard` is both: label, payoff preview, the avatars of everyone on that
+side, and pressing it puts you there. The roster is what makes the choice
+interesting — you are betting against the people on the other square more than
+against an outcome — so it belongs on the thing you press.
+
+It carries three states at once: joinable (pressable, previews the payoff),
+locked or past deadline (not pressable, still shows who is in), and resolved
+(winner outlined and badged, losers dimmed). The payoff line is hidden once the
+bet closes, because the number would be a promise nobody can take. Its
+accessibility label names who is on the side — the avatars are decorative to a
+screen reader, and without `describeRoster` the merge would lose exactly the
+information it exists to surface.
+
 ### The feed
 
 `app/(tabs)/index.tsx` is the centre of the app: a `FlatList` of `FeedCard`s,
@@ -419,7 +440,26 @@ make a change pass, stop and reconsider.
 
 ### Auth
 
-**Email + password.** `signUp` sends the display name in `raw_user_meta_data`,
+**Email + password.**
+
+**Password reset needs all three halves, and only the first existed.** Sending
+the link was there and looked fine; what was missing was `redirectTo` (so the
+link opens a screen that expects it), a `PASSWORD_RECOVERY` branch in
+`onAuthStateChange`, and a screen that calls `updateUser`. Without them you
+clicked the link, landed signed-in on the feed, and still did not know your
+password.
+
+The subtle part is the gate. **A recovery session is a real session** — that is
+what lets `updateUser` work — so every branch in `app/_layout.tsx` would happily
+wave it through to the tabs. `recovering` latches on the event and is checked
+*first*, holding you on `reset-password` until `updatePassword` clears it.
+`redirectTo` comes from `passwordResetRedirectTo()`, which reuses the invite
+link's origin resolution; the app scheme is an acceptable fallback here, unlike
+for invites, because anyone clicking a reset link already has the app.
+
+Email delivery is a separate problem: Supabase's built-in sender is heavily
+rate-limited and in practice only reaches the project owner. Custom SMTP is the
+fix; none of the above changes that. `signUp` sends the display name in `raw_user_meta_data`,
 and the `handle_new_auth_user` trigger uses it to seed `public.users` with
 `profile_completed = true`; an account without one gets a placeholder name and
 the app routes it to profile-setup. There is no phone OTP and no SMS provider
@@ -500,7 +540,20 @@ transactions.**
 
 ### Notifications
 
-Four events, and one switch each on Profile (`users.notify_*`).
+Four events, **one switch** on Profile.
+
+The four `users.notify_*` columns stay: `push_targets_for_bet` and
+`push_targets_for_group` read them per kind, and the reminder scheduler reads
+`notify_deadlines` on its own. Collapsing the *storage* would mean touching the
+push fan-out and the SQL that decides who hears about what, to solve a problem
+that was entirely in the UI. So one switch writes all four together and the
+backend never learns anything changed.
+
+It reads as on if **any** kind is on. An account from before the collapse can be
+in a mixed state, and a switch reading "off" while the phone still buzzes would
+be a lie; toggling either way writes all four, so a mixed state survives exactly
+one tap. Turning it off also cancels the local reminders and drops the push
+token — with one switch, off means off.
 
 Three are **push**, sent by the `notify` Edge Function: a new bet in one of
 your groups, somebody joining a group you are in, and a bet you took a side on
