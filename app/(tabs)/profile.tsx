@@ -41,23 +41,18 @@ import { useAppearance, useColors } from '@/providers/theme-provider';
 import { motion } from '@/theme';
 
 /**
- * The notification switches, and which of them need a push token.
+ * The four kinds of notification, which the database still stores separately.
  *
- * Deadlines are scheduled locally on the device, so they are deliberately not
- * in `PUSH_KEYS`: someone who only wants deadline reminders should not have a
- * push token sitting on their row for nothing.
+ * Three are push, fanned out by the `notify` Edge Function; `notify_deadlines`
+ * is scheduled locally on the device and needs no token at all. The screen now
+ * offers one switch over all four — see `toggleNotifications` for why the
+ * columns did not follow.
  */
 type NotifyKey =
   | 'notify_new_bets'
   | 'notify_resolutions'
   | 'notify_group_joins'
   | 'notify_deadlines';
-
-const PUSH_KEYS = [
-  'notify_new_bets',
-  'notify_resolutions',
-  'notify_group_joins',
-] as const satisfies readonly NotifyKey[];
 
 export default function ProfileScreen() {
   const { session, profile, updateProfile, signOut } = useAuth();
@@ -90,23 +85,61 @@ export default function ProfileScreen() {
   // notification-prefs migration applied yet.
   const hasNewerPrefs = profile?.notify_group_joins !== undefined;
 
-  async function toggle(key: NotifyKey, value: boolean) {
+  /**
+   * On if *any* kind is still on.
+   *
+   * Accounts made before this screen had one switch can be in a mixed state —
+   * someone who turned off only "new bets" is still being notified, and a
+   * switch reading "off" while their phone buzzes would be a lie. Toggling
+   * either way writes all four, so a mixed state survives exactly one tap.
+   */
+  const notificationsOn =
+    (profile?.notify_new_bets ?? true) ||
+    (profile?.notify_resolutions ?? true) ||
+    (profile?.notify_group_joins ?? true) ||
+    (profile?.notify_deadlines ?? true);
+
+  /**
+   * One switch for the lot.
+   *
+   * There were four — new bets, resolutions, group joins, deadlines — and four
+   * switches is four decisions to make about a thing nobody wants to think
+   * about. The question people actually have is "does this app buzz at me or
+   * not", so that is the question the screen asks.
+   *
+   * The four columns stay. `push_targets_for_bet` and `push_targets_for_group`
+   * read them per kind, and the reminder scheduler reads `notify_deadlines` on
+   * its own — collapsing the *storage* would mean touching the push fan-out and
+   * the SQL that decides who hears about what, to solve a problem that is
+   * entirely in the UI. So the switch writes all four together and the backend
+   * never learns anything changed.
+   */
+  async function toggleNotifications(value: boolean) {
     setError(null);
     setSaving(true);
     try {
-      await updateProfile({ [key]: value });
+      // Every key the project actually has. On a project without the prefs
+      // migration, writing the two it does not know about would fail the whole
+      // update — the same reason the extra switches were hidden before.
+      const patch: Partial<Record<NotifyKey, boolean>> = {
+        notify_new_bets: value,
+        notify_resolutions: value,
+      };
+      if (hasNewerPrefs) {
+        patch.notify_group_joins = value;
+        patch.notify_deadlines = value;
+      }
+      await updateProfile(patch);
 
       // Deadline reminders are scheduled on this device, so turning them off
       // has to take effect here and now rather than at the next feed refresh.
-      if (key === 'notify_deadlines' && !value) await cancelDeadlineReminders();
-
-      // If every *push* switch is off there is nothing left to send, so drop
-      // the token rather than keep a stale one on the row. Deadlines are local
-      // and need no token, so they do not count towards this.
-      const stillPushing = PUSH_KEYS.some((k) =>
-        k === key ? value : (profile?.[k] ?? true)
-      );
-      if (!stillPushing) await clearPushToken();
+      if (!value) {
+        await cancelDeadlineReminders();
+        // Nothing left to send: drop the token rather than keep a stale one on
+        // the row. Deadlines need no token — they are local — but with a single
+        // switch, off means off for all four, so the token has no job either.
+        await clearPushToken();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save that setting.');
     } finally {
@@ -276,42 +309,13 @@ export default function ProfileScreen() {
               <SectionTitle>Notifications</SectionTitle>
               <ListGroup>
                 <ToggleRow
-                  label="New bets in my groups"
-                  hint="One push when someone posts."
-                  value={profile.notify_new_bets}
+                  label="Notify me"
+                  hint="New bets, results, people joining, and a nudge before a bet you haven't answered closes."
+                  value={notificationsOn}
                   disabled={saving}
-                  onChange={(v) => void toggle('notify_new_bets', v)}
+                  onChange={(v) => void toggleNotifications(v)}
+                  last
                 />
-                <ToggleRow
-                  label="Bets I joined resolving"
-                  hint="Includes your result and amount."
-                  value={profile.notify_resolutions}
-                  disabled={saving}
-                  onChange={(v) => void toggle('notify_resolutions', v)}
-                  last={!hasNewerPrefs}
-                />
-                {/* Absent until `…_notification_prefs.sql` is applied. Showing
-                    a switch whose write would fail is worse than not offering
-                    it — same reasoning as the avatar column fallback. */}
-                {hasNewerPrefs ? (
-                  <>
-                    <ToggleRow
-                      label="Someone joins my groups"
-                      hint="Only for groups you're already in."
-                      value={profile.notify_group_joins ?? true}
-                      disabled={saving}
-                      onChange={(v) => void toggle('notify_group_joins', v)}
-                    />
-                    <ToggleRow
-                      label="Deadlines coming up"
-                      hint="An hour before a bet you haven't answered closes."
-                      value={profile.notify_deadlines ?? true}
-                      disabled={saving}
-                      onChange={(v) => void toggle('notify_deadlines', v)}
-                      last
-                    />
-                  </>
-                ) : null}
               </ListGroup>
             </View>
 
