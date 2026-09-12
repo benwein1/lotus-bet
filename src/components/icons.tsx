@@ -167,6 +167,23 @@ export function CheckIcon(props: IconProps) {
   );
 }
 
+/**
+ * The platform share glyph: a box with something leaving through the top.
+ *
+ * Deliberately iOS's shape rather than the three-connected-dots Android uses.
+ * This is an iOS-first app, and the arrow-out-of-a-tray is the mark people
+ * here already read as "send this somewhere else".
+ */
+export function ShareIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Path d="M12 3.6v10.2" />
+      <Path d="M8.4 7.2 12 3.6l3.6 3.6" />
+      <Path d="M6.6 11.4H5.8a1.4 1.4 0 0 0-1.4 1.4v6.4a1.4 1.4 0 0 0 1.4 1.4h12.4a1.4 1.4 0 0 0 1.4-1.4v-6.4a1.4 1.4 0 0 0-1.4-1.4h-.8" />
+    </Icon>
+  );
+}
+
 export function CopyIcon(props: IconProps) {
   return (
     <Icon {...props}>

@@ -27,6 +27,7 @@ import type {
   BetSide,
   BetWithPositions,
   GroupBalanceRow,
+  GroupInviteRow,
   GroupMemberRow,
   GroupRow,
   MyStatsRow,
@@ -157,6 +158,7 @@ function demoMedia(id: string, betId: string, groupId: string, url: string): Bet
 interface DemoState {
   groups: GroupRow[];
   members: GroupMemberRow[];
+  invites: GroupInviteRow[];
   bets: BetRow[];
   options: BetOptionRow[];
   media: BetMedia[];
@@ -216,6 +218,7 @@ function emptySeed(): DemoState {
     profile: { ...demoProfile },
     groups: [],
     members: [],
+    invites: [],
     bets: [],
     options: [],
     positions: [],
@@ -264,6 +267,7 @@ function seed(): SeededState {
       { group_id: 'demo-group-2', user_id: DEMO_USER_ID, role: 'admin', joined_at: iso(-24 * 12) },
       { group_id: 'demo-group-2', user_id: NOA, role: 'member', joined_at: iso(-24 * 11) },
     ],
+    invites: [],
     bets: [
       {
         id: 'demo-bet-1',
@@ -482,6 +486,64 @@ export const demo = {
     state.members = state.members.filter(
       (m) => !(m.group_id === groupId && m.user_id === userId)
     );
+  },
+
+  async createGroupInvite(groupId: string): Promise<GroupInviteRow> {
+    const group = state.groups.find((g) => g.id === groupId);
+    if (!group) throw new Error('Group not found');
+    if (group.kind === 'duel') throw new Error('A one-on-one challenge cannot be shared');
+
+    // Same reuse rule as the real RPC, so the demo cannot show behaviour the
+    // backend does not have.
+    const live = state.invites.find(
+      (i) =>
+        i.group_id === groupId &&
+        i.revoked_at === null &&
+        new Date(i.expires_at).getTime() > Date.now()
+    );
+    if (live) return clone(live);
+
+    const invite: GroupInviteRow = {
+      id: `invite-${state.invites.length + 1}`,
+      group_id: groupId,
+      token: `demo${Math.random().toString(36).slice(2, 10)}`,
+      created_by: DEMO_USER_ID,
+      expires_at: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString(),
+      revoked_at: null,
+      max_uses: null,
+      uses: 0,
+      created_at: new Date().toISOString(),
+    };
+    state.invites.push(invite);
+    return clone(invite);
+  },
+
+  async revokeGroupInvite(token: string): Promise<void> {
+    const invite = state.invites.find((i) => i.token === token);
+    if (invite) invite.revoked_at = new Date().toISOString();
+  },
+
+  async joinGroupWithInvite(token: string): Promise<GroupRow> {
+    const invite = state.invites.find((i) => i.token === token.trim());
+    if (!invite) throw new Error('That invite link is not valid');
+    if (invite.revoked_at) throw new Error('That invite link was cancelled');
+    if (new Date(invite.expires_at).getTime() <= Date.now()) {
+      throw new Error('That invite link has expired');
+    }
+
+    const group = state.groups.find((g) => g.id === invite.group_id);
+    if (!group) throw new Error('That group no longer exists');
+
+    if (!state.members.some((m) => m.group_id === group.id && m.user_id === DEMO_USER_ID)) {
+      state.members.push({
+        group_id: group.id,
+        user_id: DEMO_USER_ID,
+        role: 'member',
+        joined_at: new Date().toISOString(),
+      });
+      invite.uses += 1;
+    }
+    return clone(group);
   },
 
   async fetchGroupBets(groupId: string): Promise<BetWithPositions[]> {

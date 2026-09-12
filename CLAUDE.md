@@ -91,6 +91,7 @@ app/                        Expo Router routes
   (auth)/                   sign-in · sign-up · profile-setup
   (tabs)/                   index (the feed) · groups · profile
   group/create.tsx, join.tsx
+  join/[token].tsx          what a shared invite link opens
   challenge.tsx             start a one-on-one by handle
   group/[id]/               index (detail) · new-bet · settle
   bet/[id].tsx              join a side, resolve, cancel
@@ -108,6 +109,8 @@ src/
   components/payment-sheet.tsx amount entry for a part payment
   components/lotus-mark.tsx  the app mark, wherever the app shows its own face
   components/animated-splash.tsx  the hand-off out of the native splash
+  lib/invite-links.ts       pure: invite URL, share message, expiry wording
+  lib/invites.ts            …and the device half — share sheet, pending token
   lib/payout.ts             re-export ONLY — see §5
   lib/settlement.ts         balance netting + greedy debt simplification
   lib/queries.ts            every Supabase read/write the app makes
@@ -131,11 +134,11 @@ assets/logo/lotus.svg       the mark; scripts/build-icons.mjs renders every size
 supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
                             bet options · notification prefs · social ·
-                            private bets and duels (10)
+                            private bets and duels · group invites (11)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
 __tests__/                  payout · settlement · format · theme · odds ·
-                            postgrest · reminders
+                            postgrest · reminders · invite-links
 ```
 
 **All Supabase access goes through `src/lib/queries.ts`.** Screens never
@@ -455,7 +458,8 @@ because its id is part of the path.
 
 ### RPC surface (`20260904090200_functions.sql`)
 
-`create_group` · `join_group_with_code` · `join_bet` · `join_bet_option` ·
+`create_group` · `join_group_with_code` · `create_group_invite` ·
+`join_group_with_invite` · `revoke_group_invite` · `join_bet` · `join_bet_option` ·
 `leave_bet` · `lock_bet` · `cancel_bet` · `group_balances` · `my_stats` ·
 `set_push_token` · `resolve_bet_with_entries` · `can_see_bet` ·
 `find_user_by_username` · `create_duel` ·
@@ -565,6 +569,51 @@ is group membership *plus* the invitee list. Keeping it in one function is the
 whole point: a private bet whose comments were still readable, or whose options
 leaked, would be private in name only. If you add a table that hangs off a bet,
 gate it on `can_see_bet`, never on `is_group_member(bet_group_id(...))`.
+
+### Invite links
+
+A group has **two ways in, and they are different objects**. `groups.invite_code`
+is six characters, printed on the group screen, typed on the join screen — the
+thing you read out loud to someone sitting next to you, and it never expires
+because it never travels. `group_invites` is a link: a 72-bit base64url token
+with an expiry, a use count and a revocation, minted on demand by
+`create_group_invite` and redeemed by `join_group_with_invite`.
+
+The split is the point. A permanent code pasted into a group chat is a door
+that never closes — anyone who scrolls back far enough can walk in a year
+later, and the only way to stop them is to abandon the group.
+
+`create_group_invite` **reuses a live invite** rather than minting per tap, for
+the same reason `create_duel` does: four taps on "Share invite" leaving four
+working links means revoking "the" link stops meaning anything. Nothing writes
+`group_invites` directly — there is a SELECT policy for members and no INSERT,
+UPDATE or DELETE policy at all, so a client cannot mint itself an invite or push
+an existing expiry out.
+
+**A duel refuses both paths.** `create_group_invite` rejects `kind = 'duel'`,
+and `join_group_with_code` now rejects it too — a duel's auto-generated code
+used to let a third person walk into "just the two of you", which also silently
+broke a balance both sides read as pairwise.
+
+Sharing goes through the **OS share sheet** (`Share.share`), never a WhatsApp
+button: which app a group actually lives in is not something to guess, and a
+hardcoded `whatsapp://` is a dead end on a phone without it with no way to find
+out beforehand.
+
+`inviteUrl` prefers `https://` over `lotusbet://` and that is not cosmetic — a
+custom scheme is dead text everywhere until the app is installed, and the person
+being invited is by definition the one who has not installed it. On the web the
+origin is read from `window.location`; on a device it comes from
+`EXPO_PUBLIC_WEB_ORIGIN`, falling back to the scheme when nothing is deployed.
+Opening straight into the installed app from an `https://` link additionally
+needs an `apple-app-site-association` file on the domain and the
+associated-domains entitlement — **not set up yet**; today an https link opens
+the web build.
+
+A link opened by somebody with no account is the normal case, and the redirect
+gate in `app/_layout.tsx` would otherwise eat it. `rememberInvite` parks the
+token in AsyncStorage, and the gate hands it back after sign-in instead of
+dropping them on an empty Groups tab.
 
 ### Duels
 

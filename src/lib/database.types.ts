@@ -78,6 +78,28 @@ export interface GroupMemberRow {
   joined_at: string;
 }
 
+/**
+ * A shareable link into a group.
+ *
+ * Separate from `groups.invite_code` rather than replacing it: the six-
+ * character code is the thing you read out loud in a room, and it never
+ * expires because it does not travel. A link does travel — into a chat that
+ * gets scrolled back through a year later — so it carries an expiry, a use
+ * count and a revocation.
+ */
+export interface GroupInviteRow {
+  id: string;
+  group_id: string;
+  token: string;
+  created_by: string;
+  expires_at: string;
+  revoked_at: string | null;
+  /** Null means the link works for as many people as it reaches. */
+  max_uses: number | null;
+  uses: number;
+  created_at: string;
+}
+
 export interface BetRow {
   id: string;
   group_id: string;
