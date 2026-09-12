@@ -914,6 +914,13 @@ before touching any component.
   applied one.
 - Route files under `app/` export their screen and nothing else — shared
   helpers live in `src/` (see `use-tab-bar-inset.ts`).
+- **Delete a branch once its pull request is merged** — every one, with two
+  permanent exceptions: `main`, and `dev`. `dev` is the integration branch
+  everything is cut from and merged back into; it is never deleted, including
+  when it is merged into `main`. If a `dev` → `main` pull request is merged
+  with GitHub's "automatically delete head branches" setting on, `dev` will be
+  deleted — recreate it immediately (`git checkout -B dev main && git push -u
+  origin dev`), since at that moment it is identical to `main` anyway.
 - Don't add a dependency without a reason the existing stack can't cover.
   `useAsync` is deliberately tiny — an MVP with eight screens doesn't need a
   query cache when Realtime already says when to refetch.
