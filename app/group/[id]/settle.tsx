@@ -14,10 +14,10 @@ import {
   ErrorNotice,
   Money,
   SectionTitle,
-  useConfirm,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
+import { PaymentSheet, type PendingPayment } from '@/components/payment-sheet';
 import { useSettlement } from '@/hooks/use-settlement';
 import { formatAgorot } from '@/lib/format';
 import {
@@ -50,8 +50,8 @@ export default function SettleUpScreen() {
   const confirmations = useAsync(() => fetchSettlementConfirmations(groupId), [groupId]);
 
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingPayment | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const { ask, dialog } = useConfirm();
 
   // Stable `reload` references — see group/[id]/index.tsx.
   const { reload: reloadBalances } = balances;
@@ -68,49 +68,34 @@ export default function SettleUpScreen() {
   // layered on here — the second argument is for optimistic rows only.
   const settlement = useSettlement(balances.data, group.data?.members ?? null, [], userId);
 
-  async function markPaid(txn: {
-    fromUserId: string;
-    toUserId: string;
-    amountAgorot: number;
-    fromName: string;
-    toName: string;
-  }) {
-    const key = transactionKey(txn);
+  /**
+   * `amountAgorot` is whatever the sheet came back with, which may be less
+   * than the suggestion. A part payment simply writes a smaller row; the
+   * remainder stays outstanding and `group_balances` recomputes around it.
+   */
+  async function markPaid(amountAgorot: number) {
+    if (!pending) return;
+    const key = transactionKey(pending);
     setActionError(null);
     setPendingKey(key);
     try {
       await confirmSettlement({
         groupId,
-        fromUserId: txn.fromUserId,
-        toUserId: txn.toUserId,
-        amountAgorot: txn.amountAgorot,
+        fromUserId: pending.fromUserId,
+        toUserId: pending.toUserId,
+        amountAgorot,
         confirmedBy: userId,
       });
       if (Platform.OS !== 'web') {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
+      setPending(null);
       refresh();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Could not record that payment.');
     } finally {
       setPendingKey(null);
     }
-  }
-
-  function confirmMarkPaid(txn: {
-    fromUserId: string;
-    toUserId: string;
-    amountAgorot: number;
-    fromName: string;
-    toName: string;
-  }) {
-    ask({
-      title: 'Mark as paid?',
-      message: `Records that ${txn.fromName} paid ${txn.toName} ${formatAgorot(txn.amountAgorot)} outside the app. Both balances update.`,
-      cancelLabel: 'Not yet',
-      confirmLabel: 'Mark as paid',
-      onConfirm: () => void markPaid(txn),
-    });
   }
 
   const nameOf = (lookupId: string, fallback = 'Someone') =>
@@ -229,12 +214,13 @@ export default function SettleUpScreen() {
                                 )
                               }
                               onPress={() =>
-                                confirmMarkPaid({
+                                setPending({
                                   fromUserId: txn.fromUserId,
                                   toUserId: txn.toUserId,
                                   amountAgorot: txn.amountAgorot,
                                   fromName,
                                   toName,
+                                  iPay,
                                 })
                               }
                             />
@@ -293,7 +279,12 @@ export default function SettleUpScreen() {
           )}
         </ContentWidth>
       </ScrollView>
-      {dialog}
+      <PaymentSheet
+        payment={pending}
+        saving={pendingKey !== null}
+        onCancel={() => setPending(null)}
+        onConfirm={(amountAgorot) => void markPaid(amountAgorot)}
+      />
     </Screen>
   );
 }

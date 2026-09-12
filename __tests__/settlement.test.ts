@@ -1,5 +1,6 @@
 import {
   netBalances,
+  personBalances,
   simplifyDebts,
   transactionKey,
   type BalanceLine,
@@ -206,5 +207,121 @@ describe('transactionKey', () => {
     expect(
       transactionKey({ fromUserId: 'a', toUserId: 'b', amountAgorot: 500 })
     ).toBe('a:b:500');
+  });
+});
+
+describe('personBalances', () => {
+  const ME = 'user-me';
+  const DANA = 'user-dana';
+  const ITAI = 'user-itai';
+
+  it('reports nothing when everyone is square', () => {
+    expect(
+      personBalances(
+        [{ groupId: 'g1', groupName: 'Flat 4B', balances: [
+          { userId: ME, amountAgorot: 0 },
+          { userId: DANA, amountAgorot: 0 },
+        ] }],
+        ME
+      )
+    ).toEqual([]);
+  });
+
+  it('says who owes you, and how much', () => {
+    const totals = personBalances(
+      [{ groupId: 'g1', groupName: 'Flat 4B', balances: [
+        { userId: ME, amountAgorot: 4000 },
+        { userId: DANA, amountAgorot: -4000 },
+      ] }],
+      ME
+    );
+    expect(totals).toEqual([
+      { userId: DANA, amountAgorot: 4000, groupNames: ['Flat 4B'] },
+    ]);
+  });
+
+  it('signs what you owe as negative', () => {
+    const totals = personBalances(
+      [{ groupId: 'g1', groupName: 'Flat 4B', balances: [
+        { userId: ME, amountAgorot: -2500 },
+        { userId: DANA, amountAgorot: 2500 },
+      ] }],
+      ME
+    );
+    expect(totals[0]).toEqual({ userId: DANA, amountAgorot: -2500, groupNames: ['Flat 4B'] });
+  });
+
+  it('cancels the same person across two groups, and names both', () => {
+    const totals = personBalances(
+      [
+        { groupId: 'g1', groupName: 'Flat 4B', balances: [
+          { userId: ME, amountAgorot: 3000 },
+          { userId: DANA, amountAgorot: -3000 },
+        ] },
+        { groupId: 'g2', groupName: 'Sunday League', balances: [
+          { userId: ME, amountAgorot: -1000 },
+          { userId: DANA, amountAgorot: 1000 },
+        ] },
+      ],
+      ME
+    );
+    expect(totals).toEqual([
+      { userId: DANA, amountAgorot: 2000, groupNames: ['Flat 4B', 'Sunday League'] },
+    ]);
+  });
+
+  it('drops a person who nets to exactly zero across groups', () => {
+    const totals = personBalances(
+      [
+        { groupId: 'g1', groupName: 'Flat 4B', balances: [
+          { userId: ME, amountAgorot: 3000 },
+          { userId: DANA, amountAgorot: -3000 },
+        ] },
+        { groupId: 'g2', groupName: 'Sunday League', balances: [
+          { userId: ME, amountAgorot: -3000 },
+          { userId: DANA, amountAgorot: 3000 },
+        ] },
+      ],
+      ME
+    );
+    expect(totals).toEqual([]);
+  });
+
+  it('ignores debts between two other people', () => {
+    const totals = personBalances(
+      [{ groupId: 'g1', groupName: 'Flat 4B', balances: [
+        { userId: ME, amountAgorot: 0 },
+        { userId: DANA, amountAgorot: 5000 },
+        { userId: ITAI, amountAgorot: -5000 },
+      ] }],
+      ME
+    );
+    expect(totals).toEqual([]);
+  });
+
+  it('puts what you are owed before what you owe', () => {
+    const totals = personBalances(
+      [{ groupId: 'g1', groupName: 'Flat 4B', balances: [
+        { userId: ME, amountAgorot: 1000 },
+        { userId: DANA, amountAgorot: -4000 },
+        { userId: ITAI, amountAgorot: 3000 },
+      ] }],
+      ME
+    );
+    // Whatever the greedy matching pairs up, anything owed to me sorts first.
+    const amounts = totals.map((t) => t.amountAgorot);
+    expect([...amounts].sort((a, b) => b - a)).toEqual(amounts);
+  });
+
+  it('never invents money: every figure comes from a real transaction', () => {
+    const totals = personBalances(
+      [{ groupId: 'g1', groupName: 'Flat 4B', balances: [
+        { userId: ME, amountAgorot: -9000 },
+        { userId: DANA, amountAgorot: 4500 },
+        { userId: ITAI, amountAgorot: 4500 },
+      ] }],
+      ME
+    );
+    expect(totals.reduce((sum, t) => sum + t.amountAgorot, 0)).toBe(-9000);
   });
 });

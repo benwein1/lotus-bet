@@ -9,6 +9,7 @@ import { LogOutIcon, TrophyIcon } from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
 import { ProfileSkeleton } from '@/components/skeletons';
 import {
+  Avatar,
   Button,
   EmptyState,
   ErrorNotice,
@@ -24,10 +25,17 @@ import {
 import { useAsync } from '@/hooks/use-async';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
+import type { PersonBalance } from '@/lib/database.types';
 import { formatAgorot, formatShortDate } from '@/lib/format';
 import { clearPushToken } from '@/lib/notifications';
 import { cancelDeadlineReminders } from '@/lib/reminders';
-import { fetchMyGroups, fetchMyHistory, fetchMyStats, type HistoryEntry } from '@/lib/queries';
+import {
+  fetchMyGroups,
+  fetchMyHistory,
+  fetchMyPersonBalances,
+  fetchMyStats,
+  type HistoryEntry,
+} from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { useAppearance, useColors } from '@/providers/theme-provider';
 import { motion } from '@/theme';
@@ -62,6 +70,7 @@ export default function ProfileScreen() {
   const stats = useAsync(fetchMyStats, [userId]);
   const history = useAsync(() => fetchMyHistory(userId), [userId]);
   const groups = useAsync(fetchMyGroups, [userId]);
+  const owed = useAsync(() => fetchMyPersonBalances(userId), [userId]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,11 +78,13 @@ export default function ProfileScreen() {
 
   const { reload: reloadStats } = stats;
   const { reload: reloadHistory } = history;
+  const { reload: reloadOwed } = owed;
 
   const refresh = useCallback(() => {
     void reloadStats({ silent: true });
     void reloadHistory({ silent: true });
-  }, [reloadStats, reloadHistory]);
+    void reloadOwed({ silent: true });
+  }, [reloadStats, reloadHistory, reloadOwed]);
 
   // `undefined` rather than a boolean means the project has not had the
   // notification-prefs migration applied yet.
@@ -164,6 +175,15 @@ export default function ProfileScreen() {
                 <Text numberOfLines={1} className="mt-3.5 text-xl font-bold text-primary">
                   {profile.display_name}
                 </Text>
+                {/* The handle sits above the email because it is the one
+                    people need *from* you — it is how somebody challenges you
+                    without sharing a group. Absent on a project that has not
+                    applied `…_private_and_duels.sql` yet. */}
+                {profile.username ? (
+                  <Text numberOfLines={1} className="mt-1 text-callout font-semibold text-accent">
+                    @{profile.username}
+                  </Text>
+                ) : null}
                 <Text numberOfLines={1} className="mt-0.5 text-subhead text-secondary">
                   {profile.email ?? profile.phone ?? ''}
                 </Text>
@@ -225,6 +245,14 @@ export default function ProfileScreen() {
                 </ListGroup>
               </Animated.View>
             )}
+
+            {/* Directly under the record, because it is the answer to the
+                question the record raises: fine, so who do I actually pay? */}
+            <PeopleLedger
+              people={owed.data ?? []}
+              loading={owed.loading}
+              entering={entering(90)}
+            />
 
             <View className="mb-7">
               <SectionTitle>Appearance</SectionTitle>
@@ -329,6 +357,120 @@ export default function ProfileScreen() {
       </SafeAreaView>
       {dialog}
     </Screen>
+  );
+}
+
+/**
+ * Who you owe, and who owes you — netted across every group.
+ *
+ * Two lists rather than one, because the two directions are read completely
+ * differently: what you are owed is news, what you owe is a to-do. Mixing them
+ * into one signed column makes you parse a minus sign to find out which is
+ * which.
+ *
+ * The figures are the same ones settle-up would quote, computed by the same
+ * `simplifyDebts`. They can move when somebody else settles, because who pays
+ * whom is a suggestion the netting makes, not a debt anyone recorded — the
+ * ledger only ever stores a balance per person per group.
+ */
+function PeopleLedger({
+  people,
+  loading,
+  entering,
+}: {
+  people: PersonBalance[];
+  loading: boolean;
+  entering: ReturnType<typeof FadeInDown.duration> | undefined;
+}) {
+  const owedToYou = people.filter((p) => p.amountAgorot > 0);
+  const youOwe = people.filter((p) => p.amountAgorot < 0);
+
+  if (loading) {
+    return (
+      <View className="mb-7">
+        <SectionTitle>Who owes who</SectionTitle>
+        <Loading label="Working out the balances…" />
+      </View>
+    );
+  }
+
+  if (people.length === 0) {
+    return (
+      <Animated.View entering={entering} className="mb-7">
+        <SectionTitle>Who owes who</SectionTitle>
+        <View className="rounded-3xl border border-hairline bg-surface px-6 py-7">
+          <Text className="text-center text-subhead leading-5 text-secondary">
+            You&apos;re square with everyone. Nothing outstanding in any of your groups.
+          </Text>
+        </View>
+      </Animated.View>
+    );
+  }
+
+  return (
+    <Animated.View entering={entering} className="mb-7">
+      <SectionTitle>Who owes who</SectionTitle>
+
+      {owedToYou.length > 0 && (
+        <>
+          <Text className="mb-2 px-1 text-sm text-secondary">Owes you</Text>
+          <ListGroup className="mb-4">
+            {owedToYou.map((person, index) => (
+              <PersonRow
+                key={person.user.id}
+                person={person}
+                last={index === owedToYou.length - 1}
+              />
+            ))}
+          </ListGroup>
+        </>
+      )}
+
+      {youOwe.length > 0 && (
+        <>
+          <Text className="mb-2 px-1 text-sm text-secondary">You owe</Text>
+          <ListGroup>
+            {youOwe.map((person, index) => (
+              <PersonRow
+                key={person.user.id}
+                person={person}
+                last={index === youOwe.length - 1}
+              />
+            ))}
+          </ListGroup>
+        </>
+      )}
+
+      <Text className="mt-2.5 px-1 text-sm text-tertiary">
+        Lotus Bet never moves money. Settle up however you already do.
+      </Text>
+    </Animated.View>
+  );
+}
+
+function PersonRow({ person, last }: { person: PersonBalance; last: boolean }) {
+  return (
+    <View
+      className={`flex-row items-center gap-3 px-4 py-3 ${
+        last ? '' : 'border-b border-hairline'
+      }`}
+    >
+      <Avatar
+        id={person.user.id}
+        name={person.user.display_name}
+        uri={person.user.avatar_url}
+        size={34}
+      />
+      <View className="flex-1">
+        <Text numberOfLines={1} className="text-callout font-semibold text-primary">
+          {person.user.display_name}
+        </Text>
+        <Text numberOfLines={1} className="text-sm text-secondary">
+          {person.groupNames.join(', ')}
+        </Text>
+      </View>
+      <Money agorot={Math.abs(person.amountAgorot)} tone={person.amountAgorot > 0 ? 'positive' : 'negative'} />
+    </View>
   );
 }
 

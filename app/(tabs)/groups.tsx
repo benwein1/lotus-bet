@@ -5,7 +5,7 @@ import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GroupGlyph } from '@/components/group-glyph';
-import { ChevronRightIcon, GroupsIcon, PlusIcon } from '@/components/icons';
+import { ChevronRightIcon, GroupsIcon, PlusIcon, SwordsIcon } from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
 import { GroupListSkeleton } from '@/components/skeletons';
 import {
@@ -81,6 +81,29 @@ export default function GroupsScreen() {
                 onPress={() => router.push('/group/join')}
               />
             </View>
+
+            {/* Challenging one person is not a third kind of group, so it sits
+                below the two group actions rather than beside them — and there
+                is no card for it in the list, because a duel would otherwise
+                turn this tab into a roster of everyone you have ever bet
+                against. It surfaces in the feed and on your profile instead. */}
+            <PressableScale
+              onPress={() => router.push('/challenge')}
+              accessibilityRole="button"
+              accessibilityLabel="Challenge one person by username"
+              className="mb-6 -mt-2 flex-row items-center gap-3 rounded-2xl border border-hairline bg-surface px-4 py-3"
+            >
+              <SwordsIcon size={20} color={colors.accent} />
+              <View className="flex-1">
+                <Text className="text-callout font-semibold text-primary">
+                  Challenge one person
+                </Text>
+                <Text numberOfLines={1} className="text-sm text-secondary">
+                  By username — no shared group needed
+                </Text>
+              </View>
+              <ChevronRightIcon size={16} color={colors.textTertiary} />
+            </PressableScale>
 
             {groups.loading ? (
               <GroupListSkeleton />

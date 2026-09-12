@@ -167,6 +167,23 @@ export function CheckIcon(props: IconProps) {
   );
 }
 
+/**
+ * The platform share glyph: a box with something leaving through the top.
+ *
+ * Deliberately iOS's shape rather than the three-connected-dots Android uses.
+ * This is an iOS-first app, and the arrow-out-of-a-tray is the mark people
+ * here already read as "send this somewhere else".
+ */
+export function ShareIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Path d="M12 3.6v10.2" />
+      <Path d="M8.4 7.2 12 3.6l3.6 3.6" />
+      <Path d="M6.6 11.4H5.8a1.4 1.4 0 0 0-1.4 1.4v6.4a1.4 1.4 0 0 0 1.4 1.4h12.4a1.4 1.4 0 0 0 1.4-1.4v-6.4a1.4 1.4 0 0 0-1.4-1.4h-.8" />
+    </Icon>
+  );
+}
+
 export function CopyIcon(props: IconProps) {
   return (
     <Icon {...props}>
@@ -304,6 +321,58 @@ export function EyeIcon({ active, ...props }: IconProps) {
           <Circle cx={12} cy={12} r={2.9} />
         </>
       )}
+    </Icon>
+  );
+}
+
+/**
+ * The heart, and the one colour decision worth writing down.
+ *
+ * Instagram's heart turns red. Ours turns **accent blue**, because in this app
+ * red already means "money you owe" and green "money owed to you" — on the
+ * odds bar, on the side buttons and on every balance row. A red heart would
+ * hand red a third, unrelated job in the one place people are reading amounts.
+ * Blue is the colour that carries actions here, and liking is an action.
+ */
+export function HeartIcon({ active, ...props }: IconProps) {
+  return (
+    <Icon {...props}>
+      <Path
+        d="M12 20.3s-7.4-4.6-7.4-9.5a4.3 4.3 0 0 1 7.4-3 4.3 4.3 0 0 1 7.4 3c0 4.9-7.4 9.5-7.4 9.5z"
+        fill={active ? (props.color ?? undefined) : 'none'}
+        fillOpacity={active ? 1 : 0}
+      />
+    </Icon>
+  );
+}
+
+/**
+ * A speech bubble with its tail at the bottom left.
+ *
+ * Never filled: a comment count is information, not a state you are in. Only
+ * the heart has an on and an off.
+ */
+export function CommentIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Path d="M20.4 12.1a7.9 7.9 0 0 1-8.4 7.8 9 9 0 0 1-2.6-.4L4.8 20.8l1.3-4.2a7.5 7.5 0 0 1-1.5-4.5 7.9 7.9 0 0 1 8.4-7.8 8 8 0 0 1 7.4 7.8z" />
+    </Icon>
+  );
+}
+
+/**
+ * Two crossed blades — one against one.
+ *
+ * The only icon in the set that is not a literal object from the app. It reads
+ * as a duel at a glance in a way that two avatars or a "vs" glyph does not,
+ * and it is the same mark the duel group carries.
+ */
+export function SwordsIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Path d="M4.2 3.6h3l9.6 12.2-2 2.2z" />
+      <Path d="M19.8 3.6h-3L7.2 15.8l2 2.2z" />
+      <Path d="M5.6 19.4 8 21.2M18.4 19.4 16 21.2" />
     </Icon>
   );
 }

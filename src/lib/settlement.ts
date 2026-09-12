@@ -119,3 +119,71 @@ export function transactionKey(txn: SettlementTransaction): string {
 function cmp(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
+
+/** One group's netted balances, ready to be folded into a per-person total. */
+export interface GroupLedger {
+  groupId: string;
+  groupName: string;
+  balances: readonly BalanceLine[];
+}
+
+/** What one counterparty owes you, or you them, across every group you share. */
+export interface PersonTotal {
+  userId: string;
+  /** Positive: they owe you. Negative: you owe them. */
+  amountAgorot: number;
+  /** Every group that contributed, in the order they were passed. */
+  groupNames: string[];
+}
+
+/**
+ * Roll every group's suggested settlements up into one figure per person.
+ *
+ * Debts only net *within* a group — the ledger has no notion of a debt between
+ * two people, only a balance per person per group — so this runs the same
+ * `simplifyDebts` the settle-up screen runs, per group, and then sums the
+ * transactions that involve you. Two consequences worth knowing:
+ *
+ * - Owing Dana in one group and being owed by her in another cancels out, and
+ *   the row names both groups. That matches what people mean by "what do we
+ *   owe each other".
+ * - The figure is a *suggestion*, the same one settle-up shows, not a stored
+ *   debt. It can change when someone else settles, because the greedy matching
+ *   re-runs. That is a property of the netting, not of this function.
+ *
+ * People who come out at zero are dropped. Sorted with the largest amount owed
+ * to you first, then the largest you owe, so the good news reads first and the
+ * order is deterministic.
+ */
+export function personBalances(
+  ledgers: readonly GroupLedger[],
+  myUserId: string
+): PersonTotal[] {
+  const totals = new Map<string, { amount: number; groups: string[] }>();
+
+  for (const ledger of ledgers) {
+    for (const txn of simplifyDebts(ledger.balances)) {
+      // Only transactions with me on one side say anything about what I owe.
+      const iPay = txn.fromUserId === myUserId;
+      const iAmPaid = txn.toUserId === myUserId;
+      if (!iPay && !iAmPaid) continue;
+
+      const other = iPay ? txn.toUserId : txn.fromUserId;
+      const signed = iAmPaid ? txn.amountAgorot : -txn.amountAgorot;
+
+      const entry = totals.get(other) ?? { amount: 0, groups: [] };
+      entry.amount += signed;
+      if (!entry.groups.includes(ledger.groupName)) entry.groups.push(ledger.groupName);
+      totals.set(other, entry);
+    }
+  }
+
+  return [...totals.entries()]
+    .filter(([, entry]) => entry.amount !== 0)
+    .map(([userId, entry]) => ({
+      userId,
+      amountAgorot: entry.amount,
+      groupNames: entry.groups,
+    }))
+    .sort((a, b) => b.amountAgorot - a.amountAgorot || cmp(a.userId, b.userId));
+}

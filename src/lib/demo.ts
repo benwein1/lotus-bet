@@ -15,17 +15,24 @@
  * - The entry point only renders in development (see `DEMO_AVAILABLE`).
  */
 import { computeBetPayouts } from './payout';
+import { personBalances } from './settlement';
 import type {
-  BetOptionRow,
+  BetComment,
+  BetCommentRow,
   BetLedgerEntryRow,
+  BetLikeRow,
+  BetOptionRow,
   BetMedia,
   BetRow,
   BetSide,
   BetWithPositions,
   GroupBalanceRow,
+  GroupInviteRow,
   GroupMemberRow,
   GroupRow,
   MyStatsRow,
+  PersonBalance,
+  UserLookup,
   SettlementConfirmationRow,
   UserRow,
 } from './database.types';
@@ -74,6 +81,9 @@ function user(id: string, name: string, email: string): UserRow {
     email,
     phone: null,
     display_name: name,
+    // The handle other people would challenge them by, derived the same way
+    // the migration's backfill does it.
+    username: email.split('@')[0],
     profile_completed: true,
     avatar_url: null,
     expo_push_token: null,
@@ -148,12 +158,15 @@ function demoMedia(id: string, betId: string, groupId: string, url: string): Bet
 interface DemoState {
   groups: GroupRow[];
   members: GroupMemberRow[];
+  invites: GroupInviteRow[];
   bets: BetRow[];
   options: BetOptionRow[];
   media: BetMedia[];
   positions: { bet_id: string; user_id: string; side: BetSide | null; option_id: string }[];
   ledger: BetLedgerEntryRow[];
   settlements: SettlementConfirmationRow[];
+  likes: BetLikeRow[];
+  comments: BetCommentRow[];
   profile: UserRow;
 }
 
@@ -205,11 +218,14 @@ function emptySeed(): DemoState {
     profile: { ...demoProfile },
     groups: [],
     members: [],
+    invites: [],
     bets: [],
     options: [],
     positions: [],
     ledger: [],
     settlements: [],
+    likes: [],
+    comments: [],
     media: [],
   };
 }
@@ -251,6 +267,7 @@ function seed(): SeededState {
       { group_id: 'demo-group-2', user_id: DEMO_USER_ID, role: 'admin', joined_at: iso(-24 * 12) },
       { group_id: 'demo-group-2', user_id: NOA, role: 'member', joined_at: iso(-24 * 11) },
     ],
+    invites: [],
     bets: [
       {
         id: 'demo-bet-1',
@@ -355,6 +372,8 @@ function seed(): SeededState {
       },
     ],
     settlements: [],
+    likes: [],
+    comments: [],
   };
 }
 
@@ -388,6 +407,10 @@ function withPositions(bet: BetRow, includeGroup = false): BetWithPositions {
     media: state.media
       .filter((m) => m.bet_id === bet.id)
       .sort((a, b) => a.position - b.position),
+    likes: state.likes
+      .filter((l) => l.bet_id === bet.id)
+      .map((l) => ({ user_id: l.user_id })),
+    comments: [{ count: state.comments.filter((c) => c.bet_id === bet.id).length }],
     ...(includeGroup && group
       ? { group: { id: group.id, name: group.name, emoji: group.emoji } }
       : {}),
@@ -402,7 +425,12 @@ const byNewest = (a: { created_at: string }, b: { created_at: string }) =>
 export const demo = {
   async fetchMyGroups(): Promise<GroupWithMembers[]> {
     const ids = myGroupIds();
-    return clone(state.groups.filter((g) => ids.includes(g.id)).sort(byNewest).map(withMembers));
+    return clone(
+      state.groups
+        .filter((g) => ids.includes(g.id) && g.kind !== 'duel')
+        .sort(byNewest)
+        .map(withMembers)
+    );
   },
 
   async fetchGroup(groupId: string): Promise<GroupWithMembers> {
@@ -458,6 +486,64 @@ export const demo = {
     state.members = state.members.filter(
       (m) => !(m.group_id === groupId && m.user_id === userId)
     );
+  },
+
+  async createGroupInvite(groupId: string): Promise<GroupInviteRow> {
+    const group = state.groups.find((g) => g.id === groupId);
+    if (!group) throw new Error('Group not found');
+    if (group.kind === 'duel') throw new Error('A one-on-one challenge cannot be shared');
+
+    // Same reuse rule as the real RPC, so the demo cannot show behaviour the
+    // backend does not have.
+    const live = state.invites.find(
+      (i) =>
+        i.group_id === groupId &&
+        i.revoked_at === null &&
+        new Date(i.expires_at).getTime() > Date.now()
+    );
+    if (live) return clone(live);
+
+    const invite: GroupInviteRow = {
+      id: `invite-${state.invites.length + 1}`,
+      group_id: groupId,
+      token: `demo${Math.random().toString(36).slice(2, 10)}`,
+      created_by: DEMO_USER_ID,
+      expires_at: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString(),
+      revoked_at: null,
+      max_uses: null,
+      uses: 0,
+      created_at: new Date().toISOString(),
+    };
+    state.invites.push(invite);
+    return clone(invite);
+  },
+
+  async revokeGroupInvite(token: string): Promise<void> {
+    const invite = state.invites.find((i) => i.token === token);
+    if (invite) invite.revoked_at = new Date().toISOString();
+  },
+
+  async joinGroupWithInvite(token: string): Promise<GroupRow> {
+    const invite = state.invites.find((i) => i.token === token.trim());
+    if (!invite) throw new Error('That invite link is not valid');
+    if (invite.revoked_at) throw new Error('That invite link was cancelled');
+    if (new Date(invite.expires_at).getTime() <= Date.now()) {
+      throw new Error('That invite link has expired');
+    }
+
+    const group = state.groups.find((g) => g.id === invite.group_id);
+    if (!group) throw new Error('That group no longer exists');
+
+    if (!state.members.some((m) => m.group_id === group.id && m.user_id === DEMO_USER_ID)) {
+      state.members.push({
+        group_id: group.id,
+        user_id: DEMO_USER_ID,
+        role: 'member',
+        joined_at: new Date().toISOString(),
+      });
+      invite.uses += 1;
+    }
+    return clone(group);
   },
 
   async fetchGroupBets(groupId: string): Promise<BetWithPositions[]> {
@@ -710,6 +796,123 @@ export const demo = {
   async updateProfile(patch: Partial<UserRow>): Promise<UserRow> {
     state.profile = { ...state.profile, ...patch };
     return clone(state.profile);
+  },
+
+  async fetchAllMyGroups(): Promise<GroupWithMembers[]> {
+    const ids = myGroupIds();
+    return clone(state.groups.filter((g) => ids.includes(g.id)).sort(byNewest).map(withMembers));
+  },
+
+  async findUserByUsername(username: string): Promise<UserLookup | null> {
+    const handle = username.trim().replace(/^@/, '').toLowerCase();
+    const match = Object.values(USERS).find(
+      (u) => u.id !== DEMO_USER_ID && (u.username ?? '').toLowerCase() === handle
+    );
+    if (!match) return null;
+    return clone({
+      id: match.id,
+      display_name: match.display_name,
+      username: match.username ?? '',
+      avatar_url: match.avatar_url,
+    });
+  },
+
+  async createDuel(username: string): Promise<GroupRow> {
+    const them = await demo.findUserByUsername(username);
+    if (!them) throw new Error('No one is using that username');
+
+    // Same reuse rule as the real RPC: challenging the same person twice must
+    // land in the same group or their running total with you fragments.
+    const existing = state.groups.find(
+      (g) =>
+        g.kind === 'duel' &&
+        state.members.filter((m) => m.group_id === g.id).length === 2 &&
+        state.members.some((m) => m.group_id === g.id && m.user_id === DEMO_USER_ID) &&
+        state.members.some((m) => m.group_id === g.id && m.user_id === them.id)
+    );
+    if (existing) return clone(existing);
+
+    const group: GroupRow = {
+      id: `demo-duel-${Date.now()}`,
+      name: `${state.profile.display_name} v ${them.display_name}`,
+      emoji: '⚔️',
+      kind: 'duel',
+      created_by: DEMO_USER_ID,
+      invite_code: randomCode(),
+      created_at: new Date().toISOString(),
+    };
+    state.groups.push(group);
+    state.members.push(
+      { group_id: group.id, user_id: DEMO_USER_ID, role: 'admin', joined_at: group.created_at },
+      { group_id: group.id, user_id: them.id, role: 'member', joined_at: group.created_at }
+    );
+    return clone(group);
+  },
+
+  async setBetLike(betId: string, userId: string, liked: boolean): Promise<void> {
+    state.likes = state.likes.filter((l) => !(l.bet_id === betId && l.user_id === userId));
+    if (liked) {
+      state.likes.push({ bet_id: betId, user_id: userId, created_at: new Date().toISOString() });
+    }
+  },
+
+  async fetchBetComments(betId: string): Promise<BetComment[]> {
+    return clone(
+      state.comments
+        .filter((c) => c.bet_id === betId)
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((c) => ({ ...c, author: USERS[c.user_id] ?? null }))
+    );
+  },
+
+  async postBetComment(betId: string, userId: string, body: string): Promise<BetComment> {
+    const trimmed = body.trim();
+    if (!trimmed) throw new Error('Write something first.');
+    const row: BetCommentRow = {
+      id: `demo-comment-${Date.now()}`,
+      bet_id: betId,
+      user_id: userId,
+      body: trimmed,
+      created_at: new Date().toISOString(),
+    };
+    state.comments.push(row);
+    return clone({ ...row, author: USERS[userId] ?? null });
+  },
+
+  async deleteBetComment(commentId: string): Promise<void> {
+    state.comments = state.comments.filter((c) => c.id !== commentId);
+  },
+
+  async fetchMyPersonBalances(userId: string): Promise<PersonBalance[]> {
+    const ledgers = state.groups
+      .filter((g) => myGroupIds().includes(g.id))
+      .map((group) => ({
+        groupId: group.id,
+        groupName: group.kind === 'duel' ? 'Just the two of you' : group.name,
+        balances: state.members
+          .filter((m) => m.group_id === group.id)
+          .map((m) => ({
+            userId: m.user_id,
+            amountAgorot:
+              state.ledger
+                .filter((e) => e.group_id === group.id && e.user_id === m.user_id)
+                .reduce((sum, e) => sum + e.amount_agorot, 0) +
+              state.settlements
+                .filter((s) => s.group_id === group.id && s.from_user_id === m.user_id)
+                .reduce((sum, s) => sum + s.amount_agorot, 0) -
+              state.settlements
+                .filter((s) => s.group_id === group.id && s.to_user_id === m.user_id)
+                .reduce((sum, s) => sum + s.amount_agorot, 0),
+          })),
+      }));
+
+    // The same netting the real path uses, so the demo cannot drift into a
+    // second answer for "what do we owe each other".
+    return personBalances(ledgers, userId).map((total) => ({
+      user: USERS[total.userId] ?? { id: total.userId, display_name: 'Someone', avatar_url: null },
+      amountAgorot: total.amountAgorot,
+      groupNames: total.groupNames,
+    }));
   },
 
   currentProfile(): UserRow {

@@ -11,6 +11,7 @@ import {
   CameraIcon,
   CheckIcon,
   CopyIcon,
+  ShareIcon,
   HandshakeIcon,
   PlusIcon,
   TicketIcon,
@@ -29,8 +30,10 @@ import {
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
+import { inviteUrl, linkTargets, shareInvite } from '@/lib/invites';
 import { pickAvatar, uploadAvatar } from '@/lib/media';
 import {
+  createGroupInvite,
   fetchGroup,
   fetchGroupBalances,
   fetchGroupBets,
@@ -44,7 +47,7 @@ export default function GroupDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const groupId = id ?? '';
   const router = useRouter();
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
   const colors = useColors();
   const userId = session?.user.id ?? '';
 
@@ -95,6 +98,29 @@ export default function GroupDetailScreen() {
   useFocusEffect(refresh);
 
   const [copied, setCopied] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
+
+  /**
+   * Mint (or reuse) a link and hand it to the OS share sheet.
+   *
+   * The link is made on demand rather than up front: most people open a group
+   * to look at bets, not to invite anyone, and a row in `group_invites` per
+   * screen view would be a table full of links nobody sent.
+   */
+  async function shareLink() {
+    if (!group.data || sharing) return;
+    setSharing(true);
+    setShareError(null);
+    try {
+      const invite = await createGroupInvite(group.data.id);
+      await shareInvite(group.data.name, inviteUrl(invite.token, linkTargets()), profile?.display_name);
+    } catch (err) {
+      setShareError(err instanceof Error ? err.message : 'Could not make an invite link.');
+    } finally {
+      setSharing(false);
+    }
+  }
 
   async function copyInvite() {
     if (!group.data) return;
@@ -252,36 +278,54 @@ export default function GroupDetailScreen() {
                   ))}
                 </View>
 
-                <View className="mt-3">
-                  <PressableScale
-                    onPress={copyInvite}
-                    scaleTo={0.985}
-                    accessibilityRole="button"
-                    accessibilityLabel="Copy invite code"
-                    className="flex-row items-center justify-between rounded-3xl border border-hairline bg-surface px-4 py-4"
-                  >
-                    <View>
-                      <Text className="text-sm text-secondary">Invite code</Text>
-                      <Text className="mt-0.5 text-xl font-bold tracking-[4px] text-primary">
-                        {group.data.invite_code}
-                      </Text>
-                    </View>
-                    <View className="flex-row items-center gap-1.5">
-                      {copied ? (
-                        <CheckIcon size={16} color={colors.positive} />
-                      ) : (
-                        <CopyIcon size={16} color={colors.accent} />
-                      )}
-                      <Text
-                        className={`text-subhead font-semibold ${
-                          copied ? 'text-positive' : 'text-accent'
-                        }`}
-                      >
-                        {copied ? 'Copied' : 'Copy'}
-                      </Text>
-                    </View>
-                  </PressableScale>
-                </View>
+                {/* Two ways in, in the order people actually use them. A link
+                    goes in the chat the group already lives in; the code is
+                    for reading out loud to someone sitting next to you. A duel
+                    gets neither — it is two people by definition. */}
+                {group.data.kind !== 'duel' && (
+                  <View className="mt-3 gap-2.5">
+                    <Button
+                      title={sharing ? 'Preparing link' : 'Share invite'}
+                      variant="tinted"
+                      size="lg"
+                      loading={sharing}
+                      disabled={sharing}
+                      icon={<ShareIcon size={18} color={colors.accent} />}
+                      onPress={() => void shareLink()}
+                    />
+
+                    {shareError && <ErrorNotice message={shareError} />}
+
+                    <PressableScale
+                      onPress={copyInvite}
+                      scaleTo={0.985}
+                      accessibilityRole="button"
+                      accessibilityLabel="Copy invite code"
+                      className="flex-row items-center justify-between rounded-3xl border border-hairline bg-surface px-4 py-4"
+                    >
+                      <View>
+                        <Text className="text-sm text-secondary">Or read out the code</Text>
+                        <Text className="mt-0.5 text-xl font-bold tracking-[4px] text-primary">
+                          {group.data.invite_code}
+                        </Text>
+                      </View>
+                      <View className="flex-row items-center gap-1.5">
+                        {copied ? (
+                          <CheckIcon size={16} color={colors.positive} />
+                        ) : (
+                          <CopyIcon size={16} color={colors.accent} />
+                        )}
+                        <Text
+                          className={`text-subhead font-semibold ${
+                            copied ? 'text-positive' : 'text-accent'
+                          }`}
+                        >
+                          {copied ? 'Copied' : 'Copy'}
+                        </Text>
+                      </View>
+                    </PressableScale>
+                  </View>
+                )}
               </View>
             </Animated.View>
 

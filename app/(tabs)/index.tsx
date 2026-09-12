@@ -25,7 +25,7 @@ import { isNewSince, useLastSeen } from '@/hooks/use-last-seen';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import type { BetWithPositions } from '@/lib/database.types';
-import { fetchFeedBets, fetchMyGroups, joinBetOption } from '@/lib/queries';
+import { fetchFeedBets, fetchMyGroups, joinBetOption, setBetLike } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
 import { motion } from '@/theme';
@@ -147,6 +147,16 @@ export default function FeedScreen() {
     }
   }
 
+  /**
+   * The heart has already moved by the time this runs — `BetActions` owns the
+   * optimistic state and rolls itself back if this throws. So the only job
+   * here is the write and a quiet refresh to pick up anyone else's likes.
+   */
+  async function toggleLike(betId: string, next: boolean) {
+    await setBetLike(betId, userId, next);
+    void reloadFeed({ silent: true });
+  }
+
   const myGroups = groups.data ?? [];
 
   return (
@@ -221,6 +231,7 @@ export default function FeedScreen() {
                       isNew={isNewSince(item.created_at, since, item.creator_id, userId)}
                       onPickOption={(optionId) => pickOption(item.id, optionId)}
                       busyOptionId={busy?.betId === item.id ? busy.optionId : null}
+                      onToggleLike={(next) => toggleLike(item.id, next)}
                     />
                   </ContentWidth>
                 )}

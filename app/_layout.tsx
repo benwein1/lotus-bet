@@ -13,6 +13,7 @@ import { ChevronLeftIcon } from '@/components/icons';
 import { Screen } from '@/components/screen';
 import { PressableScale } from '@/components/ui';
 import { isDemoMode } from '@/lib/demo';
+import { takePendingInvite } from '@/lib/invites';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { AuthProvider, useAuth } from '@/providers/auth-provider';
 import { ThemeProvider, useColors, useScheme } from '@/providers/theme-provider';
@@ -83,7 +84,13 @@ function RootNavigator() {
     } else if (session && needsProfileSetup && path[1] !== 'profile-setup') {
       router.replace('/(auth)/profile-setup');
     } else if (session && !needsProfileSetup && inAuthGroup) {
-      router.replace('/(tabs)');
+      // Somebody who arrived on an invite link and had to make an account
+      // first goes back to the link, not to an empty Groups tab. `take` clears
+      // it, so a stale token can never redirect a later sign-in.
+      void takePendingInvite().then((token) => {
+        if (token) router.replace({ pathname: '/join/[token]', params: { token } });
+        else router.replace('/(tabs)');
+      });
     }
   }, [session, loading, needsProfileSetup, segments, router]);
 
@@ -117,7 +124,11 @@ function RootNavigator() {
           discoverable — there is always a visible way out. */}
       <Stack.Screen name="group/create" options={modalOptions('New group')} />
       <Stack.Screen name="group/join" options={modalOptions('Join a group')} />
+      <Stack.Screen name="challenge" options={modalOptions('Challenge someone')} />
       <Stack.Screen name="group/[id]/index" options={{ title: '' }} />
+      {/* No header: it resolves and moves on, and a "Join a group" title on a
+          screen that has already joined you is a caption for the wrong moment. */}
+      <Stack.Screen name="join/[token]" options={{ headerShown: false }} />
       <Stack.Screen name="group/[id]/new-bet" options={modalOptions('New bet')} />
       <Stack.Screen name="group/[id]/settle" options={{ title: 'Settle up' }} />
       <Stack.Screen name="bet/[id]" options={{ title: '' }} />

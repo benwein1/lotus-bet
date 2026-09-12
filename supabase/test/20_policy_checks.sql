@@ -412,3 +412,347 @@ select 'both keys present' as check,
   from pg_constraint
  where contype = 'f'
    and conname in ('bet_options_bet_id_fkey', 'bets_winning_option_id_fkey');
+
+\echo '--- 17. Likes and comments follow the bet they are attached to ---'
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+
+  \echo '  (a) a member can like and comment on a bet in their group'
+  insert into public.bet_likes (bet_id, user_id)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001');
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001', 'Easy money');
+  select 'visible to the member' as check,
+         (select count(*) from public.bet_likes) as likes,
+         (select count(*) from public.bet_comments) as comments;
+
+  \echo '  (b) liking twice is refused by the key, not counted twice'
+  savepoint s;
+  insert into public.bet_likes (bet_id, user_id)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001');
+  rollback to s;
+
+  \echo '  (c) you cannot like as somebody else'
+  savepoint s;
+  insert into public.bet_likes (bet_id, user_id)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000002');
+  rollback to s;
+
+  \echo '  (d) a comment cannot be edited — there is no update policy'
+  with edited as (
+    update public.bet_comments set body = 'Actually I said the opposite' returning 1
+  )
+  select 'rows an edit could touch' as check, count(*) as rows from edited;
+
+  -- `dddddddd-…` is the account that belongs to no group. (`bbbbbbbb-…` is the
+  -- *group* id; using it here would have tested "a subject that is nobody",
+  -- which passes for the wrong reason.)
+  \echo '  (e) an outsider sees neither, and cannot add either'
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+  select 'what the outsider sees' as check,
+         (select count(*) from public.bet_likes) as likes,
+         (select count(*) from public.bet_comments) as comments;
+
+  savepoint s;
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000', 'dddddddd-0000-4000-8000-000000000000', 'let me in');
+  rollback to s;
+
+  \echo '  (f) and cannot delete a comment that is not theirs'
+  with removed as (
+    delete from public.bet_comments returning 1
+  )
+  select 'rows a delete could touch' as check, count(*) as rows from removed;
+rollback;
+
+\echo '--- 18. my_group_balances agrees with group_balances ---'
+-- The Profile ledger and the settle-up screen must never quote different
+-- numbers. They read different functions, so the two are compared here rather
+-- than trusted to stay in step.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  select 'rows disagreeing with group_balances' as check, count(*) as mismatches
+    from public.my_group_balances() mine
+    join public.groups g on g.id = mine.group_id
+    join lateral public.group_balances(mine.group_id) theirs
+      on theirs.user_id = mine.user_id
+   where mine.amount_agorot is distinct from theirs.amount_agorot;
+
+  select 'groups covered, and they all net to zero' as check,
+         count(distinct group_id) as groups,
+         sum(amount_agorot) as total
+    from public.my_group_balances();
+
+  \echo '  an outsider gets nothing back at all'
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+  select 'rows for somebody in no group' as check, count(*) as rows
+    from public.my_group_balances();
+rollback;
+
+\echo '--- 19. A private bet is invisible to the rest of the group ---'
+-- This is the riskiest change in the schema: every policy guarding a bet or
+-- anything attached to one now goes through `can_see_bet`. A private bet whose
+-- options, positions, likes or comments were still readable would be private
+-- in name only, so each one is checked separately rather than assumed.
+begin;
+  \echo '  (0) before it is private, an ordinary member can see it'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000004';
+  select 'member, bet still public' as who, count(*) as bets
+    from public.bets where id = 'cccccccc-0000-4000-8000-000000000000';
+  reset role;
+
+  -- Setup outside the role: making a bet private is the creator's act, but
+  -- planting the attachments is fixture work.
+  update public.bets set visibility = 'private'
+   where id = 'cccccccc-0000-4000-8000-000000000000';
+  insert into public.bet_invitees (bet_id, user_id)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001')
+  on conflict do nothing;
+  insert into public.bet_likes (bet_id, user_id)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001')
+  on conflict do nothing;
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001', 'ours only');
+
+  set local role authenticated;
+
+  \echo '  (a) an invitee sees the bet and everything on it'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select 'invitee' as who,
+         (select count(*) from public.bets where id = 'cccccccc-0000-4000-8000-000000000000') as bets,
+         (select count(*) from public.bet_options where bet_id = 'cccccccc-0000-4000-8000-000000000000') as options,
+         (select count(*) from public.bet_positions where bet_id = 'cccccccc-0000-4000-8000-000000000000') as positions,
+         (select count(*) from public.bet_likes where bet_id = 'cccccccc-0000-4000-8000-000000000000') as likes,
+         (select count(*) from public.bet_comments where bet_id = 'cccccccc-0000-4000-8000-000000000000') as comments;
+
+  \echo '  (b) the creator always sees it, invited or not'
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select 'creator' as who,
+         (select count(*) from public.bets where id = 'cccccccc-0000-4000-8000-000000000000') as bets;
+
+  \echo '  (c) a group member who was NOT invited sees none of it'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000004';
+  select 'uninvited member' as who,
+         (select count(*) from public.bets where id = 'cccccccc-0000-4000-8000-000000000000') as bets,
+         (select count(*) from public.bet_options where bet_id = 'cccccccc-0000-4000-8000-000000000000') as options,
+         (select count(*) from public.bet_positions where bet_id = 'cccccccc-0000-4000-8000-000000000000') as positions,
+         (select count(*) from public.bet_likes where bet_id = 'cccccccc-0000-4000-8000-000000000000') as likes,
+         (select count(*) from public.bet_comments where bet_id = 'cccccccc-0000-4000-8000-000000000000') as comments;
+
+  \echo '  (d) and cannot join it or comment on it'
+  savepoint s;
+  insert into public.bet_positions (bet_id, user_id, option_id)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000004',
+          (select id from public.bet_options
+            where bet_id = 'cccccccc-0000-4000-8000-000000000000' and position = 0));
+  rollback to s;
+
+  savepoint s;
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000004', 'let me in');
+  rollback to s;
+
+  \echo '  (e) other bets in the same group are untouched'
+  select 'other bets this member can still see' as check, count(*) as bets
+    from public.bets
+   where group_id = (select group_id from public.bets where id = 'cccccccc-0000-4000-8000-000000000000')
+     and id <> 'cccccccc-0000-4000-8000-000000000000';
+rollback;
+
+\echo '--- 20. Usernames and duels ---'
+begin;
+  \echo '  (a) the backfill gave every existing account a handle'
+  select 'accounts without a username' as check, count(*) as missing
+    from public.users where username is null;
+  select 'handles are unique' as check,
+         count(*) as accounts, count(distinct lower(username)) as distinct_handles
+    from public.users;
+
+  -- Read the handles *before* dropping into the role. Under RLS a client
+  -- cannot see the row of somebody they share no group with — which is the
+  -- entire premise of this feature: you type a handle you already know, you do
+  -- not look it up in a list.
+  select username as mine from public.users where id = '00000000-0000-4000-8000-000000000001' \gset
+  select username as theirs from public.users where id = 'dddddddd-0000-4000-8000-000000000000' \gset
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+
+  \echo '  (b) lookup is exact, case-insensitive, and never returns yourself'
+  select 'found by exact handle, upper-cased' as check, count(*) as rows
+    from public.find_user_by_username(upper(:'theirs'));
+
+  select 'a prefix finds nobody — this is not a search' as check, count(*) as rows
+    from public.find_user_by_username(substr(:'theirs', 1, 2));
+
+  select 'you cannot look up yourself' as check, count(*) as rows
+    from public.find_user_by_username(:'mine');
+
+  \echo '  (c) a challenge creates a hidden two-person group with someone you share nothing with'
+  -- Counted in a separate statement: rows inserted inside a function are not
+  -- visible to the snapshot of the query that called it.
+  select 'duel created' as check, (public.create_duel(:'theirs')).kind as kind;
+  select 'members it has' as check, count(*) as members
+    from public.group_members m
+   where m.group_id = (select g.id from public.groups g where g.kind = 'duel' limit 1);
+
+  \echo '  (d) challenging them again reuses it, never forks the ledger'
+  -- `.id`, not `IS NOT NULL` on the whole row: a composite is only "not null"
+  -- when every column is, and a duel has no avatar.
+  select 'second call returned a group' as check,
+         (public.create_duel(:'theirs')).id is not null as ok;
+
+  select 'duels between us, after calling twice' as check, count(*) as groups
+    from public.groups g
+   where g.kind = 'duel'
+     and exists (select 1 from public.group_members m
+                  where m.group_id = g.id and m.user_id = '00000000-0000-4000-8000-000000000001')
+     and exists (select 1 from public.group_members m
+                  where m.group_id = g.id and m.user_id = 'dddddddd-0000-4000-8000-000000000000');
+
+  \echo '  (e) both people can now see the duel, and its bets would be theirs alone'
+  select 'members of the duel' as check, count(*) as rows
+    from public.groups g join public.group_members m on m.group_id = g.id
+   where g.kind = 'duel';
+
+  \echo '  (f) an unknown handle is refused rather than creating an empty duel'
+  savepoint s;
+  select public.create_duel('nobody_by_that_name');
+  rollback to s;
+rollback;
+
+\echo '--- 21. Invite links: minting, redeeming, expiry, and the duel guard ---'
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (a) a member can mint one, and minting again reuses it'
+  select 'first mint returned a token' as check,
+         (public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000')).token is not null as ok;
+  select 'second mint returned a token' as check,
+         (public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000')).token is not null as ok;
+  -- Two taps on "Share invite" must not leave two live links, or revoking
+  -- "the" link stops meaning anything.
+  select 'live invites for this group after two calls' as check, count(*) as invites
+    from public.group_invites
+   where group_id = 'bbbbbbbb-0000-4000-8000-000000000000'
+     and revoked_at is null and expires_at > now();
+
+  \echo '  (b) nobody can write the table directly, however they are signed in'
+  savepoint s1;
+  insert into public.group_invites (group_id, token, created_by, expires_at)
+  values ('bbbbbbbb-0000-4000-8000-000000000000', 'forged', 
+          'aaaaaaaa-0000-4000-8000-000000000000', now() + interval '1 day');
+  rollback to s1;
+
+  -- Nor can a member push an existing link's expiry out, or un-revoke one.
+  -- There is no UPDATE policy at all, so this is not an error — it simply
+  -- matches nothing, which is the assertion worth making.
+  savepoint s2;
+  with bumped as (
+    update public.group_invites set expires_at = now() + interval '10 years'
+    returning 1
+  )
+  select 'rows a member can age' as check, count(*) as rows from bumped;
+  rollback to s2;
+rollback;
+
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+
+  \echo '  (c) an outsider cannot mint a link into a group they are not in'
+  savepoint s3;
+  select public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000');
+  rollback to s3;
+
+  \echo '  (d) and sees no invites at all'
+  select 'invites visible to an outsider' as check, count(*) as rows
+    from public.group_invites;
+rollback;
+
+begin;
+  -- Mint as the member, redeem as the outsider: the whole point of a link.
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select (public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000')).token as tok \gset
+
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+  \echo '  (e) the link lets a stranger in'
+  select 'joined group' as check,
+         (public.join_group_with_invite(:'tok')).id = 'bbbbbbbb-0000-4000-8000-000000000000' as ok;
+  select 'they are now a member' as check, count(*) as rows
+    from public.group_members
+   where group_id = 'bbbbbbbb-0000-4000-8000-000000000000'
+     and user_id = 'dddddddd-0000-4000-8000-000000000000';
+  select 'uses after one join' as check, uses from public.group_invites where token = :'tok';
+
+  \echo '  (f) opening the same link again does not burn a second use'
+  select 'second open still returns the group' as check,
+         (public.join_group_with_invite(:'tok')).id is not null as ok;
+  select 'uses after opening twice' as check, uses from public.group_invites where token = :'tok';
+rollback;
+
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select (public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000')).token as tok2 \gset
+
+  \echo '  (g) an expired link is refused (must fail)'
+  -- Reach past RLS to age it: there is deliberately no client path that can.
+  set local role postgres;
+  update public.group_invites set expires_at = now() - interval '1 minute' where token = :'tok2';
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+  savepoint s4;
+  select public.join_group_with_invite(:'tok2');
+  rollback to s4;
+rollback;
+
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select (public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000')).token as tok3 \gset
+
+  \echo '  (h) a revoked link is refused (must fail)'
+  select public.revoke_group_invite(:'tok3');
+  select 'revoked_at is set' as check, revoked_at is not null as ok
+    from public.group_invites where token = :'tok3';
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+  savepoint s5;
+  select public.join_group_with_invite(:'tok3');
+  rollback to s5;
+
+  \echo '  (i) a token nobody minted is refused (must fail)'
+  savepoint s6;
+  select public.join_group_with_invite('never-minted');
+  rollback to s6;
+rollback;
+
+begin;
+  \echo '  (j) a duel can be neither linked nor code-joined — it is two people by definition'
+  -- Read the handle as superuser first: under RLS a client cannot see the row
+  -- of somebody they share no group with, which is the point of section 19.
+  select username as theirs2 from public.users
+   where id = 'dddddddd-0000-4000-8000-000000000000' \gset
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select 'duel made' as check, (public.create_duel(:'theirs2')).kind as kind;
+  select g.id as duel_id, g.invite_code as duel_code from public.groups g
+   where g.kind = 'duel' limit 1 \gset
+
+  savepoint s7;
+  select public.create_group_invite(:'duel_id');
+  rollback to s7;
+
+  -- The older door, closed for the same reason: a duel's auto-generated
+  -- six-character code used to let a third person walk in.
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  savepoint s8;
+  select public.join_group_with_code(:'duel_code');
+  rollback to s8;
+rollback;

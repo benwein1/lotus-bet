@@ -6,15 +6,19 @@
  * client never reads it.
  */
 import type {
+  BetComment,
   BetLedgerEntryRow,
   BetMediaRow,
   BetRow,
   BetSide,
   BetWithPositions,
   GroupBalanceRow,
+  GroupInviteRow,
   GroupMemberRow,
   GroupRow,
   MyStatsRow,
+  PersonBalance,
+  UserLookup,
   SettlementConfirmationRow,
   UserRow,
 } from './database.types';
@@ -23,6 +27,7 @@ import { signMedia, uploadBetMedia, type PickedMedia } from './media';
 import { announceBetResolved, announceGroupJoin, announceNewBet } from './notifications';
 import { computeBetPayouts } from './payout';
 import { isMissingColumn } from './postgrest';
+import { personBalances, type BalanceLine } from './settlement';
 import { supabase } from './supabase';
 
 function unwrap<T>(result: { data: T | null; error: { message: string } | null }): T {
@@ -76,8 +81,34 @@ export interface GroupWithMembers extends GroupRow {
   members: (GroupMemberRow & { user: UserRow })[];
 }
 
+/**
+ * The groups the Groups tab lists.
+ *
+ * Duels are excluded: a one-on-one challenge is a real two-person group under
+ * the hood, but showing it as a card would turn the tab into a list of every
+ * person you have ever bet against. Its bets still appear in the feed, its
+ * balances still settle, and it shows up on the Profile ledger by the other
+ * person's name — which is where you actually look for it.
+ *
+ * The filter is written to tolerate a project that has not applied
+ * `…_private_and_duels.sql` yet: no `kind` column means no duels exist.
+ */
 export async function fetchMyGroups(): Promise<GroupWithMembers[]> {
   if (isDemoMode()) return demo.fetchMyGroups();
+  const { data, error } = await supabase
+    .from('groups')
+    .select('*, members:group_members(*, user:users(*))')
+    .order('created_at', { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as GroupWithMembers[]).filter(
+    (group) => group.kind !== 'duel'
+  );
+}
+
+/** Every group including duels — what the Profile ledger needs to name them. */
+export async function fetchAllMyGroups(): Promise<GroupWithMembers[]> {
+  if (isDemoMode()) return demo.fetchAllMyGroups();
   const { data, error } = await supabase
     .from('groups')
     .select('*, members:group_members(*, user:users(*))')
@@ -149,6 +180,38 @@ export async function joinGroupWithCode(code: string): Promise<GroupRow> {
   return group;
 }
 
+/**
+ * Mints a shareable invite link for a group, or hands back the live one.
+ *
+ * The RPC does the reusing, not this — otherwise two taps a second apart on
+ * two devices would make two links. See `create_group_invite`.
+ */
+export async function createGroupInvite(groupId: string): Promise<GroupInviteRow> {
+  if (isDemoMode()) return demo.createGroupInvite(groupId);
+  return unwrap(
+    await supabase.rpc('create_group_invite', { p_group_id: groupId }).single()
+  ) as GroupInviteRow;
+}
+
+export async function revokeGroupInvite(token: string): Promise<void> {
+  if (isDemoMode()) return demo.revokeGroupInvite(token);
+  const { error } = await supabase.rpc('revoke_group_invite', { p_token: token });
+  if (error) throw new Error(error.message);
+}
+
+export async function joinGroupWithInvite(token: string): Promise<GroupRow> {
+  if (isDemoMode()) return demo.joinGroupWithInvite(token);
+  const group = unwrap(
+    await supabase.rpc('join_group_with_invite', { p_token: token }).single()
+  ) as GroupRow;
+
+  // Same as the code path: you are in either way, and the group hearing about
+  // it is not worth failing the join over.
+  void announceGroupJoin(group.id).catch(() => {});
+
+  return group;
+}
+
 export async function leaveGroup(groupId: string, userId: string): Promise<void> {
   if (isDemoMode()) return demo.leaveGroup(groupId, userId);
   const { error } = await supabase
@@ -169,8 +232,12 @@ export async function leaveGroup(groupId: string, userId: string): Promise<void>
 // rejects the whole select with "more than one relationship was found". It
 // takes the entire feed down with it, because a failed select returns no rows
 // at all rather than rows without the embed.
+//
+// `bet_likes` and `bet_comments` each have exactly one key back to `bets`, so
+// they need no such hint — but check that again before embedding any new table
+// that also points at `bets` twice.
 const BET_SELECT =
-  '*, options:bet_options!bet_options_bet_id_fkey(*), positions:bet_positions(user_id, side, option_id), media:bet_media(*)';
+  '*, options:bet_options!bet_options_bet_id_fkey(*), positions:bet_positions(user_id, side, option_id), media:bet_media(*), likes:bet_likes(user_id), comments:bet_comments(count)';
 const betSelectWithGroup = (withAvatar: boolean) =>
   `${BET_SELECT}, group:groups(id, name, emoji${withAvatar ? ', avatar_url' : ''})`;
 
@@ -245,6 +312,11 @@ export interface NewBetInput {
   closeAt: string | null;
   /** Photos and videos picked on the new-bet screen, uploaded after insert. */
   media?: PickedMedia[];
+  /**
+   * Leave empty for a bet the whole group can see. Naming people makes it
+   * private: only they and you can see it, join it, or comment on it.
+   */
+  inviteeIds?: string[];
 }
 
 /** Two is the floor; a bet with one option is not a bet. */
@@ -276,10 +348,21 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
         option_b_label: labels[1],
         total_pot_agorot: input.totalPotAgorot,
         close_at: input.closeAt,
+        visibility: (input.inviteeIds?.length ?? 0) > 0 ? 'private' : 'group',
       })
       .select()
       .single()
   ) as BetRow;
+
+  // Invitees go in before anything else. The bet row already carries
+  // `visibility = 'private'`, so it is invisible to the group from the instant
+  // it exists — there is no window where it is readable by everyone.
+  if (input.inviteeIds?.length) {
+    const { error } = await supabase.from('bet_invitees').insert(
+      input.inviteeIds.map((userId) => ({ bet_id: bet.id, user_id: userId }))
+    );
+    if (error) throw new Error(error.message);
+  }
 
   const extra = labels.slice(2);
   if (extra.length > 0) {
@@ -484,7 +567,186 @@ export async function undoSettlement(confirmationId: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+// --- Challenges ------------------------------------------------------------
+
+/**
+ * Find somebody by their exact handle.
+ *
+ * Exact only, and that is the design rather than a limitation: a prefix or
+ * fuzzy search over the user table is a user-enumeration endpoint that anyone
+ * could walk to harvest every account. You type a handle you already know.
+ *
+ * Returns null when nobody has it, which the screen shows as "no one is using
+ * that username" — the same answer whether the handle is free or simply not
+ * yours to see.
+ */
+export async function findUserByUsername(username: string): Promise<UserLookup | null> {
+  if (isDemoMode()) return demo.findUserByUsername(username);
+
+  const handle = username.trim().replace(/^@/, '');
+  if (!handle) return null;
+
+  const { data, error } = await supabase
+    .rpc('find_user_by_username', { p_username: handle })
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return (data as UserLookup | null) ?? null;
+}
+
+/**
+ * Challenge somebody by handle, and get back the group their bets live in.
+ *
+ * Calling it twice with the same person returns the same group rather than a
+ * second one — otherwise a running total with one friend would fragment across
+ * a dozen identical groups and the Profile ledger would stop meaning anything.
+ */
+export async function createDuel(username: string): Promise<GroupRow> {
+  if (isDemoMode()) return demo.createDuel(username);
+
+  const handle = username.trim().replace(/^@/, '');
+  const { data, error } = await supabase
+    .rpc('create_duel', { p_username: handle })
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data as GroupRow;
+}
+
+// --- Likes and comments ----------------------------------------------------
+
+/**
+ * Like or unlike, decided by what you want the result to be rather than by
+ * what is currently there.
+ *
+ * The caller already knows whether the heart was filled — it just tapped it —
+ * and passing that in means no read before the write, so the heart never
+ * lags a round trip behind the finger. The primary key makes a double-insert
+ * a no-op rather than a second like, so a fast double-tap is harmless.
+ */
+export async function setBetLike(
+  betId: string,
+  userId: string,
+  liked: boolean
+): Promise<void> {
+  if (isDemoMode()) return demo.setBetLike(betId, userId, liked);
+
+  const { error } = liked
+    ? await supabase
+        .from('bet_likes')
+        .upsert({ bet_id: betId, user_id: userId }, { onConflict: 'bet_id,user_id' })
+    : await supabase.from('bet_likes').delete().eq('bet_id', betId).eq('user_id', userId);
+
+  if (error) throw new Error(error.message);
+}
+
+export async function fetchBetComments(betId: string): Promise<BetComment[]> {
+  if (isDemoMode()) return demo.fetchBetComments(betId);
+
+  const { data, error } = await supabase
+    .from('bet_comments')
+    .select('*, author:users(id, display_name, avatar_url)')
+    .eq('bet_id', betId)
+    .order('created_at', { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as unknown as BetComment[];
+}
+
+export async function postBetComment(
+  betId: string,
+  userId: string,
+  body: string
+): Promise<BetComment> {
+  if (isDemoMode()) return demo.postBetComment(betId, userId, body);
+
+  const trimmed = body.trim();
+  if (!trimmed) throw new Error('Write something first.');
+
+  const { data, error } = await supabase
+    .from('bet_comments')
+    .insert({ bet_id: betId, user_id: userId, body: trimmed })
+    .select('*, author:users(id, display_name, avatar_url)')
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data as unknown as BetComment;
+}
+
+export async function deleteBetComment(commentId: string): Promise<void> {
+  if (isDemoMode()) return demo.deleteBetComment(commentId);
+  const { error } = await supabase.from('bet_comments').delete().eq('id', commentId);
+  if (error) throw new Error(error.message);
+}
+
 // --- Profile ---------------------------------------------------------------
+
+/**
+ * Every person you owe, or who owes you, netted across all of your groups.
+ *
+ * One round trip for the balances (`my_group_balances`), one for the names.
+ * The netting itself is `personBalances`, which runs the same `simplifyDebts`
+ * the settle-up screen runs — so a figure here and a figure there can never
+ * disagree, which they would within a week if this were reimplemented in SQL.
+ */
+export async function fetchMyPersonBalances(userId: string): Promise<PersonBalance[]> {
+  if (isDemoMode()) return demo.fetchMyPersonBalances(userId);
+
+  const { data, error } = await supabase.rpc('my_group_balances');
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as { group_id: string; user_id: string; amount_agorot: number }[];
+  if (rows.length === 0) return [];
+
+  // All of them, duels included: the Groups tab hides duels, but what you owe
+  // somebody one-on-one is exactly what this ledger is for.
+  const groups = await fetchAllMyGroups();
+  const nameByGroup = new Map(
+    groups.map((g) => [
+      g.id,
+      // A duel's stored name is "You v Them", which would read as a stutter
+      // beside the row's own heading — which is already their name.
+      g.kind === 'duel' ? 'Just the two of you' : g.name,
+    ])
+  );
+
+  const byGroup = new Map<string, BalanceLine[]>();
+  for (const row of rows) {
+    const lines = byGroup.get(row.group_id) ?? [];
+    // `bigint` comes back from PostgREST as a string often enough that every
+    // read site coerces it. Keep doing that.
+    lines.push({ userId: row.user_id, amountAgorot: Number(row.amount_agorot) });
+    byGroup.set(row.group_id, lines);
+  }
+
+  const totals = personBalances(
+    [...byGroup.entries()].map(([groupId, balances]) => ({
+      groupId,
+      groupName: nameByGroup.get(groupId) ?? 'A group',
+      balances,
+    })),
+    userId
+  );
+  if (totals.length === 0) return [];
+
+  const { data: people, error: peopleError } = await supabase
+    .from('users')
+    .select('id, display_name, avatar_url')
+    .in('id', totals.map((t) => t.userId));
+
+  if (peopleError) throw new Error(peopleError.message);
+  const byId = new Map((people ?? []).map((p) => [p.id, p]));
+
+  return totals.map((total) => ({
+    user: byId.get(total.userId) ?? {
+      id: total.userId,
+      display_name: 'Someone',
+      avatar_url: null,
+    },
+    amountAgorot: total.amountAgorot,
+    groupNames: total.groupNames,
+  }));
+}
 
 export interface HistoryEntry {
   id: string;

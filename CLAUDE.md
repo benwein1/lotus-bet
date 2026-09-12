@@ -31,7 +31,14 @@ Other standing scope boundaries:
   The odds bar is a green/red split at two and a stacked bar with a legend
   past two.
 - **No public or global discovery.** Bets are always scoped to a group; the
-  Home feed shows only bets from groups you are in.
+  Home feed shows only bets from groups you are in. A one-on-one challenge is
+  no exception — it creates a real two-person group (`groups.kind = 'duel'`)
+  that the Groups tab hides. **Looking somebody up is exact-handle only**, and
+  that is a security property, not a missing feature: a prefix or fuzzy search
+  over `users` is an endpoint anyone could walk to harvest every account.
+- **A bet can be private to some of its group.** `bets.visibility = 'private'`
+  plus a `bet_invitees` list. It narrows an audience; it never reaches outside
+  the group.
 - **No editing a bet after creation.** The creator can lock, resolve or
   cancel. That's the whole surface.
 
@@ -84,6 +91,8 @@ app/                        Expo Router routes
   (auth)/                   sign-in · sign-up · profile-setup
   (tabs)/                   index (the feed) · groups · profile
   group/create.tsx, join.tsx
+  join/[token].tsx          what a shared invite link opens
+  challenge.tsx             start a one-on-one by handle
   group/[id]/               index (detail) · new-bet · settle
   bet/[id].tsx              join a side, resolve, cancel
 src/
@@ -95,8 +104,13 @@ src/
   components/bet-card.tsx   FeedCard (full-screen) + BetCard (compact)
   components/bet-media.tsx  photo/video renderer and pager
   components/odds-bar.tsx
+  components/bet-actions.tsx  the like/comment row; liking is optimistic
+  components/bet-comments.tsx the thread and its send box
+  components/payment-sheet.tsx amount entry for a part payment
   components/lotus-mark.tsx  the app mark, wherever the app shows its own face
   components/animated-splash.tsx  the hand-off out of the native splash
+  lib/invite-links.ts       pure: invite URL, share message, expiry wording
+  lib/invites.ts            …and the device half — share sheet, pending token
   lib/payout.ts             re-export ONLY — see §5
   lib/settlement.ts         balance netting + greedy debt simplification
   lib/queries.ts            every Supabase read/write the app makes
@@ -119,11 +133,12 @@ global.css                  GENERATED from it by scripts/build-theme-css.js
 assets/logo/lotus.svg       the mark; scripts/build-icons.mjs renders every size
 supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
-                            bet options · notification prefs (8)
+                            bet options · notification prefs · social ·
+                            private bets and duels · group invites (11)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
 __tests__/                  payout · settlement · format · theme · odds ·
-                            postgrest · reminders
+                            postgrest · reminders · invite-links
 ```
 
 **All Supabase access goes through `src/lib/queries.ts`.** Screens never
@@ -290,6 +305,13 @@ thicker: the tab bar takes a much higher blur intensity than a chip would.
 
 4. `contentContainerClassName` **is** supported on ScrollView. Use it.
 
+4b. **`flex-1` on a `TextInput` does not let it shrink.** It sets a zero basis
+   but leaves `min-width: auto`, so on the web the input keeps its intrinsic
+   width and the row it is in cannot get smaller. `PaymentSheet` measured 326px
+   wide around 448px of content, and `autoFocus` then scrolled the card 73px
+   sideways and cut its title in half — invisibly, because the card clips. Any
+   `TextInput` sharing a row needs an explicit `minWidth: 0`.
+
 5. **Never nest a pressable control inside a `Link`.** On iOS the responder
    system lets the inner one win, so it looks fine; on the web the inner press
    fires *and* the browser's own anchor activation runs afterwards, doing a
@@ -436,9 +458,11 @@ because its id is part of the path.
 
 ### RPC surface (`20260904090200_functions.sql`)
 
-`create_group` · `join_group_with_code` · `join_bet` · `join_bet_option` ·
+`create_group` · `join_group_with_code` · `create_group_invite` ·
+`join_group_with_invite` · `revoke_group_invite` · `join_bet` · `join_bet_option` ·
 `leave_bet` · `lock_bet` · `cancel_bet` · `group_balances` · `my_stats` ·
-`set_push_token` · `resolve_bet_with_entries` ·
+`set_push_token` · `resolve_bet_with_entries` · `can_see_bet` ·
+`find_user_by_username` · `create_duel` ·
 `push_targets_for_bet` / `push_targets_for_group` (service role only)
 
 Anything spanning more than one table lives here rather than in the client,
@@ -513,6 +537,108 @@ That makes a constraint name part of the client's contract, which section 16 of
 the policy checks asserts. Any new table with two keys to the same table needs
 the same treatment.
 
+### Likes, comments and the Profile ledger
+
+`bet_likes` and `bet_comments` are protected by `bet_group_id` +
+`is_group_member` — the same rule as the bet itself, so a reaction can never be
+visible where the thing it reacts to is not. A comment has **no UPDATE
+policy**: it can be withdrawn but not edited, because an editable comment on a
+bet people wagered against is a way to rewrite what was agreed after the fact.
+
+**Liking is optimistic.** `BetActions` owns the state while the write is in
+flight and rolls itself back if it throws; the caller's job is only the write.
+The heart fills **accent blue, not red** — red already means "money you owe"
+throughout this app, and a red heart would give it a third job in the one place
+people read amounts.
+
+The Profile ledger ("who owes who") is netted per person across every group.
+Crucially it does **not** compute that in SQL: `my_group_balances()` returns the
+same per-group balances `group_balances` does, for all your groups at once, and
+`personBalances` in `settlement.ts` runs the same `simplifyDebts` the settle-up
+screen runs. There is no such thing as a pairwise debt in the ledger — a bet
+writes a balance line per person, and who pays whom is a *suggestion*. Netting
+it a second time in SQL would drift from settle-up within a week. Section 18 of
+the policy checks asserts the two functions agree.
+
+### Who can see a bet
+
+**`can_see_bet(id)` is the single gate**, and every policy that guards a bet or
+anything attached to one goes through it — `bets`, `bet_options`,
+`bet_positions`, `bet_media`, `bet_likes`, `bet_comments`, `bet_invitees`. It
+is group membership *plus* the invitee list. Keeping it in one function is the
+whole point: a private bet whose comments were still readable, or whose options
+leaked, would be private in name only. If you add a table that hangs off a bet,
+gate it on `can_see_bet`, never on `is_group_member(bet_group_id(...))`.
+
+### Invite links
+
+A group has **two ways in, and they are different objects**. `groups.invite_code`
+is six characters, printed on the group screen, typed on the join screen — the
+thing you read out loud to someone sitting next to you, and it never expires
+because it never travels. `group_invites` is a link: a 72-bit base64url token
+with an expiry, a use count and a revocation, minted on demand by
+`create_group_invite` and redeemed by `join_group_with_invite`.
+
+The split is the point. A permanent code pasted into a group chat is a door
+that never closes — anyone who scrolls back far enough can walk in a year
+later, and the only way to stop them is to abandon the group.
+
+`create_group_invite` **reuses a live invite** rather than minting per tap, for
+the same reason `create_duel` does: four taps on "Share invite" leaving four
+working links means revoking "the" link stops meaning anything. Nothing writes
+`group_invites` directly — there is a SELECT policy for members and no INSERT,
+UPDATE or DELETE policy at all, so a client cannot mint itself an invite or push
+an existing expiry out.
+
+**A duel refuses both paths.** `create_group_invite` rejects `kind = 'duel'`,
+and `join_group_with_code` now rejects it too — a duel's auto-generated code
+used to let a third person walk into "just the two of you", which also silently
+broke a balance both sides read as pairwise.
+
+Sharing goes through the **OS share sheet** (`Share.share`), never a WhatsApp
+button: which app a group actually lives in is not something to guess, and a
+hardcoded `whatsapp://` is a dead end on a phone without it with no way to find
+out beforehand.
+
+`inviteUrl` prefers `https://` over `lotusbet://` and that is not cosmetic — a
+custom scheme is dead text everywhere until the app is installed, and the person
+being invited is by definition the one who has not installed it. On the web the
+origin is read from `window.location`; on a device it comes from
+`EXPO_PUBLIC_WEB_ORIGIN`, falling back to the scheme when nothing is deployed.
+Opening straight into the installed app from an `https://` link additionally
+needs an `apple-app-site-association` file on the domain and the
+associated-domains entitlement — **not set up yet**; today an https link opens
+the web build.
+
+A link opened by somebody with no account is the normal case, and the redirect
+gate in `app/_layout.tsx` would otherwise eat it. `rememberInvite` parks the
+token in AsyncStorage, and the gate hands it back after sign-in instead of
+dropping them on an empty Groups tab.
+
+### Duels
+
+A one-on-one challenge is a **real two-person group** with `kind = 'duel'`, not
+a second kind of object. That is the entire reason it was cheap: every policy,
+balance, settlement, notification and realtime path already works on groups and
+keeps working untouched.
+
+`create_duel` **reuses** an existing duel between the same two people rather
+than making another. Without that, a running total with one friend fragments
+across a dozen identical groups and the Profile ledger stops meaning anything.
+
+`fetchMyGroups` filters duels out (the Groups tab would otherwise become a
+roster of everyone you have ever bet against); `fetchAllMyGroups` keeps them,
+which is what the Profile ledger reads.
+
+### Usernames
+
+Assigned on signup by `handle_new_auth_user`, and backfilled for older accounts
+by the same `suggest_username` function — **one implementation, called from
+both**. They were written separately at first and the trigger was simply
+forgotten, so every account created *after* the migration had no handle and
+could not be challenged by anyone. The backfill made the existing rows look
+fine, which is exactly what hid it.
+
 ### bigint coercion
 
 `group_balances` and `my_stats` return `bigint`, which PostgREST may hand
@@ -569,23 +695,28 @@ Concrete things worth fixing, roughly by severity:
    shows broken media until the next refresh. Realtime and pull-to-refresh
    both re-sign, so it is only visible on a screen left untouched.
 
-3. **One push token per user.** `users.expo_push_token` is a single column,
+3. **A part payment is capped at what is outstanding.** `PaymentSheet` refuses
+   an amount above the suggested figure, because overpaying would flip the
+   balance and quietly make the other person the debtor. A genuine overpayment
+   is a new debt the other way and has nowhere to be recorded yet.
+
+4. **One push token per user.** `users.expo_push_token` is a single column,
    so a second device silently overwrites the first. Needs its own table when
    multi-device matters.
 
-4. **`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps** with an
+5. **`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps** with an
    eslint-disable. It works because `reload` is stable, but it's fragile — a
    refactor of `useAsync` could silently stop refreshing the group list.
 
-5. **Realtime subscribes to `bet_positions` unfiltered** (in both
+6. **Realtime subscribes to `bet_positions` unfiltered** (in both
    `useGroupRealtime` and `useFeedRealtime`) because that table has no
    `group_id` column. Fine at friend-group scale, wasteful beyond it.
 
-6. **`my_stats.bets_settled` counts ledger rows**, so bets that resolved with
+7. **`my_stats.bets_settled` counts ledger rows**, so bets that resolved with
    nobody on the winning side don't appear in the count. Arguably correct,
    worth a decision.
 
-7. **Announcements are still client-invoked.** They now live in
+8. **Announcements are still client-invoked.** They now live in
    `queries.ts` rather than in a screen, so no caller can forget one, but a
    client that dies between the write and the `notify` call still means nobody
    is told. A database webhook would be more reliable.
