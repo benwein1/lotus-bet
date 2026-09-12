@@ -624,3 +624,135 @@ begin;
   select public.create_duel('nobody_by_that_name');
   rollback to s;
 rollback;
+
+\echo '--- 21. Invite links: minting, redeeming, expiry, and the duel guard ---'
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (a) a member can mint one, and minting again reuses it'
+  select 'first mint returned a token' as check,
+         (public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000')).token is not null as ok;
+  select 'second mint returned a token' as check,
+         (public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000')).token is not null as ok;
+  -- Two taps on "Share invite" must not leave two live links, or revoking
+  -- "the" link stops meaning anything.
+  select 'live invites for this group after two calls' as check, count(*) as invites
+    from public.group_invites
+   where group_id = 'bbbbbbbb-0000-4000-8000-000000000000'
+     and revoked_at is null and expires_at > now();
+
+  \echo '  (b) nobody can write the table directly, however they are signed in'
+  savepoint s1;
+  insert into public.group_invites (group_id, token, created_by, expires_at)
+  values ('bbbbbbbb-0000-4000-8000-000000000000', 'forged', 
+          'aaaaaaaa-0000-4000-8000-000000000000', now() + interval '1 day');
+  rollback to s1;
+
+  -- Nor can a member push an existing link's expiry out, or un-revoke one.
+  -- There is no UPDATE policy at all, so this is not an error — it simply
+  -- matches nothing, which is the assertion worth making.
+  savepoint s2;
+  with bumped as (
+    update public.group_invites set expires_at = now() + interval '10 years'
+    returning 1
+  )
+  select 'rows a member can age' as check, count(*) as rows from bumped;
+  rollback to s2;
+rollback;
+
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+
+  \echo '  (c) an outsider cannot mint a link into a group they are not in'
+  savepoint s3;
+  select public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000');
+  rollback to s3;
+
+  \echo '  (d) and sees no invites at all'
+  select 'invites visible to an outsider' as check, count(*) as rows
+    from public.group_invites;
+rollback;
+
+begin;
+  -- Mint as the member, redeem as the outsider: the whole point of a link.
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select (public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000')).token as tok \gset
+
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+  \echo '  (e) the link lets a stranger in'
+  select 'joined group' as check,
+         (public.join_group_with_invite(:'tok')).id = 'bbbbbbbb-0000-4000-8000-000000000000' as ok;
+  select 'they are now a member' as check, count(*) as rows
+    from public.group_members
+   where group_id = 'bbbbbbbb-0000-4000-8000-000000000000'
+     and user_id = 'dddddddd-0000-4000-8000-000000000000';
+  select 'uses after one join' as check, uses from public.group_invites where token = :'tok';
+
+  \echo '  (f) opening the same link again does not burn a second use'
+  select 'second open still returns the group' as check,
+         (public.join_group_with_invite(:'tok')).id is not null as ok;
+  select 'uses after opening twice' as check, uses from public.group_invites where token = :'tok';
+rollback;
+
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select (public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000')).token as tok2 \gset
+
+  \echo '  (g) an expired link is refused (must fail)'
+  -- Reach past RLS to age it: there is deliberately no client path that can.
+  set local role postgres;
+  update public.group_invites set expires_at = now() - interval '1 minute' where token = :'tok2';
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+  savepoint s4;
+  select public.join_group_with_invite(:'tok2');
+  rollback to s4;
+rollback;
+
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select (public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000')).token as tok3 \gset
+
+  \echo '  (h) a revoked link is refused (must fail)'
+  select public.revoke_group_invite(:'tok3');
+  select 'revoked_at is set' as check, revoked_at is not null as ok
+    from public.group_invites where token = :'tok3';
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+  savepoint s5;
+  select public.join_group_with_invite(:'tok3');
+  rollback to s5;
+
+  \echo '  (i) a token nobody minted is refused (must fail)'
+  savepoint s6;
+  select public.join_group_with_invite('never-minted');
+  rollback to s6;
+rollback;
+
+begin;
+  \echo '  (j) a duel can be neither linked nor code-joined — it is two people by definition'
+  -- Read the handle as superuser first: under RLS a client cannot see the row
+  -- of somebody they share no group with, which is the point of section 19.
+  select username as theirs2 from public.users
+   where id = 'dddddddd-0000-4000-8000-000000000000' \gset
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select 'duel made' as check, (public.create_duel(:'theirs2')).kind as kind;
+  select g.id as duel_id, g.invite_code as duel_code from public.groups g
+   where g.kind = 'duel' limit 1 \gset
+
+  savepoint s7;
+  select public.create_group_invite(:'duel_id');
+  rollback to s7;
+
+  -- The older door, closed for the same reason: a duel's auto-generated
+  -- six-character code used to let a third person walk in.
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  savepoint s8;
+  select public.join_group_with_code(:'duel_code');
+  rollback to s8;
+rollback;

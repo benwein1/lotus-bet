@@ -13,6 +13,7 @@ import type {
   BetSide,
   BetWithPositions,
   GroupBalanceRow,
+  GroupInviteRow,
   GroupMemberRow,
   GroupRow,
   MyStatsRow,
@@ -174,6 +175,38 @@ export async function joinGroupWithCode(code: string): Promise<GroupRow> {
 
   // Fire-and-forget: you have joined either way, and the group hearing about
   // it is not something worth failing the join over.
+  void announceGroupJoin(group.id).catch(() => {});
+
+  return group;
+}
+
+/**
+ * Mints a shareable invite link for a group, or hands back the live one.
+ *
+ * The RPC does the reusing, not this — otherwise two taps a second apart on
+ * two devices would make two links. See `create_group_invite`.
+ */
+export async function createGroupInvite(groupId: string): Promise<GroupInviteRow> {
+  if (isDemoMode()) return demo.createGroupInvite(groupId);
+  return unwrap(
+    await supabase.rpc('create_group_invite', { p_group_id: groupId }).single()
+  ) as GroupInviteRow;
+}
+
+export async function revokeGroupInvite(token: string): Promise<void> {
+  if (isDemoMode()) return demo.revokeGroupInvite(token);
+  const { error } = await supabase.rpc('revoke_group_invite', { p_token: token });
+  if (error) throw new Error(error.message);
+}
+
+export async function joinGroupWithInvite(token: string): Promise<GroupRow> {
+  if (isDemoMode()) return demo.joinGroupWithInvite(token);
+  const group = unwrap(
+    await supabase.rpc('join_group_with_invite', { p_token: token }).single()
+  ) as GroupRow;
+
+  // Same as the code path: you are in either way, and the group hearing about
+  // it is not worth failing the join over.
   void announceGroupJoin(group.id).catch(() => {});
 
   return group;
