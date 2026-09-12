@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import type { UserRow } from '@/lib/database.types';
 import { demo, demoProfile, demoSession, disableDemoMode, enableDemoMode, isDemoMode } from '@/lib/demo';
+import { passwordResetRedirectTo } from '@/lib/invites';
 import { registerForPushNotifications } from '@/lib/notifications';
 import { isUnknownWriteColumn } from '@/lib/postgrest';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
@@ -22,6 +23,16 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<SignUpResult>;
   sendPasswordReset: (email: string) => Promise<void>;
+  /**
+   * True between clicking a reset link and setting a new password.
+   *
+   * Supabase signs you in when you open a recovery link — the session is real,
+   * which is what lets `updateUser` work. Without a flag, the redirect gate
+   * would see a valid session and drop you on the feed, and you would still
+   * not know your password. This is what keeps you on the reset screen.
+   */
+  recovering: boolean;
+  updatePassword: (password: string) => Promise<void>;
   updateProfile: (
     patch: Partial<
       Pick<
@@ -47,6 +58,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserRow | null>(null);
+  const [recovering, setRecovering] = useState(false);
   const [loading, setLoading] = useState(true);
   const [demoActive, setDemoActive] = useState(false);
 
@@ -78,9 +90,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, next) => {
+    const { data: subscription } = supabase.auth.onAuthStateChange((event, next) => {
       setSession(next);
       if (!next) setProfile(null);
+
+      // Opening a reset link fires PASSWORD_RECOVERY with a live session.
+      // Latch it; `updatePassword` is the only thing that clears it.
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true);
+      if (event === 'SIGNED_OUT') setRecovering(false);
     });
 
     return () => {
@@ -101,6 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       session,
       profile,
+      recovering,
       loading,
       demo: demoActive,
       needsProfileSetup:
@@ -136,8 +154,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
 
       async sendPasswordReset(email: string) {
-        const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase());
+        // Without `redirectTo`, Supabase sends people to the project's Site URL
+        // — which lands them on the app's root with a recovery token in the
+        // fragment and no screen expecting it. Naming the route means the link
+        // opens the one screen that can actually finish the job.
+        const { error } = await supabase.auth.resetPasswordForEmail(
+          email.trim().toLowerCase(),
+          { redirectTo: passwordResetRedirectTo() }
+        );
         if (error) throw new Error(friendlyAuthError(error.message));
+      },
+
+      async updatePassword(password: string) {
+        // Demo mode has no GoTrue to talk to. Pretend it worked and release the
+        // latch, so the screen can be walked without a project behind it.
+        if (demoActive) {
+          setRecovering(false);
+          return;
+        }
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) throw new Error(friendlyAuthError(error.message));
+        // The session is already signed in at full strength — recovery only
+        // ever described how it started. Clearing the latch releases the gate.
+        setRecovering(false);
       },
 
       async updateProfile(patch) {
@@ -194,7 +233,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
       },
     }),
-    [session, profile, loading, demoActive, loadProfile]
+    [session, profile, loading, demoActive, loadProfile, recovering]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

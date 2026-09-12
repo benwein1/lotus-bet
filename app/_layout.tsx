@@ -65,7 +65,7 @@ function Chrome() {
 }
 
 function RootNavigator() {
-  const { session, loading, needsProfileSetup } = useAuth();
+  const { session, loading, needsProfileSetup, recovering } = useAuth();
   const colors = useColors();
   const segments = useSegments();
   const router = useRouter();
@@ -78,6 +78,15 @@ function RootNavigator() {
     // `segments` is a typed tuple under typedRoutes; compare it as plain strings.
     const path = segments as readonly string[];
     const inAuthGroup = path[0] === '(auth)';
+
+    // A recovery session is a real session, so every branch below would happily
+    // wave it through to the tabs — and the whole point of the link was to set
+    // a password. Hold it on the reset screen until `updatePassword` clears the
+    // flag. This has to come first for the same reason.
+    if (recovering) {
+      if (path[1] !== 'reset-password') router.replace('/(auth)/reset-password');
+      return;
+    }
 
     if (!session && !inAuthGroup) {
       router.replace('/(auth)/sign-in');
@@ -92,7 +101,7 @@ function RootNavigator() {
         else router.replace('/(tabs)');
       });
     }
-  }, [session, loading, needsProfileSetup, segments, router]);
+  }, [session, loading, needsProfileSetup, recovering, segments, router]);
 
   if (!isSupabaseConfigured && !session) return <SetupRequired />;
   if (loading) {

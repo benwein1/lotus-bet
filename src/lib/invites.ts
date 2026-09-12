@@ -36,6 +36,20 @@ export function linkTargets(): LinkTargets {
   return { webOrigin: configured ? configured : null, scheme: SCHEME };
 }
 
+/**
+ * Where Supabase should send somebody after they click a password-reset link.
+ *
+ * Reuses `linkTargets` on purpose: a reset link has exactly the same problem an
+ * invite link does — it has to open something that exists, on whichever
+ * platform the person is on. On the web that is this origin; on a device it is
+ * the app's own scheme, which works here where it does not work for invites
+ * because the person clicking a reset link *already has the app*.
+ */
+export function passwordResetRedirectTo(): string {
+  const { webOrigin, scheme } = linkTargets();
+  return webOrigin ? `${webOrigin}/reset-password` : `${scheme}://reset-password`;
+}
+
 export interface ShareResult {
   /** False when the user backed out of the sheet without picking anything. */
   shared: boolean;
