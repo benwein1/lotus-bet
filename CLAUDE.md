@@ -54,7 +54,7 @@ npm start                 # Expo dev server; press "i" for iOS simulator
 npm run web               # fastest loop for design work — no Xcode needed
 npm run ios / android
 
-npm test                  # jest — 50 tests, pure logic + a theme drift check
+npm test                  # jest — 174 tests, pure logic + a theme drift check
 npm run typecheck         # tsc --noEmit
 npm run lint
 npm run theme             # regenerate global.css from theme-colors.json
@@ -110,6 +110,7 @@ src/
   components/payment-sheet.tsx amount entry for a part payment
   components/lotus-mark.tsx  the app mark, wherever the app shows its own face
   components/animated-splash.tsx  the hand-off out of the native splash
+  lib/auth-links.ts         pure: reading a GoTrue recovery redirect
   lib/invite-links.ts       pure: invite URL, share message, expiry wording
   lib/invites.ts            …and the device half — share sheet, pending token
   lib/payout.ts             re-export ONLY — see §5
@@ -141,7 +142,8 @@ supabase/
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
 __tests__/                  payout · settlement · format · theme · odds ·
-                            postgrest · reminders · invite-links · media-split
+                            postgrest · reminders · invite-links · media-split ·
+                            auth-links
 ```
 
 **All Supabase access goes through `src/lib/queries.ts`.** Screens never
@@ -442,20 +444,43 @@ make a change pass, stop and reconsider.
 
 **Email + password.**
 
-**Password reset needs all three halves, and only the first existed.** Sending
+**Password reset needs four halves, and only the first existed.** Sending
 the link was there and looked fine; what was missing was `redirectTo` (so the
 link opens a screen that expects it), a `PASSWORD_RECOVERY` branch in
-`onAuthStateChange`, and a screen that calls `updateUser`. Without them you
-clicked the link, landed signed-in on the feed, and still did not know your
-password.
+`onAuthStateChange`, a screen that calls `updateUser`, and — the one that was
+missed on the first pass — **something that actually reads the link**.
 
 The subtle part is the gate. **A recovery session is a real session** — that is
 what lets `updateUser` work — so every branch in `app/_layout.tsx` would happily
-wave it through to the tabs. `recovering` latches on the event and is checked
-*first*, holding you on `reset-password` until `updatePassword` clears it.
+wave it through to the tabs. `recovering` is checked *first*, holding you on
+`reset-password` until `updatePassword` clears it.
 `redirectTo` comes from `passwordResetRedirectTo()`, which reuses the invite
 link's origin resolution; the app scheme is an acceptable fallback here, unlike
 for invites, because anyone clicking a reset link already has the app.
+
+**The latch is read off the URL, not waited for as an event**, and that is not
+belt-and-braces. GoTrue lands on `…/reset-password#access_token=…&type=recovery`
+under the implicit flow, which is the client default, and three things conspire
+against the event:
+
+- `detectSessionInUrl` was `false` on **every** platform, so nothing parsed the
+  fragment at all. No parse, no session, no `PASSWORD_RECOVERY` — a perfectly
+  valid link rendered "That link has expired", which is a lie that looks like a
+  feature. It is now `Platform.OS === 'web'`.
+- GoTrue emits the event from inside its own `_initialize()`, which can beat a
+  React effect's subscription. The event is a race; the URL is not.
+- It then **strips the fragment** once it has read it. So the URL has to be
+  captured *before* `createClient` runs — that is what `openedWithUrl` in
+  `supabase.ts` is, and why it sits above the client rather than next to it.
+
+`auth-links.ts` is the pure parser (fragment *and* query, fragment wins, since
+tokens arrive in one and some errors in the other). `isRecoveryRedirect` fires
+without tokens present on purpose: the gate must latch before the session is
+confirmed, or it gets a frame in which a recovery session looks ordinary.
+
+On native there is no `detectSessionInUrl`, so the `lotusbet://` deep link is
+handled by hand: lift the tokens out, `setSession`, and latch **first**, because
+`setSession` announces itself as an ordinary `SIGNED_IN`.
 
 Email delivery is a separate problem: Supabase's built-in sender is heavily
 rate-limited and in practice only reaches the project owner. Custom SMTP is the

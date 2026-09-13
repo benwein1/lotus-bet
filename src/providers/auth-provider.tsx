@@ -1,12 +1,15 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import * as Linking from 'expo-linking';
+import { Platform } from 'react-native';
 
 import type { UserRow } from '@/lib/database.types';
 import { demo, demoProfile, demoSession, disableDemoMode, enableDemoMode, isDemoMode } from '@/lib/demo';
 import { passwordResetRedirectTo } from '@/lib/invites';
 import { registerForPushNotifications } from '@/lib/notifications';
 import { isUnknownWriteColumn } from '@/lib/postgrest';
-import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { isRecoveryRedirect, recoveryTokens } from '@/lib/auth-links';
+import { isSupabaseConfigured, openedWithUrl, supabase } from '@/lib/supabase';
 
 export interface SignUpResult {
   /** True when the project has email confirmation on and no session was issued. */
@@ -58,7 +61,14 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserRow | null>(null);
-  const [recovering, setRecovering] = useState(false);
+  // Latched from the opening URL rather than waited for as an event. GoTrue
+  // emits PASSWORD_RECOVERY from inside its own initialisation, which can beat
+  // this component's subscription, and it strips the fragment once it has read
+  // it — so the event is a race and the URL is not. `openedWithUrl` was
+  // captured before the client was built precisely so this can read it.
+  const [recovering, setRecovering] = useState(
+    () => Boolean(openedWithUrl && isRecoveryRedirect(openedWithUrl))
+  );
   const [loading, setLoading] = useState(true);
   const [demoActive, setDemoActive] = useState(false);
 
@@ -103,6 +113,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       active = false;
       subscription.subscription.unsubscribe();
+    };
+  }, []);
+
+  // The native half of a reset link.
+  //
+  // `detectSessionInUrl` is a web-only mechanism, so on a device the tokens
+  // arrive in a `lotusbet://reset-password#…` deep link that nothing consumes.
+  // Lift them out and hand them to `setSession` by hand — and latch *first*,
+  // because `setSession` announces itself as an ordinary SIGNED_IN and the
+  // redirect gate would otherwise get a frame in which it drops you on the
+  // feed, which is the exact bug this flow exists to fix.
+  useEffect(() => {
+    if (Platform.OS === 'web' || !isSupabaseConfigured || isDemoMode()) return;
+
+    let active = true;
+
+    const handle = async (url: string | null) => {
+      if (!url || !active) return;
+      const tokens = recoveryTokens(url);
+      if (!tokens) return;
+
+      setRecovering(true);
+      const { error } = await supabase.auth.setSession({
+        access_token: tokens.accessToken,
+        refresh_token: tokens.refreshToken,
+      });
+      // A link that has expired or been used already fails here. Drop the
+      // latch so the reset screen says so instead of holding an empty form.
+      if (active && error) setRecovering(false);
+    };
+
+    void Linking.getInitialURL().then(handle);
+    const sub = Linking.addEventListener('url', ({ url }) => void handle(url));
+
+    return () => {
+      active = false;
+      sub.remove();
     };
   }, []);
 
