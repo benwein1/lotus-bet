@@ -141,6 +141,9 @@ function RootNavigator() {
       <Stack.Screen name="group/[id]/new-bet" options={modalOptions('New bet')} />
       <Stack.Screen name="group/[id]/settle" options={{ title: 'Settle up' }} />
       <Stack.Screen name="bet/[id]" options={{ title: '' }} />
+      {/* Pushed rather than presented as a sheet: it is a decision with a lot
+          to read, and a sheet invites dismissing it by reflex. */}
+      <Stack.Screen name="delete-account" options={{ title: 'Delete account' }} />
     </Stack>
   );
 }

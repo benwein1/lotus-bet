@@ -1220,3 +1220,134 @@ begin;
   select public.report_content('comment', '77777777-0000-4000-8000-000000000001', 'i-do-not-like-them');
   rollback to r5;
 rollback;
+
+\echo '--- 29. Account deletion scrubs the person and keeps the ledger ---'
+-- The property that matters is arithmetic, not cosmetic: after somebody
+-- deletes their account, what everyone else owes must be *unchanged*. A delete
+-- button that quietly settles your debts is not a delete button.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000004';
+
+  \echo '  (a) balances in the seeded group, before'
+  create temp table before_balances on commit drop as
+    select b.user_id, b.amount_agorot
+    from public.groups g
+    cross join lateral public.group_balances(g.id) b
+    where g.invite_code = 'RHMXXW';
+  select 'rows' as check, count(*) from before_balances;
+
+  \echo '  (b) Itai deletes his account'
+  select public.delete_account();
+
+  -- Back to superuser for the checks: `authenticated` cannot read `auth.users`
+  -- at all, which is correct and is asserted separately.
+  reset role;
+  \echo '  (c) the auth row is gone'
+  select 'auth row survives' as check, count(*) as rows
+    from auth.users where id = '00000000-0000-4000-8000-000000000004';
+
+  \echo '  (d) the profile survives, scrubbed'
+  select 'tombstone' as check, display_name,
+         username is null as handle_released,
+         deleted_at is not null as marked
+    from public.users where id = '00000000-0000-4000-8000-000000000004';
+
+  \echo '  (e) his ledger rows are untouched'
+  select 'ledger rows kept' as check, count(*) as rows
+    from public.bet_ledger_entries
+   where user_id = '00000000-0000-4000-8000-000000000004';
+
+  \echo '  (f) and nobody else''s balance moved by a single agora'
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  set local role authenticated;
+  select 'balances that changed' as check, count(*) as rows
+    from before_balances before
+    join lateral (
+      select b.amount_agorot
+      from public.groups g
+      cross join lateral public.group_balances(g.id) b
+      where g.invite_code = 'RHMXXW' and b.user_id = before.user_id
+    ) after on true
+   where after.amount_agorot is distinct from before.amount_agorot;
+
+  \echo '  (g) the group still nets to zero'
+  select 'sum of balances' as check, coalesce(sum(b.amount_agorot), 0) as total
+    from public.groups g
+    cross join lateral public.group_balances(g.id) b
+   where g.invite_code = 'RHMXXW';
+rollback;
+
+\echo '--- 30. Deletion cannot be aimed at anybody else ---'
+-- `delete_account()` takes no argument, so there is nothing to point at
+-- somebody else. These assert the two ways a client might try to reach around
+-- it. Both are outright refusals, so there is no follow-up select — the error
+-- is the assertion, and a select after it would only abort the transaction.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000005';
+
+  savepoint d1;
+  \echo '  (a) no DELETE grant on users at all, so no profile can be removed (must fail)'
+  delete from public.users where id = '00000000-0000-4000-8000-000000000001';
+  rollback to d1;
+
+  savepoint d2;
+  \echo '  (b) deleted_at is readable but not writable, so no forged tombstone (must fail)'
+  update public.users set deleted_at = now()
+   where id = '00000000-0000-4000-8000-000000000001';
+  rollback to d2;
+
+  savepoint d3;
+  \echo '  (c) nor on your own row — only delete_account() sets it (must fail)'
+  update public.users set deleted_at = now() where id = auth.uid();
+  rollback to d3;
+
+  \echo '  (d) the other profile is untouched'
+  select 'other profile intact' as check, display_name, deleted_at is null as alive
+    from public.users where id = '00000000-0000-4000-8000-000000000001';
+rollback;
+
+\echo '--- 31. Terms acceptance is recorded, and cannot be forged ---'
+begin;
+  \echo '  (a) a signup carrying a version records it'
+  insert into auth.users (id, email, raw_user_meta_data)
+  values ('55555555-0000-4000-8000-000000000001', 'agreed@example.com',
+          '{"display_name":"Agreed Person","terms_version":"2026-09-14"}'::jsonb);
+  select 'acceptance recorded' as check, terms_version,
+         terms_accepted_at is not null as stamped
+    from public.users where id = '55555555-0000-4000-8000-000000000001';
+
+  -- Asserted right here because `handle_new_auth_user` is rewritten by every
+  -- migration that adds a column to this insert, and a rewrite based on an
+  -- older copy silently drops whatever a newer one added. That has already
+  -- happened once to `username` (CLAUDE.md §6), and it happened again writing
+  -- this migration — the duel section caught it only because a handle it could
+  -- not find broke an unrelated `\gset`. This is the direct check.
+  \echo '  (a2) and the account still gets a handle, which every rewrite must carry'
+  select 'new account has a username' as check, username is not null as has_handle
+    from public.users where id = '55555555-0000-4000-8000-000000000001';
+
+  \echo '  (b) one without a version records nothing — consent is not invented'
+  insert into auth.users (id, email, raw_user_meta_data)
+  values ('55555555-0000-4000-8000-000000000002', 'silent@example.com',
+          '{"display_name":"Silent Person"}'::jsonb);
+  select 'no acceptance invented' as check,
+         terms_version is null as version_null,
+         terms_accepted_at is null as stamp_null
+    from public.users where id = '55555555-0000-4000-8000-000000000002';
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '55555555-0000-4000-8000-000000000002';
+
+  savepoint t1;
+  \echo '  (c) a client cannot write its own acceptance (must fail)'
+  update public.users
+     set terms_accepted_at = now(), terms_version = '2026-09-14'
+   where id = auth.uid();
+  rollback to t1;
+
+  \echo '  (d) but it can read whether it has one'
+  select 'own acceptance readable' as check, terms_version is null as still_null
+    from public.users where id = auth.uid();
+rollback;

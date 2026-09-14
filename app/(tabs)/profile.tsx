@@ -1,3 +1,4 @@
+import { Link } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
@@ -15,6 +16,7 @@ import {
   ErrorNotice,
   ListGroup,
   Loading,
+  PressableScale,
   Money,
   Row,
   SectionTitle,
@@ -57,7 +59,7 @@ type NotifyKey =
   | 'notify_deadlines';
 
 export default function ProfileScreen() {
-  const { session, profile, updateProfile, signOut } = useAuth();
+  const { session, profile, updateProfile, signOut, demo } = useAuth();
   const colors = useColors();
   const reduced = useReducedMotion();
   const tabInset = useTabBarInset();
@@ -421,6 +423,25 @@ export default function ProfileScreen() {
               icon={<LogOutIcon size={16} color={colors.negative} />}
               onPress={confirmSignOut}
             />
+
+            {/* Guideline 5.1.1(v) requires deletion to be reachable in the app.
+                It sits under Sign out, as a plain link rather than a fourth
+                button: it has to be findable without being a thing you hit by
+                accident next to the one you meant. The screen it opens is where
+                the consequences are explained — there is too much to say for a
+                dialog, because what a deletion *keeps* here is unusual. */}
+            {!demo && (
+              <Link href="/delete-account" asChild>
+                <PressableScale
+                  scaleTo={0.99}
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete your account"
+                  className="mt-5 items-center py-2"
+                >
+                  <Text className="text-subhead text-tertiary">Delete account</Text>
+                </PressableScale>
+              </Link>
+            )}
 
             <Text className="mt-7 text-center text-xs leading-4 text-tertiary">
               Lotus Bet is a tracker. It holds no money, processes no payments, and sells no

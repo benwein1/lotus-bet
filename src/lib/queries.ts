@@ -1019,3 +1019,26 @@ async function blockedIds(): Promise<Set<string>> {
     return new Set();
   }
 }
+
+/**
+ * Deletes the signed-in account.
+ *
+ * Takes no argument on purpose: there is nothing to point at somebody else.
+ * The RPC reads `auth.uid()` and nothing but.
+ *
+ * What it does is **scrub, not erase** — see
+ * `…_account_deletion.sql`. The `auth.users` row genuinely goes, so the
+ * account cannot sign in and the email is freed; the profile row survives with
+ * every personal field removed, because `bet_ledger_entries` points at it and
+ * those rows are what everyone *else*'s balance is computed from. Deleting
+ * them would not erase one person's data, it would silently change what four
+ * other people owe each other.
+ *
+ * The caller must sign out immediately afterwards: the JWT stays valid until
+ * it expires, and there is no longer an account behind it.
+ */
+export async function deleteAccount(): Promise<void> {
+  if (isDemoMode()) return demo.deleteAccount();
+  const { error } = await supabase.rpc('delete_account');
+  if (error) throw new Error(error.message);
+}

@@ -835,6 +835,10 @@ export const demo = {
   // visible on screen and that is the point of being able to click through it.
   async reportContent(_kind: string, _targetId: string, _reason: string): Promise<void> {},
 
+  // Demo state is in memory and is thrown away on sign-out anyway, so the
+  // honest thing is to do nothing and let the caller's sign-out clear it.
+  async deleteAccount(): Promise<void> {},
+
   async blockUser(userId: string): Promise<void> {
     if (userId === state.profile.id) throw new Error('You cannot block yourself.');
     if (!state.blocked.includes(userId)) state.blocked.push(userId);

@@ -9,6 +9,7 @@ import { passwordResetRedirectTo } from '@/lib/invites';
 import { clearMediaCache } from '@/lib/media';
 import { registerForPushNotifications } from '@/lib/notifications';
 import { prepareContent } from '@/lib/content-rules';
+import { TERMS_VERSION } from '@/lib/legal';
 import { isUnknownWriteColumn } from '@/lib/postgrest';
 import { USER_COLUMNS } from '@/lib/queries';
 import { isRecoveryRedirect, recoveryTokens } from '@/lib/auth-links';
@@ -206,8 +207,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: email.trim().toLowerCase(),
           password,
           // The signup trigger reads this to seed public.users, so a new
-          // account arrives with its name already set.
-          options: { data: { display_name: checked.text } },
+          // account arrives with its name and its terms acceptance already
+          // set. Carried here rather than written afterwards because a second
+          // call has a hole in the middle: a client that dies between them
+          // leaves an account with no acceptance and nothing to fix it.
+          options: {
+            data: { display_name: checked.text, terms_version: TERMS_VERSION },
+          },
         });
         if (error) throw new Error(friendlyAuthError(error.message));
 
