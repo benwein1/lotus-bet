@@ -105,7 +105,8 @@ src/
   components/bet-media.tsx  photo/video renderer and pager
   components/odds-bar.tsx
   components/bet-actions.tsx  the like/comment row; liking is optimistic
-  components/bet-comments.tsx the thread, collapsed to three, and its composer
+  components/bet-comments.tsx the thread inline under a bet, the sheet that
+                            rises over the feed, and the composer both share
   components/double-tap-like.tsx  double-tap a photo to like it
   components/auth-shell.tsx   the frame every pre-sign-in screen sits in
   components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
@@ -130,7 +131,8 @@ src/
   lib/odds.ts               percentages that always total exactly 100
   lib/postgrest.ts          reading PostgREST's "column does not exist"
   hooks/                    use-async · use-group-realtime · use-settlement ·
-                            use-reduced-motion · use-tab-bar-inset
+                            use-reduced-motion · use-tab-bar-inset ·
+                            use-bet-comments (one thread, two surfaces)
   providers/auth-provider.tsx
   providers/theme-provider.tsx   owns the colour scheme
   theme.ts                  palettes · motion · elevation · avatarColors
@@ -411,10 +413,35 @@ should have to learn how to argue with their friends. What that means here:
   count, comment bubble without one, and underneath either "View all N
   comments" or — when there are none — "Add a comment", which asks for the
   first one instead of printing a zero. The count appears once, not twice.
-- **The thread lives on the bet screen**, collapsed to the last three with
+- **From the feed the thread opens as a sheet, not as another screen.**
+  Pressing "Add a comment" on a card used to push the bet screen, which is the
+  wrong trade: you lose the photo you were looking at, the feed's scroll
+  position and the video that was playing, to read three sentences.
+  `BetCommentsSheet` rises over the feed instead, dismissed by the scrim, the
+  close button, or dragging the grabber down. Only the header carries the drag
+  gesture, so it can never fight the thread's own scroll.
+
+  **The feed mounts exactly one sheet** and points it at whichever bet is open.
+  A `FlatList` keeps several cards alive at once, so a sheet per card would be
+  several modals stacked on one screen. It is keyed on the bet id, so the
+  thread's fetch and its half-typed draft belong to one bet and do not survive
+  being pointed at another. When a post or delete lands, the confirmed count
+  goes back to the feed and **patches the card's line** — the same trade the
+  like makes, rather than re-reading a hundred bets to move one number.
+- **Inline on the bet screen the thread is collapsed to the last three**, with
   "View all N comments" to open it and "Show fewer" to close it again. Three is
   what every social app converged on and for the same reason: enough to see a
-  conversation is happening, few enough that the bet stays on screen.
+  conversation is happening, few enough that the bet stays on screen. The sheet
+  does not collapse — it exists to show the whole conversation.
+- **One thread, two surfaces.** `useBetCommentThread` owns the fetch, the
+  optimistic post and the delete; `bet-comments.tsx` only draws them. Two
+  surfaces showing the same conversation must not drift into two slightly
+  different sets of rules about when your own sentence appears.
+- **The composer is pinned in the sheet and not inline.** In a sheet it *is*
+  the bottom edge, above the safe-area inset, and the keyboard stays up after
+  a send because the conversation is still in front of you. Inline it sits
+  under the thread and the screen's own `KeyboardAvoidingView` keeps it
+  visible — a floating bar there would cover the bet the comments are about.
 - **Name and body share one flowing paragraph.** It reads the way a spoken
   remark reads, it wraps at any length, and it costs a line less per comment —
   which is most of why ten comments still fit under a bet.

@@ -76,6 +76,7 @@ function FeedCardImpl({
   onPickOption,
   busyOptionId = null,
   onToggleLike,
+  onOpenComments,
 }: {
   bet: BetWithPositions;
   currentUserId: string;
@@ -87,6 +88,11 @@ function FeedCardImpl({
   onPickOption?: (optionId: string) => void;
   busyOptionId?: string | null;
   onToggleLike?: (next: boolean) => Promise<void> | void;
+  /**
+   * Opens the thread as a sheet over the feed. Without it the card falls back
+   * to pushing the bet screen, which is what every other entry point does.
+   */
+  onOpenComments?: () => void;
 }) {
   const colors = useColors();
   const router = useRouter();
@@ -98,7 +104,13 @@ function FeedCardImpl({
   const hasMedia = media.length > 0;
   const joinable = bet.status === 'open' && Boolean(onPickOption);
 
-  const openThread = () => router.push({ pathname: '/bet/[id]', params: { id: bet.id } });
+  // A sheet when the feed offers one, the bet screen otherwise. Reading three
+  // sentences should not cost you the photo you were looking at, the scroll
+  // position you were at, or the video that was playing.
+  const openThread = () =>
+    onOpenComments
+      ? onOpenComments()
+      : router.push({ pathname: '/bet/[id]', params: { id: bet.id } });
 
   // Over an image the palette has to stop following the colour scheme: white
   // on a scrim is legible over anything, a semantic label colour is not.
@@ -333,7 +345,8 @@ export const FeedCard = memo(FeedCardImpl, (prev, next) => {
     prev.isNew === next.isNew &&
     prev.busyOptionId === next.busyOptionId &&
     Boolean(prev.onToggleLike) === Boolean(next.onToggleLike) &&
-    Boolean(prev.onPickOption) === Boolean(next.onPickOption)
+    Boolean(prev.onPickOption) === Boolean(next.onPickOption) &&
+    Boolean(prev.onOpenComments) === Boolean(next.onOpenComments)
   );
 });
 
