@@ -84,10 +84,26 @@ export const PressableScale = forwardRef<View, PressableScaleProps>(function Pre
   const opacity = useSharedValue(1);
   const reduced = useReducedMotion();
 
-  const animated = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-    opacity: opacity.value,
-  }));
+  // Whether this pressable dims under the finger at all. Only `dim`, and the
+  // reduced-motion path that substitutes a dim for the travel, ever move it.
+  const dims = dim || reduced;
+
+  /**
+   * The opacity key is omitted entirely when nothing is going to animate it.
+   *
+   * NativeWind merges `className` into `style`, and this animated style sits in
+   * the same array — so returning `opacity: 1` here *overrode* every
+   * `opacity-*` class on every PressableScale in the app. Disabled buttons and
+   * busy option squares were fully inert (`pointer-events: none`,
+   * `aria-disabled`) while rendering at full strength, which is the exact
+   * "control that looks live but is not" this codebase argues against
+   * everywhere else. Measured at `opacity: 1` on a disabled primary button.
+   */
+  const animated = useAnimatedStyle(() =>
+    dims
+      ? { transform: [{ scale: scale.value }], opacity: opacity.value }
+      : { transform: [{ scale: scale.value }] }
+  );
 
   return (
     <AnimatedPressable
@@ -98,7 +114,7 @@ export const PressableScale = forwardRef<View, PressableScaleProps>(function Pre
         // Feedback is never removed under reduced motion — an unresponsive
         // press reads as a broken app. Only the travel goes; the dim stays.
         scale.value = reduced ? 1 : withSpring(scaleTo, motion.press);
-        if (dim || reduced) opacity.value = withTiming(0.6, { duration: 90 });
+        if (dims) opacity.value = withTiming(0.6, { duration: 90 });
         if (haptic) tap();
         onPressIn?.(e);
       }}

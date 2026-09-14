@@ -30,10 +30,12 @@ import { formatAgorot, formatShortDate } from '@/lib/format';
 import { clearPushToken } from '@/lib/notifications';
 import { cancelDeadlineReminders } from '@/lib/reminders';
 import {
+  fetchBlockedUsers,
   fetchMyGroups,
   fetchMyHistory,
   fetchMyPersonBalances,
   fetchMyStats,
+  unblockUser,
   type HistoryEntry,
 } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
@@ -66,6 +68,7 @@ export default function ProfileScreen() {
   const history = useAsync(() => fetchMyHistory(userId), [userId]);
   const groups = useAsync(fetchMyGroups, [userId]);
   const owed = useAsync(() => fetchMyPersonBalances(userId), [userId]);
+  const blocked = useAsync(fetchBlockedUsers, [userId]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +77,24 @@ export default function ProfileScreen() {
   const { reload: reloadStats } = stats;
   const { reload: reloadHistory } = history;
   const { reload: reloadOwed } = owed;
+  const { reload: reloadBlocked } = blocked;
+
+  /**
+   * Unblocking is not confirmed.
+   *
+   * Blocking is the destructive direction and asks first; undoing it puts
+   * things back the way they were and costs one more tap to redo. A dialog
+   * here would only make the reversible half feel as heavy as the other one.
+   */
+  async function undoBlock(id: string) {
+    setError(null);
+    try {
+      await unblockUser(id);
+      await reloadBlocked({ silent: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not unblock them.');
+    }
+  }
 
   const refresh = useCallback(() => {
     void reloadStats({ silent: true });
@@ -322,6 +343,51 @@ export default function ProfileScreen() {
                 />
               </ListGroup>
             </View>
+
+            {/* Only rendered once there is something to undo. A permanently
+                empty "Blocked people" heading on everyone's Profile would be
+                the app advertising a problem most groups do not have. */}
+            {(blocked.data ?? []).length > 0 && (
+              <View className="mb-7">
+                <SectionTitle>Blocked</SectionTitle>
+                <ListGroup>
+                  {(blocked.data ?? []).map((person, i, all) => (
+                    <View
+                      key={person.id}
+                      className={`flex-row items-center gap-3 px-4 py-3 ${
+                        i < all.length - 1 ? 'border-b border-hairline' : ''
+                      }`}
+                    >
+                      <Avatar
+                        id={person.id}
+                        name={person.display_name}
+                        uri={person.avatar_url}
+                        size={32}
+                      />
+                      <View className="flex-1">
+                        <Text numberOfLines={1} className="text-subhead font-semibold text-primary">
+                          {person.display_name}
+                        </Text>
+                        {person.username ? (
+                          <Text numberOfLines={1} className="text-2xs text-tertiary">
+                            @{person.username}
+                          </Text>
+                        ) : null}
+                      </View>
+                      <Button
+                        title="Unblock"
+                        variant="tinted"
+                        size="sm"
+                        onPress={() => void undoBlock(person.id)}
+                      />
+                    </View>
+                  ))}
+                </ListGroup>
+                <Text className="mt-2 px-1 text-sm text-secondary">
+                  Unblocking brings their comments back. It never changed who owes who.
+                </Text>
+              </View>
+            )}
 
             <View className="mb-7">
               <SectionTitle>Bet history</SectionTitle>

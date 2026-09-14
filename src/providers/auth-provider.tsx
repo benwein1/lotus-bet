@@ -8,6 +8,7 @@ import { demo, demoProfile, demoSession, disableDemoMode, enableDemoMode, isDemo
 import { passwordResetRedirectTo } from '@/lib/invites';
 import { clearMediaCache } from '@/lib/media';
 import { registerForPushNotifications } from '@/lib/notifications';
+import { prepareContent } from '@/lib/content-rules';
 import { isUnknownWriteColumn } from '@/lib/postgrest';
 import { USER_COLUMNS } from '@/lib/queries';
 import { isRecoveryRedirect, recoveryTokens } from '@/lib/auth-links';
@@ -194,12 +195,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
 
       async signUp(email: string, password: string, displayName: string) {
+        // The same check `updateProfile` applies, because this is the other way
+        // a display name gets set. `handle_new_auth_user` copies this straight
+        // into `public.users`, so an unchecked name here would walk past the
+        // rule entirely.
+        const checked = prepareContent(displayName, { strict: true });
+        if (!checked.ok) throw new Error(checked.message);
+
         const { data, error } = await supabase.auth.signUp({
           email: email.trim().toLowerCase(),
           password,
           // The signup trigger reads this to seed public.users, so a new
           // account arrives with its name already set.
-          options: { data: { display_name: displayName.trim() } },
+          options: { data: { display_name: checked.text } },
         });
         if (error) throw new Error(friendlyAuthError(error.message));
 
@@ -239,9 +247,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         if (!session?.user.id) throw new Error('Not signed in.');
 
+        // A display name is the one piece of text that follows you onto every
+        // screen anybody sees, so it gets the strict threshold. Checked here
+        // rather than in the screen because there are two screens that set it
+        // — profile setup and Profile — and a rule enforced in one of them is
+        // not a rule.
+        let named = patch;
+        if (patch.display_name !== undefined) {
+          const checked = prepareContent(patch.display_name ?? '', { strict: true });
+          if (!checked.ok) throw new Error(checked.message);
+          named = { ...patch, display_name: checked.text };
+        }
+
         // Naming yourself is what completes the profile, so the two always
         // move together.
-        const full = patch.display_name ? { ...patch, profile_completed: true } : patch;
+        const full = named.display_name ? { ...named, profile_completed: true } : named;
 
         const write = (values: Record<string, unknown>) =>
           supabase
@@ -260,7 +280,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // that schema does have, so naming yourself still works — the
         // placeholder-name fallback in `profileIsComplete` then carries it.
         if (error && isUnknownWriteColumn(error, 'profile_completed')) {
-          ({ data, error } = await write(patch));
+          ({ data, error } = await write(named));
         }
 
         if (error) throw new Error(error.message);

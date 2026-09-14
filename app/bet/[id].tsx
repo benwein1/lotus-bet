@@ -17,6 +17,7 @@ import { BetComments } from '@/components/bet-comments';
 import { DoubleTapToLike } from '@/components/double-tap-like';
 import { BetMediaView } from '@/components/bet-media';
 import { BetProof } from '@/components/bet-proof';
+import { ReportSheet, type ReportTarget } from '@/components/report-sheet';
 import { splitMedia } from '@/lib/media';
 import { AlertIcon, ClockIcon, LockIcon, TrophyIcon } from '@/components/icons';
 import { OddsBar } from '@/components/odds-bar';
@@ -68,6 +69,8 @@ export default function BetDetailScreen() {
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  /** What the report/block sheet is pointed at, if anything. */
+  const [reporting, setReporting] = useState<ReportTarget | null>(null);
   const { ask, dialog } = useConfirm();
 
   // See the note in group/[id]/index.tsx: depend on the stable `reload`, not
@@ -125,6 +128,8 @@ export default function BetDetailScreen() {
   const usersById = new Map<string, UserRow>(
     (data.group?.members ?? []).map((m) => [m.user_id, m.user])
   );
+
+  const creatorName = usersById.get(data.creator_id)?.display_name ?? 'this person';
 
   /**
    * Like without re-reading the bet.
@@ -397,7 +402,40 @@ export default function BetDetailScreen() {
               currentUserId={userId}
               currentUserName={profile?.display_name}
               currentUserAvatar={profile?.avatar_url}
+              onReportComment={(comment) =>
+                setReporting({
+                  kind: 'comment',
+                  id: comment.id,
+                  authorId: comment.user_id,
+                  authorName: comment.author?.display_name ?? 'this person',
+                  noun: 'this comment',
+                })
+              }
             />
+
+            {/* Reporting the bet itself, not a comment on it. Offered to
+                everyone except its creator — who has lock, resolve and cancel
+                instead, and does not need a way to report themselves. */}
+            {!isCreator && (
+              <PressableScale
+                scaleTo={0.99}
+                onPress={() =>
+                  setReporting({
+                    kind: 'bet',
+                    id: betId,
+                    authorId: data.creator_id,
+                    authorName: creatorName,
+                    noun: 'this bet',
+                  })
+                }
+                accessibilityRole="button"
+                accessibilityLabel="Report this bet"
+                className="mt-7 flex-row items-center justify-center gap-2 py-2"
+              >
+                <AlertIcon size={15} color={colors.textTertiary} />
+                <Text className="text-sm text-tertiary">Report this bet</Text>
+              </PressableScale>
+            )}
 
             {isCreator && !isResolved && !isCancelled && (
               <View className="mt-7">
@@ -440,6 +478,15 @@ export default function BetDetailScreen() {
           </ContentWidth>
         </ScrollView>
         </KeyboardAvoidingView>
+
+        {/* Blocking hides the blocked person's comments at the policy level, so
+            the screen has to re-read to see that happen. */}
+        <ReportSheet
+          target={reporting}
+          onClose={() => setReporting(null)}
+          onBlocked={() => void bet.reload({ silent: true })}
+        />
+
         {dialog}
       </Screen>
     </>

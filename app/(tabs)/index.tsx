@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedCard } from '@/components/bet-card';
 import { BetCommentsSheet } from '@/components/bet-comments';
+import { ReportSheet, type ReportTarget } from '@/components/report-sheet';
 import { BetSuggestions } from '@/components/bet-suggestions';
 import { DemoBadge } from '@/components/demo-entry';
 import { ChevronUpIcon } from '@/components/icons';
@@ -58,7 +59,9 @@ export default function FeedScreen() {
   const reduced = useReducedMotion();
   const userId = session?.user.id ?? '';
 
-  const feed = useAsync(fetchFeedBets, [userId]);
+  // Passed rather than read from the session inside the query, because the
+  // feed's block filter has to know whose positions count as "mine".
+  const feed = useAsync(() => fetchFeedBets(userId), [userId]);
   const groups = useAsync(fetchMyGroups, [userId]);
   const { since } = useLastSeen();
 
@@ -67,6 +70,8 @@ export default function FeedScreen() {
   const [scrolledAway, setScrolledAway] = useState(false);
   /** The bet whose comments are open in the sheet, if any. */
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
+  /** What the report/block sheet is pointed at, if anything. */
+  const [reporting, setReporting] = useState<ReportTarget | null>(null);
   const [listHeight, setListHeight] = useState<number | null>(null);
   const listRef = useRef<FlatList<BetWithPositions>>(null);
 
@@ -336,9 +341,29 @@ export default function FeedScreen() {
         betId={commentsFor}
         onClose={() => setCommentsFor(null)}
         onTotalChange={patchCommentCount}
+        onReportComment={(comment) =>
+          setReporting({
+            kind: 'comment',
+            id: comment.id,
+            authorId: comment.user_id,
+            authorName: comment.author?.display_name ?? 'this person',
+            noun: 'this comment',
+          })
+        }
         currentUserId={userId}
         currentUserName={profile?.display_name}
         currentUserAvatar={profile?.avatar_url}
+      />
+
+      {/* Blocking changes what the feed may show, so a successful block has to
+          re-read it rather than leave the blocked person's bets on screen. */}
+      <ReportSheet
+        target={reporting}
+        onClose={() => setReporting(null)}
+        onBlocked={() => {
+          setCommentsFor(null);
+          void reloadFeed({ silent: true });
+        }}
       />
     </Screen>
   );

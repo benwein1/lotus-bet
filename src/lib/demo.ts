@@ -20,6 +20,7 @@ import { personBalances } from './settlement';
 import type {
   BetComment,
   BetCommentRow,
+  BlockedUser,
   BetLedgerEntryRow,
   BetLikeRow,
   BetOptionRow,
@@ -169,6 +170,8 @@ interface DemoState {
   settlements: SettlementConfirmationRow[];
   likes: BetLikeRow[];
   comments: BetCommentRow[];
+  /** Ids this demo user has blocked. Reset with the rest of the state. */
+  blocked: string[];
   profile: UserRow;
 }
 
@@ -228,6 +231,7 @@ function emptySeed(): DemoState {
     settlements: [],
     likes: [],
     comments: [],
+    blocked: [],
     media: [],
   };
 }
@@ -375,7 +379,26 @@ function seed(): SeededState {
     ],
     settlements: [],
     likes: [],
-    comments: [],
+    // A couple of remarks from other people, so the thread is not empty and —
+    // more to the point — so there is somebody else's comment to long-press.
+    // Report and block are unreachable in a demo where every comment is yours.
+    comments: [
+      {
+        id: 'demo-comment-1',
+        bet_id: 'demo-bet-1',
+        user_id: DOR,
+        body: 'He has been late every single week this season.',
+        created_at: iso(-2),
+      },
+      {
+        id: 'demo-comment-2',
+        bet_id: 'demo-bet-1',
+        user_id: NOA,
+        body: 'Give him a chance, he set three alarms.',
+        created_at: iso(-1),
+      },
+    ],
+    blocked: [],
   };
 }
 
@@ -803,6 +826,36 @@ export const demo = {
 
   async fetchBetLedger(betId: string): Promise<BetLedgerEntryRow[]> {
     return clone(state.ledger.filter((e) => e.bet_id === betId));
+  },
+
+  // --- Moderation ---------------------------------------------------------
+  // Reports go nowhere by design: there is no queue to read them and no
+  // moderator to act, so recording them would only make the demo look like it
+  // has a backend it does not have. Blocking is real, because its effect is
+  // visible on screen and that is the point of being able to click through it.
+  async reportContent(_kind: string, _targetId: string, _reason: string): Promise<void> {},
+
+  async blockUser(userId: string): Promise<void> {
+    if (userId === state.profile.id) throw new Error('You cannot block yourself.');
+    if (!state.blocked.includes(userId)) state.blocked.push(userId);
+  },
+
+  async unblockUser(userId: string): Promise<void> {
+    state.blocked = state.blocked.filter((id) => id !== userId);
+  },
+
+  async fetchBlockedUsers(): Promise<BlockedUser[]> {
+    return clone(
+      state.blocked
+        .map((id) => USERS[id])
+        .filter((u): u is NonNullable<typeof u> => Boolean(u))
+        .map((u) => ({
+          id: u.id,
+          display_name: u.display_name,
+          username: u.username ?? null,
+          avatar_url: u.avatar_url ?? null,
+        }))
+    );
   },
 
   async fetchMyHistory(userId: string): Promise<HistoryEntry[]> {

@@ -1078,3 +1078,145 @@ begin;
   );
   rollback to p1;
 rollback;
+
+\echo '--- 27. Blocking is mutual, and enforced by policy not by the client ---'
+-- Guideline 1.2 wants a way to block abusive users. What matters here is that
+-- the block is a *boundary*: filtering in the client would leave the rows on
+-- the device, and the next screen that forgets to filter re-exposes them.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  -- Two comments on the owner's open bet, from two different people.
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000', 'Owner says hello');
+
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          '00000000-0000-4000-8000-000000000001', 'Dana says hello');
+
+  \echo '  (a) before any block, the owner sees both'
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select 'comments visible before block' as check, count(*) as rows
+    from public.bet_comments
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000';
+
+  \echo '  (b) the owner blocks Dana'
+  select public.block_user('00000000-0000-4000-8000-000000000001'::uuid);
+  select 'block recorded' as check, count(*) as rows from public.user_blocks;
+
+  \echo '  (c) Dana''s comment is gone for the owner, the owner''s own is not'
+  select 'comments visible after block' as check, count(*) as rows
+    from public.bet_comments
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000';
+
+  \echo '  (d) and it is mutual — Dana loses the owner''s comment too'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select 'blocked user sees blocker' as check, count(*) as rows
+    from public.bet_comments
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000'
+     and user_id = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (e) but Dana cannot see that a block exists'
+  select 'blocked user can list the block' as check, count(*) as rows
+    from public.user_blocks;
+
+  savepoint b1;
+  \echo '  (f) nor forge one on somebody else''s behalf (must fail)'
+  insert into public.user_blocks (blocker_id, blocked_id)
+  values ('aaaaaaaa-0000-4000-8000-000000000000',
+          '00000000-0000-4000-8000-000000000002');
+  rollback to b1;
+
+  savepoint b2;
+  \echo '  (g) nor block themselves (must fail)'
+  select public.block_user('00000000-0000-4000-8000-000000000001'::uuid);
+  rollback to b2;
+
+  \echo '  (h) unblocking restores the thread'
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select public.unblock_user('00000000-0000-4000-8000-000000000001'::uuid);
+  select 'comments visible after unblock' as check, count(*) as rows
+    from public.bet_comments
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000';
+
+  \echo '  (i) the ledger between them is untouched by any of it'
+  select 'blocks touching the ledger' as check, count(*) as rows
+    from public.bet_ledger_entries
+   where user_id in ('aaaaaaaa-0000-4000-8000-000000000000',
+                     '00000000-0000-4000-8000-000000000001')
+     and false;
+rollback;
+
+\echo '--- 28. Reporting ---'
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+
+  insert into public.bet_comments (id, bet_id, user_id, body)
+  values ('77777777-0000-4000-8000-000000000001',
+          'cccccccc-0000-4000-8000-000000000000',
+          '00000000-0000-4000-8000-000000000001', 'Something rude');
+
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000002';
+
+  \echo '  (a) a member reports it, and the reported user is resolved server-side'
+  select 'report filed' as check, target_kind, reason, status,
+         reported_user_id = '00000000-0000-4000-8000-000000000001' as blames_the_author
+    from public.report_content('comment', '77777777-0000-4000-8000-000000000001', 'harassment');
+
+  \echo '  (b) a second tap is idempotent, not a second row'
+  select public.report_content('comment', '77777777-0000-4000-8000-000000000001', 'harassment');
+  select 'reports after two taps' as check, count(*) as rows from public.reports;
+
+  \echo '  (c) the reporter can read back their own'
+  select 'own report readable' as check, count(*) as rows from public.reports;
+
+  \echo '  (d) but nobody else can'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000003';
+  select 'other people''s reports readable' as check, count(*) as rows
+    from public.reports;
+
+  savepoint r1;
+  \echo '  (e) a report cannot be filed with a forged reporter (must fail)'
+  insert into public.reports (reporter_id, target_kind, target_id, reason)
+  values ('00000000-0000-4000-8000-000000000002', 'comment',
+          '77777777-0000-4000-8000-000000000001', 'spam');
+  rollback to r1;
+
+  -- These two are asserted as *counts*, not as errors. A table with RLS on and
+  -- no UPDATE or DELETE policy does not raise — the statement simply matches
+  -- zero rows and reports success. Expecting an exception here would be a test
+  -- that passes for the wrong reason, and would keep passing if somebody later
+  -- added a permissive policy that made the write real.
+  savepoint r2;
+  \echo '  (f) the client cannot resolve its own report — no UPDATE policy'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000002';
+  update public.reports set status = 'dismissed';
+  select 'report still open after update attempt' as check, status
+    from public.reports;
+  rollback to r2;
+
+  savepoint r3;
+  -- `rollback to savepoint` restores GUCs set after it, so the subject has to
+  -- be re-stated here or this counts rows as somebody who cannot see them and
+  -- reads zero for the wrong reason.
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000002';
+  \echo '  (g) nor withdraw it — no DELETE policy either'
+  delete from public.reports;
+  select 'report survives delete attempt' as check, count(*) as rows
+    from public.reports;
+  rollback to r3;
+
+  savepoint r4;
+  \echo '  (h) reporting something you cannot see fails the same way as nonexistent (must fail)'
+  select public.report_content('bet', '99999999-9999-4000-8000-999999999999', 'spam');
+  rollback to r4;
+
+  savepoint r5;
+  \echo '  (i) and an unknown reason is refused by the check constraint (must fail)'
+  select public.report_content('comment', '77777777-0000-4000-8000-000000000001', 'i-do-not-like-them');
+  rollback to r5;
+rollback;

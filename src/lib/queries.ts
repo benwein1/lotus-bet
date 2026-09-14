@@ -7,6 +7,7 @@
  */
 import type {
   BetComment,
+  BlockedUser,
   BetDetail,
   BetLedgerEntryRow,
   BetMediaPurpose,
@@ -20,6 +21,8 @@ import type {
   GroupRow,
   MyStatsRow,
   PersonBalance,
+  ReportReason,
+  ReportTargetKind,
   UserLookup,
   SettlementConfirmationRow,
   UserRow,
@@ -28,6 +31,7 @@ import { demo, isDemoMode } from './demo';
 import { signMedia, uploadBetMedia, type PickedMedia } from './media';
 import { announceBetResolved, announceGroupJoin, announceNewBet } from './notifications';
 import { computeBetPayouts } from './payout';
+import { prepareContent } from './content-rules';
 import { isMissingColumn } from './postgrest';
 import { personBalances, type BalanceLine } from './settlement';
 import { supabase } from './supabase';
@@ -158,9 +162,15 @@ export async function fetchGroup(groupId: string): Promise<GroupWithMembers> {
 }
 
 export async function createGroup(name: string, emoji: string | null): Promise<GroupRow> {
-  if (isDemoMode()) return demo.createGroup(name, emoji);
+  // `strict`: a group name is identity rather than speech. It appears on every
+  // card, every feed row and every invite message, so the shouting and
+  // repetition thresholds are lower than they are for a comment.
+  const checked = prepareContent(name, { strict: true });
+  if (!checked.ok) throw new Error(checked.message);
+
+  if (isDemoMode()) return demo.createGroup(checked.text, emoji);
   return unwrap(
-    await supabase.rpc('create_group', { p_name: name, p_emoji: emoji }).single()
+    await supabase.rpc('create_group', { p_name: checked.text, p_emoji: emoji }).single()
   ) as GroupRow;
 }
 
@@ -323,18 +333,31 @@ export async function fetchGroupBets(groupId: string): Promise<BetWithPositions[
 }
 
 /** Every bet across every group the user is in — the Home feed's raw input. */
-export async function fetchFeedBets(): Promise<BetWithPositions[]> {
+export async function fetchFeedBets(userId?: string): Promise<BetWithPositions[]> {
   if (isDemoMode()) return demo.fetchFeedBets();
-  const data = await withGroupAvatarFallback((withAvatar) =>
-    supabase
-      .from('bets')
-      .select(betSelectWithGroup(withAvatar))
-      .in('status', ['open', 'locked'])
-      .order('created_at', { ascending: false })
-      .limit(100)
+  // One extra round trip for the block list, in parallel with the feed itself
+  // rather than before it. See `blockedIds` for why this filter lives here and
+  // not in a policy.
+  const [data, blocked] = await Promise.all([
+    withGroupAvatarFallback((withAvatar) =>
+      supabase
+        .from('bets')
+        .select(betSelectWithGroup(withAvatar))
+        .in('status', ['open', 'locked'])
+        .order('created_at', { ascending: false })
+        .limit(100)
+    ),
+    blockedIds(),
+  ]);
+
+  const bets = ((data ?? []) as unknown as BetWithPositions[]).filter(
+    (bet) =>
+      !blocked.has(bet.creator_id) ||
+      // Still yours to see if your money is on it.
+      (bet.positions ?? []).some((p) => p.user_id === userId)
   );
 
-  return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
+  return attachSignedMedia(bets);
 }
 
 export async function fetchBet(betId: string): Promise<BetDetail> {
@@ -371,11 +394,41 @@ export const MIN_BET_OPTIONS = 2;
 export const MAX_BET_OPTIONS = 8;
 
 export async function createBet(input: NewBetInput): Promise<BetRow> {
-  if (isDemoMode()) return demo.createBet(input);
+  // The filter runs before the demo short-circuit, for the same reason it does
+  // in `postBetComment`: demo mode must never be more permissive than the real
+  // backend.
+  //
+  // The title is a question everybody in the group reads, and the option
+  // labels sit on the buttons they press, so both go through the filter. The
+  // description is speech and gets the ordinary threshold.
+  const checkedTitle = prepareContent(input.title, { strict: true });
+  if (!checkedTitle.ok) throw new Error(checkedTitle.message);
 
-  const labels = input.optionLabels.map((label) => label.trim()).filter(Boolean);
+  let checkedDescription: string | null = null;
+  if (input.description && input.description.trim()) {
+    const checked = prepareContent(input.description);
+    if (!checked.ok) throw new Error(checked.message);
+    checkedDescription = checked.text;
+  }
+
+  const labels: string[] = [];
+  for (const raw of input.optionLabels) {
+    if (!raw.trim()) continue;
+    const checked = prepareContent(raw, { strict: true });
+    if (!checked.ok) throw new Error(checked.message);
+    labels.push(checked.text);
+  }
   if (labels.length < MIN_BET_OPTIONS) {
     throw new Error('A bet needs at least two options.');
+  }
+
+  if (isDemoMode()) {
+    return demo.createBet({
+      ...input,
+      title: checkedTitle.text,
+      description: checkedDescription,
+      optionLabels: labels,
+    });
   }
 
   // The first two labels go on the bet row, where they always have. A trigger
@@ -388,8 +441,8 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
       .insert({
         group_id: input.groupId,
         creator_id: input.creatorId,
-        title: input.title,
-        description: input.description,
+        title: checkedTitle.text,
+        description: checkedDescription,
         option_a_label: labels[0],
         option_b_label: labels[1],
         total_pot_agorot: input.totalPotAgorot,
@@ -738,14 +791,24 @@ export async function postBetComment(
   userId: string,
   body: string
 ): Promise<BetComment> {
-  if (isDemoMode()) return demo.postBetComment(betId, userId, body);
+  // Guideline 1.2's "method for filtering objectionable material". It stores
+  // the *cleaned* string rather than the raw one, which is the whole reason
+  // `prepareContent` returns text — validating one string and writing another
+  // lets every invisible character through the check it just passed.
+  //
+  // Above the demo short-circuit on purpose. Demo mode is scaffolding, and the
+  // one thing it must never do is behave *more permissively* than the real
+  // backend — that is how a rule gets tested in the demo, looks fine, and is
+  // missing in production. Same reason resolving a bet there runs the real
+  // payout maths.
+  const checked = prepareContent(body);
+  if (!checked.ok) throw new Error(checked.message);
 
-  const trimmed = body.trim();
-  if (!trimmed) throw new Error('Write something first.');
+  if (isDemoMode()) return demo.postBetComment(betId, userId, checked.text);
 
   const { data, error } = await supabase
     .from('bet_comments')
-    .insert({ bet_id: betId, user_id: userId, body: trimmed })
+    .insert({ bet_id: betId, user_id: userId, body: checked.text })
     .select('*, author:users(id, display_name, avatar_url)')
     .single();
 
@@ -872,4 +935,87 @@ export async function fetchBetLedger(betId: string): Promise<BetLedgerEntryRow[]
 
   if (error) throw new Error(error.message);
   return (data ?? []) as BetLedgerEntryRow[];
+}
+
+// ---------------------------------------------------------------------------
+// Moderation
+// ---------------------------------------------------------------------------
+
+/**
+ * File a report.
+ *
+ * An RPC rather than an insert, and the reason is worth keeping in view: the
+ * client does **not** say who is being reported. The function resolves that
+ * from the target, because a client-supplied `reported_user_id` would let
+ * anybody file a complaint against anybody. It also refuses a target the
+ * caller cannot see, with the same error it gives for one that does not exist,
+ * so the report endpoint is not an oracle for whether a private bet exists.
+ *
+ * Repeat taps are idempotent — one open report per person per thing, or a
+ * single determined user can bury the queue.
+ */
+export async function reportContent(
+  targetKind: ReportTargetKind,
+  targetId: string,
+  reason: ReportReason
+): Promise<void> {
+  if (isDemoMode()) return demo.reportContent(targetKind, targetId, reason);
+  const { error } = await supabase.rpc('report_content', {
+    p_target_kind: targetKind,
+    p_target_id: targetId,
+    p_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Block somebody.
+ *
+ * Mutual invisibility, not a mute: their comments stop reaching you and yours
+ * stop reaching them. Enforced by the policy on `bet_comments`, not here —
+ * filtering in the client would leave the rows on the device and the next
+ * screen that forgets to filter would re-expose them.
+ *
+ * It is not a membership change and it does not touch the ledger. A debt does
+ * not disappear because two people stopped speaking.
+ */
+export async function blockUser(userId: string): Promise<void> {
+  if (isDemoMode()) return demo.blockUser(userId);
+  const { error } = await supabase.rpc('block_user', { p_user_id: userId });
+  if (error) throw new Error(error.message);
+}
+
+export async function unblockUser(userId: string): Promise<void> {
+  if (isDemoMode()) return demo.unblockUser(userId);
+  const { error } = await supabase.rpc('unblock_user', { p_user_id: userId });
+  if (error) throw new Error(error.message);
+}
+
+/** Everyone you have blocked, so Profile can offer to undo it. */
+export async function fetchBlockedUsers(): Promise<BlockedUser[]> {
+  if (isDemoMode()) return demo.fetchBlockedUsers();
+  const { data, error } = await supabase.rpc('my_blocked_users');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as BlockedUser[];
+}
+
+/**
+ * The ids you have blocked, for the one thing the database cannot decide.
+ *
+ * A blocked person's *comments* are gone at the policy level, which is where a
+ * boundary belongs. Their *bets* are a different kind of object: a bet is a
+ * group's shared financial record, and hiding one you have money on would
+ * leave you owing against something you cannot open. So the feed drops their
+ * bets only where you have no position — a display choice, made here, and
+ * deliberately not a policy.
+ */
+async function blockedIds(): Promise<Set<string>> {
+  try {
+    const blocked = await fetchBlockedUsers();
+    return new Set(blocked.map((b) => b.id));
+  } catch {
+    // A project without the moderation migration has no such function. An
+    // unfiltered feed is the right failure here — blank is worse.
+    return new Set();
+  }
 }
