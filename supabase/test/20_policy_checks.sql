@@ -891,3 +891,91 @@ begin;
     from public.bet_media
    where bet_id = 'cccccccc-0000-4000-8000-000000000000' and purpose = 'attachment';
 rollback;
+
+\echo '--- 23. Posting a bet works through RETURNING, and stays locked down ---'
+-- The regression guard for `…_fix_bet_insert_returning.sql`.
+--
+-- `queries.ts` posts a bet with `.insert(...).select().single()`, which becomes
+-- `INSERT ... RETURNING *`, and Postgres evaluates the SELECT policy against
+-- the new row for that RETURNING. While the policy was `can_see_bet(id)` — a
+-- `stable` function that looks the row up in `bets` — it could not see a row
+-- that was not in the statement's snapshot yet, so it denied it and Postgres
+-- reported "new row violates row-level security policy". Posting a bet was
+-- impossible.
+--
+-- The insert on its own always worked, which is why this needs the RETURNING
+-- to be a real test of anything.
+begin;
+  \echo '  (a) a member posts a group bet and gets the row back'
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  insert into public.bets
+    (group_id, creator_id, title, description, option_a_label, option_b_label,
+     total_pot_agorot, close_at, visibility)
+  values ('bbbbbbbb-0000-4000-8000-000000000000', 'aaaaaaaa-0000-4000-8000-000000000000',
+          'Posted through RETURNING', null, 'Yes', 'No', 10000, null, 'group')
+  returning 'group bet posted' as check, 1 as rows;
+
+  \echo '  (b) and a private one, which only the creator can see so far'
+  insert into public.bets
+    (group_id, creator_id, title, option_a_label, option_b_label,
+     total_pot_agorot, visibility)
+  values ('bbbbbbbb-0000-4000-8000-000000000000', 'aaaaaaaa-0000-4000-8000-000000000000',
+          'Private through RETURNING', 'Yes', 'No', 10000, 'private')
+  returning 'private bet posted' as check, 1 as rows;
+rollback;
+
+begin;
+  \echo '  (c) a non-member still cannot post into the group (must fail)'
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+  savepoint s5;
+  insert into public.bets
+    (group_id, creator_id, title, option_a_label, option_b_label, total_pot_agorot)
+  values ('bbbbbbbb-0000-4000-8000-000000000000', 'dddddddd-0000-4000-8000-000000000000',
+          'Should not exist', 'Yes', 'No', 100);
+  rollback to s5;
+rollback;
+
+begin;
+  \echo '  (d) nor can a member forge somebody else as the creator (must fail)'
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  savepoint s6;
+  insert into public.bets
+    (group_id, creator_id, title, option_a_label, option_b_label, total_pot_agorot)
+  values ('bbbbbbbb-0000-4000-8000-000000000000', 'dddddddd-0000-4000-8000-000000000000',
+          'Should not exist', 'Yes', 'No', 100);
+  rollback to s6;
+rollback;
+
+\echo '--- 24. A private bet is still private after the policy rewrite ---'
+-- The rule moved from `can_see_bet(id)` into `can_see_bet_row(...)`, so the
+-- thing it protects has to be re-asserted: the visibility check must still be
+-- doing real work, not passing everything through.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  insert into public.bets
+    (id, group_id, creator_id, title, option_a_label, option_b_label,
+     total_pot_agorot, visibility)
+  values ('99999999-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000', 'Secret', 'Yes', 'No', 100, 'private');
+
+  \echo '  (a) its creator sees it'
+  select 'creator sees own private bet' as check, count(*) as rows
+    from public.bets where id = '99999999-0000-4000-8000-000000000001';
+
+  \echo '  (b) can_see_bet() agrees, so the attached tables agree too'
+  select 'can_see_bet for the creator' as check,
+         public.can_see_bet('99999999-0000-4000-8000-000000000001') as visible;
+
+  savepoint s7;
+  set local request.jwt.claim.sub = '11111111-1111-4000-8000-000000000002';
+  \echo '  (c) a groupmate who is not an invitee does not'
+  select 'non-invitee sees private bet' as check, count(*) as rows
+    from public.bets where id = '99999999-0000-4000-8000-000000000001';
+  select 'can_see_bet for a non-invitee' as check,
+         public.can_see_bet('99999999-0000-4000-8000-000000000001') as visible;
+  rollback to s7;
+rollback;

@@ -141,7 +141,7 @@ supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
                             bet options · notification prefs · social ·
                             private bets and duels · group invites ·
-                            proof of outcome (12)
+                            proof of outcome · bet-insert RLS fix (13)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
 __tests__/                  payout · settlement · format · theme · odds ·
@@ -731,12 +731,42 @@ the policy checks asserts the two functions agree.
 ### Who can see a bet
 
 **`can_see_bet(id)` is the single gate**, and every policy that guards a bet or
-anything attached to one goes through it — `bets`, `bet_options`,
-`bet_positions`, `bet_media`, `bet_likes`, `bet_comments`, `bet_invitees`. It
-is group membership *plus* the invitee list. Keeping it in one function is the
-whole point: a private bet whose comments were still readable, or whose options
+anything attached to one goes through it — `bet_options`, `bet_positions`,
+`bet_media`, `bet_likes`, `bet_comments`, `bet_invitees`. It is group
+membership *plus* the invitee list. Keeping it in one function is the whole
+point: a private bet whose comments were still readable, or whose options
 leaked, would be private in name only. If you add a table that hangs off a bet,
 gate it on `can_see_bet`, never on `is_group_member(bet_group_id(...))`.
+
+**`bets` itself is the one exception, and it has to be.** Its SELECT policy
+calls `can_see_bet_row(id, group_id, visibility, creator_id)` — the same rule,
+over the row's own columns rather than over an id.
+
+The reason is a trap worth remembering, because it cost the app its
+post-a-bet flow entirely. `queries.ts` inserts with
+`.insert(...).select().single()`, which PostgREST turns into
+`INSERT ... RETURNING *`, and **Postgres evaluates the SELECT policy against
+the new row to satisfy that RETURNING**. `can_see_bet` is `stable` and looks
+the bet up in `bets`; a `stable` function sees the snapshot from the start of
+the statement, where the row being inserted does not exist yet. So it returned
+false, the SELECT policy denied the row, and Postgres reported it as
+
+    new row violates row-level security policy for table "bets"
+
+— pointing at the INSERT policy, which was fine all along. The insert worked
+without `RETURNING` and failed with it, which is what made it findable.
+
+It was a regression: the policy `…_private_and_duels.sql` replaced was
+`is_group_member(group_id)`, which reads `group_members` — a row that already
+exists — and so never had to see the row being written.
+
+There is still exactly one implementation of the rule: `can_see_bet(id)` is now
+a thin wrapper that looks the row up and delegates to `can_see_bet_row`. Both
+live in `…_fix_bet_insert_returning.sql`.
+
+**Never write a policy on table X whose `using` clause re-queries table X**, if
+anything ever inserts into X with `RETURNING`. Sections 23 and 24 of the policy
+checks guard this one.
 
 ### Proof of outcome
 
