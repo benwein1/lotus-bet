@@ -12,6 +12,7 @@ import Animated, { FadeIn, FadeInDown, FadeOut } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedCard } from '@/components/bet-card';
+import { BetCommentsSheet } from '@/components/bet-comments';
 import { BetSuggestions } from '@/components/bet-suggestions';
 import { DemoBadge } from '@/components/demo-entry';
 import { ChevronUpIcon } from '@/components/icons';
@@ -64,11 +65,14 @@ export default function FeedScreen() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState<{ betId: string; optionId: string } | null>(null);
   const [scrolledAway, setScrolledAway] = useState(false);
+  /** The bet whose comments are open in the sheet, if any. */
+  const [commentsFor, setCommentsFor] = useState<string | null>(null);
   const [listHeight, setListHeight] = useState<number | null>(null);
   const listRef = useRef<FlatList<BetWithPositions>>(null);
 
-  // `feed` is a new object every render; `feed.reload` is stable.
-  const { reload: reloadFeed } = feed;
+  // `feed` is a new object every render; `feed.reload` and `feed.setData` are
+  // stable.
+  const { reload: reloadFeed, setData: setFeedData } = feed;
   const { reload: reloadGroups } = groups;
 
   const refresh = useCallback(() => {
@@ -149,12 +153,45 @@ export default function FeedScreen() {
 
   /**
    * The heart has already moved by the time this runs — `BetActions` owns the
-   * optimistic state and rolls itself back if this throws. So the only job
-   * here is the write and a quiet refresh to pick up anyone else's likes.
+   * optimistic state and rolls itself back if this throws.
+   *
+   * The write is followed by a **patch, not a refetch**. Re-reading the feed to
+   * move one number meant a hundred bets and every one of their signed URLs,
+   * which is absurd next to the one row that actually changed — and the card
+   * would visibly restate itself a second later. Patching also survives the
+   * card scrolling out of the window and remounting, which the row's own
+   * optimistic state does not.
    */
   async function toggleLike(betId: string, next: boolean) {
     await setBetLike(betId, userId, next);
-    void reloadFeed({ silent: true });
+    setFeedData((current) =>
+      current
+        ? current.map((bet) =>
+            bet.id === betId
+              ? {
+                  ...bet,
+                  likes: next
+                    ? [...(bet.likes ?? []), { user_id: userId }]
+                    : (bet.likes ?? []).filter((like) => like.user_id !== userId),
+                }
+              : bet
+          )
+        : current
+    );
+  }
+
+  /**
+   * The same trade the like makes: patch the one number that moved rather than
+   * re-reading a hundred bets and re-signing every media URL to change a count
+   * by one. PostgREST hands an aggregate embed back as a one-row array, which
+   * is the shape `betSocial` reads.
+   */
+  function patchCommentCount(betId: string, total: number) {
+    setFeedData((current) =>
+      current
+        ? current.map((bet) => (bet.id === betId ? { ...bet, comments: [{ count: total }] } : bet))
+        : current
+    );
   }
 
   const myGroups = groups.data ?? [];
@@ -232,6 +269,7 @@ export default function FeedScreen() {
                       onPickOption={(optionId) => pickOption(item.id, optionId)}
                       busyOptionId={busy?.betId === item.id ? busy.optionId : null}
                       onToggleLike={(next) => toggleLike(item.id, next)}
+                      onOpenComments={() => setCommentsFor(item.id)}
                     />
                   </ContentWidth>
                 )}
@@ -290,6 +328,18 @@ export default function FeedScreen() {
           )}
         </View>
       </SafeAreaView>
+
+      {/* One sheet for the whole feed, pointed at whichever bet is open. A
+          `FlatList` keeps several cards mounted, so a sheet per card would be
+          several modals stacked on one screen. */}
+      <BetCommentsSheet
+        betId={commentsFor}
+        onClose={() => setCommentsFor(null)}
+        onTotalChange={patchCommentCount}
+        currentUserId={userId}
+        currentUserName={profile?.display_name}
+        currentUserAvatar={profile?.avatar_url}
+      />
     </Screen>
   );
 }

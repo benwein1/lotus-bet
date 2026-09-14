@@ -120,34 +120,34 @@ begin;
   -- and the trigger turns them into options; anything beyond two is inserted.
   insert into public.bets (id, group_id, creator_id, title,
                            option_a_label, option_b_label, total_pot_agorot)
-  values ('eeeeeeee-0000-4000-8000-000000000000',
+  values ('11111111-1111-4000-8000-000000000002',
           'bbbbbbbb-0000-4000-8000-000000000000',
           'aaaaaaaa-0000-4000-8000-000000000000',
           'Who is paying?', 'Me', 'You', 9000);
   insert into public.bet_options (bet_id, position, label)
-  values ('eeeeeeee-0000-4000-8000-000000000000', 2, 'We split it');
+  values ('11111111-1111-4000-8000-000000000002', 2, 'We split it');
 
   select 'a three-option bet' as check, count(*) as options
-    from public.bet_options where bet_id = 'eeeeeeee-0000-4000-8000-000000000000';
+    from public.bet_options where bet_id = '11111111-1111-4000-8000-000000000002';
 
   -- Five people across the three options: 2 on Me, 1 on You, 2 on We split it.
   select 'join option 0' as check,
-         (public.join_bet_option('eeeeeeee-0000-4000-8000-000000000000',
+         (public.join_bet_option('11111111-1111-4000-8000-000000000002',
             (select id from public.bet_options
-              where bet_id = 'eeeeeeee-0000-4000-8000-000000000000' and position = 0))).option_id is not null;
+              where bet_id = '11111111-1111-4000-8000-000000000002' and position = 0))).option_id is not null;
 
   select 'the letter is kept in step for the first two' as check, side
     from public.bet_positions
-   where bet_id = 'eeeeeeee-0000-4000-8000-000000000000'
+   where bet_id = '11111111-1111-4000-8000-000000000002'
      and user_id = 'aaaaaaaa-0000-4000-8000-000000000000';
 
   select 'the third option has no letter, and that is fine' as check,
-         public.join_bet_option('eeeeeeee-0000-4000-8000-000000000000',
+         public.join_bet_option('11111111-1111-4000-8000-000000000002',
            (select id from public.bet_options
-             where bet_id = 'eeeeeeee-0000-4000-8000-000000000000' and position = 2)) is not null;
+             where bet_id = '11111111-1111-4000-8000-000000000002' and position = 2)) is not null;
   select 'side after moving to option 3' as check, coalesce(side, '(none)')
     from public.bet_positions
-   where bet_id = 'eeeeeeee-0000-4000-8000-000000000000'
+   where bet_id = '11111111-1111-4000-8000-000000000002'
      and user_id = 'aaaaaaaa-0000-4000-8000-000000000000';
 rollback;
 
@@ -755,4 +755,227 @@ begin;
   savepoint s8;
   select public.join_group_with_code(:'duel_code');
   rollback to s8;
+rollback;
+
+\echo '--- 22. Proof of outcome: who may attach media, and when ---'
+
+begin;
+  \echo '  (a) the new column defaults legacy rows to attachment, whatever their bet did'
+  select 'legacy media rows' as check,
+         count(*) filter (where purpose = 'attachment') as attachments,
+         count(*) filter (where purpose = 'proof') as proof
+    from public.bet_media
+   where id in ('00000000-0000-4000-8000-0000000000e1',
+                '00000000-0000-4000-8000-0000000000e2');
+rollback;
+
+begin;
+  -- A resolved bet with one participant who is not the creator, and one group
+  -- member who never picked a side. Positions have to go in while the bet is
+  -- open: `enforce_bet_open` fires for superuser too, which is the whole point
+  -- of it.
+  insert into public.group_members (group_id, user_id, role) values
+    ('bbbbbbbb-0000-4000-8000-000000000000', 'dddddddd-0000-4000-8000-000000000000', 'member'),
+    ('bbbbbbbb-0000-4000-8000-000000000000', '11111111-1111-4000-8000-000000000002', 'member')
+  on conflict do nothing;
+
+  insert into public.bets (
+    id, group_id, creator_id, title, option_a_label, option_b_label,
+    total_pot_agorot, status, close_at
+  ) values (
+    'ffffffff-0000-4000-8000-00000000ff01',
+    'bbbbbbbb-0000-4000-8000-000000000000',
+    'aaaaaaaa-0000-4000-8000-000000000000',
+    'A bet that has been called', 'Yes', 'No', 5000, 'open', now() + interval '1 day'
+  );
+
+  -- The options migration mirrors option_a_label/option_b_label into
+  -- `bet_options` with a trigger, so the two rows already exist — inserting
+  -- them by hand collides on (bet_id, position). Read them instead.
+  insert into public.bet_positions (bet_id, user_id, side, option_id)
+  select 'ffffffff-0000-4000-8000-00000000ff01',
+         'dddddddd-0000-4000-8000-000000000000', 'a', o.id
+    from public.bet_options o
+   where o.bet_id = 'ffffffff-0000-4000-8000-00000000ff01' and o.position = 0;
+
+  update public.bets b
+     set status = 'resolved', winning_option = 'a', resolved_at = now(),
+         winning_option_id = (
+           select o.id from public.bet_options o
+            where o.bet_id = b.id and o.position = 0
+         )
+   where b.id = 'ffffffff-0000-4000-8000-00000000ff01';
+
+  set local role authenticated;
+
+  \echo '  (b) somebody who had a side can attach proof to the resolved bet'
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+  insert into public.bet_media (bet_id, group_id, uploaded_by, kind, purpose, storage_path)
+  values ('ffffffff-0000-4000-8000-00000000ff01', 'bbbbbbbb-0000-4000-8000-000000000000',
+          'dddddddd-0000-4000-8000-000000000000', 'image', 'proof',
+          'bbbbbbbb-0000-4000-8000-000000000000/ffffffff-0000-4000-8000-00000000ff01/p1.jpg');
+  select 'proof rows now' as check, count(*) from public.bet_media
+   where bet_id = 'ffffffff-0000-4000-8000-00000000ff01' and purpose = 'proof';
+
+  \echo '  (c) the creator can too, even without a side'
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  insert into public.bet_media (bet_id, group_id, uploaded_by, kind, purpose, storage_path)
+  values ('ffffffff-0000-4000-8000-00000000ff01', 'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000', 'video', 'proof',
+          'bbbbbbbb-0000-4000-8000-000000000000/ffffffff-0000-4000-8000-00000000ff01/p2.mp4');
+  select 'proof rows now' as check, count(*) from public.bet_media
+   where bet_id = 'ffffffff-0000-4000-8000-00000000ff01' and purpose = 'proof';
+
+  \echo '  (d) a group member who never picked a side cannot — a spectator is not a witness (must fail)'
+  set local request.jwt.claim.sub = '11111111-1111-4000-8000-000000000002';
+  savepoint s1;
+  insert into public.bet_media (bet_id, group_id, uploaded_by, kind, purpose, storage_path)
+  values ('ffffffff-0000-4000-8000-00000000ff01', 'bbbbbbbb-0000-4000-8000-000000000000',
+          '11111111-1111-4000-8000-000000000002', 'image', 'proof',
+          'bbbbbbbb-0000-4000-8000-000000000000/ffffffff-0000-4000-8000-00000000ff01/no.jpg');
+  rollback to s1;
+
+  \echo '  (e) you cannot file proof under somebody else''s name (must fail)'
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+  savepoint s2;
+  insert into public.bet_media (bet_id, group_id, uploaded_by, kind, purpose, storage_path)
+  values ('ffffffff-0000-4000-8000-00000000ff01', 'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000', 'image', 'proof',
+          'bbbbbbbb-0000-4000-8000-000000000000/ffffffff-0000-4000-8000-00000000ff01/forged.jpg');
+  rollback to s2;
+
+  \echo '  (f) a resolved bet takes no new *attachments* — that slot closed when it opened (must fail)'
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  savepoint s3;
+  insert into public.bet_media (bet_id, group_id, uploaded_by, kind, purpose, storage_path)
+  values ('ffffffff-0000-4000-8000-00000000ff01', 'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000', 'image', 'attachment',
+          'bbbbbbbb-0000-4000-8000-000000000000/ffffffff-0000-4000-8000-00000000ff01/late.jpg');
+  rollback to s3;
+
+  \echo '  (g) you can withdraw your own proof'
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+  with gone as (
+    delete from public.bet_media
+     where uploaded_by = 'dddddddd-0000-4000-8000-000000000000' and purpose = 'proof'
+    returning 1
+  )
+  select 'rows I could delete of mine' as check, count(*) as rows from gone;
+
+  \echo '  (h) but not somebody else''s — not even the bet''s creator can'
+  with theirs as (
+    delete from public.bet_media
+     where uploaded_by = 'aaaaaaaa-0000-4000-8000-000000000000' and purpose = 'proof'
+    returning 1
+  )
+  select 'rows I can delete of theirs' as check, count(*) as rows from theirs;
+rollback;
+
+begin;
+  \echo '  (i) proof cannot be filed on a bet that is still open (must fail)'
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  savepoint s4;
+  insert into public.bet_media (bet_id, group_id, uploaded_by, kind, purpose, storage_path)
+  values ('cccccccc-0000-4000-8000-000000000000', 'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000', 'image', 'proof',
+          'bbbbbbbb-0000-4000-8000-000000000000/cccccccc-0000-4000-8000-000000000000/early.jpg');
+  rollback to s4;
+
+  \echo '  (j) and the creator''s own attachment still works on an open bet'
+  insert into public.bet_media (bet_id, group_id, uploaded_by, kind, purpose, storage_path)
+  values ('cccccccc-0000-4000-8000-000000000000', 'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000', 'image', 'attachment',
+          'bbbbbbbb-0000-4000-8000-000000000000/cccccccc-0000-4000-8000-000000000000/ok.jpg');
+  select 'attachment on an open bet' as check, count(*) as rows
+    from public.bet_media
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000' and purpose = 'attachment';
+rollback;
+
+\echo '--- 23. Posting a bet works through RETURNING, and stays locked down ---'
+-- The regression guard for `…_fix_bet_insert_returning.sql`.
+--
+-- `queries.ts` posts a bet with `.insert(...).select().single()`, which becomes
+-- `INSERT ... RETURNING *`, and Postgres evaluates the SELECT policy against
+-- the new row for that RETURNING. While the policy was `can_see_bet(id)` — a
+-- `stable` function that looks the row up in `bets` — it could not see a row
+-- that was not in the statement's snapshot yet, so it denied it and Postgres
+-- reported "new row violates row-level security policy". Posting a bet was
+-- impossible.
+--
+-- The insert on its own always worked, which is why this needs the RETURNING
+-- to be a real test of anything.
+begin;
+  \echo '  (a) a member posts a group bet and gets the row back'
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  insert into public.bets
+    (group_id, creator_id, title, description, option_a_label, option_b_label,
+     total_pot_agorot, close_at, visibility)
+  values ('bbbbbbbb-0000-4000-8000-000000000000', 'aaaaaaaa-0000-4000-8000-000000000000',
+          'Posted through RETURNING', null, 'Yes', 'No', 10000, null, 'group')
+  returning 'group bet posted' as check, 1 as rows;
+
+  \echo '  (b) and a private one, which only the creator can see so far'
+  insert into public.bets
+    (group_id, creator_id, title, option_a_label, option_b_label,
+     total_pot_agorot, visibility)
+  values ('bbbbbbbb-0000-4000-8000-000000000000', 'aaaaaaaa-0000-4000-8000-000000000000',
+          'Private through RETURNING', 'Yes', 'No', 10000, 'private')
+  returning 'private bet posted' as check, 1 as rows;
+rollback;
+
+begin;
+  \echo '  (c) a non-member still cannot post into the group (must fail)'
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'dddddddd-0000-4000-8000-000000000000';
+  savepoint s5;
+  insert into public.bets
+    (group_id, creator_id, title, option_a_label, option_b_label, total_pot_agorot)
+  values ('bbbbbbbb-0000-4000-8000-000000000000', 'dddddddd-0000-4000-8000-000000000000',
+          'Should not exist', 'Yes', 'No', 100);
+  rollback to s5;
+rollback;
+
+begin;
+  \echo '  (d) nor can a member forge somebody else as the creator (must fail)'
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  savepoint s6;
+  insert into public.bets
+    (group_id, creator_id, title, option_a_label, option_b_label, total_pot_agorot)
+  values ('bbbbbbbb-0000-4000-8000-000000000000', 'dddddddd-0000-4000-8000-000000000000',
+          'Should not exist', 'Yes', 'No', 100);
+  rollback to s6;
+rollback;
+
+\echo '--- 24. A private bet is still private after the policy rewrite ---'
+-- The rule moved from `can_see_bet(id)` into `can_see_bet_row(...)`, so the
+-- thing it protects has to be re-asserted: the visibility check must still be
+-- doing real work, not passing everything through.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  insert into public.bets
+    (id, group_id, creator_id, title, option_a_label, option_b_label,
+     total_pot_agorot, visibility)
+  values ('99999999-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000', 'Secret', 'Yes', 'No', 100, 'private');
+
+  \echo '  (a) its creator sees it'
+  select 'creator sees own private bet' as check, count(*) as rows
+    from public.bets where id = '99999999-0000-4000-8000-000000000001';
+
+  \echo '  (b) can_see_bet() agrees, so the attached tables agree too'
+  select 'can_see_bet for the creator' as check,
+         public.can_see_bet('99999999-0000-4000-8000-000000000001') as visible;
+
+  savepoint s7;
+  set local request.jwt.claim.sub = '11111111-1111-4000-8000-000000000002';
+  \echo '  (c) a groupmate who is not an invitee does not'
+  select 'non-invitee sees private bet' as check, count(*) as rows
+    from public.bets where id = '99999999-0000-4000-8000-000000000001';
+  select 'can_see_bet for a non-invitee' as check,
+         public.can_see_bet('99999999-0000-4000-8000-000000000001') as visible;
+  rollback to s7;
 rollback;

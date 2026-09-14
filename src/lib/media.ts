@@ -10,8 +10,15 @@ import { File } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { Platform } from 'react-native';
 
-import type { BetMedia, BetMediaKind, BetMediaRow } from './database.types';
+import type {
+  BetMedia,
+  BetMediaKind,
+  BetMediaPurpose,
+  BetMediaRow,
+} from './database.types';
 import { supabase } from './supabase';
+
+export { splitMedia } from './media-rules';
 
 export const BUCKET = 'bet-media';
 
@@ -25,8 +32,36 @@ export const AVATAR_BUCKET = 'avatars';
 /** Four is enough to tell a story and short enough to stay scrollable. */
 export const MAX_ATTACHMENTS = 4;
 
+/**
+ * Proof gets a larger budget than the bet's own illustration, and it is a
+ * budget for the whole bet rather than for one person: an argument worth
+ * photographing from three angles is exactly the argument this is for.
+ */
+export const MAX_PROOF = 8;
+
 /** Signed URLs are re-fetched on every load, so they only need to outlive one. */
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
+
+/**
+ * How long a signed URL is reused before being asked for again.
+ *
+ * Comfortably inside the hour the URL is actually good for, so a cached one is
+ * never handed out close enough to expiry to break mid-render. The gap is the
+ * whole point: a feed refresh is triggered by every realtime event and every
+ * screen focus, and re-signing the same twenty paths each time is a storage
+ * round trip that buys nothing — the objects have not moved.
+ */
+const SIGN_CACHE_MS = 45 * 60 * 1000;
+
+const signCache = new Map<string, { url: string; expires: number }>();
+
+/**
+ * Drops the cache. Called on sign-out, because the next person to use this
+ * device must not inherit URLs minted for somebody else's session.
+ */
+export function clearMediaCache(): void {
+  signCache.clear();
+}
 
 export interface PickedMedia {
   /** Local file URI, straight from the picker. */
@@ -65,18 +100,79 @@ function toPicked(asset: ImagePicker.ImagePickerAsset): PickedMedia {
   };
 }
 
+/**
+ * How hard to squeeze a file on the way in.
+ *
+ * `expo-image-picker` does the work itself — it re-encodes before handing back
+ * a URI — so there is no second compression library to add. `quality` is JPEG
+ * quality for stills; `videoQuality` picks the export preset; `videoMaxDuration`
+ * is the real lever on size, because a clip's bytes scale with its length far
+ * more predictably than with its preset.
+ *
+ * Proof is squeezed harder than a bet's own illustration. A receipt only has to
+ * be legible enough to end an argument, and it is uploaded on a phone in a bar
+ * on a bad connection — the illustration is the bet's face and sits in a
+ * full-bleed feed card.
+ */
+const COMPRESSION = {
+  attachment: {
+    quality: 0.85,
+    videoQuality: ImagePicker.UIImagePickerControllerQualityType.High,
+    videoMaxDuration: 60,
+  },
+  proof: {
+    quality: 0.6,
+    videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+    videoMaxDuration: 30,
+  },
+} as const;
+
 /** Opens the system library. Returns [] when the user backs out. */
 export async function pickMedia(remaining: number): Promise<PickedMedia[]> {
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['images', 'videos'],
     allowsMultipleSelection: true,
     selectionLimit: Math.max(1, remaining),
-    quality: 0.85,
-    videoMaxDuration: 60,
+    ...COMPRESSION.attachment,
   });
 
   if (result.canceled) return [];
   return result.assets.slice(0, remaining).map(toPicked);
+}
+
+/**
+ * The same library picker, squeezed for proof of outcome.
+ *
+ * Separate from `pickMedia` rather than a flag on it, because the two differ
+ * in more than compression: proof has its own cap, and a resolved bet can
+ * collect several rounds of it from several people, so "remaining" is not the
+ * same budget.
+ */
+export async function pickProofMedia(remaining: number): Promise<PickedMedia[]> {
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images', 'videos'],
+    allowsMultipleSelection: true,
+    selectionLimit: Math.max(1, remaining),
+    ...COMPRESSION.proof,
+  });
+
+  if (result.canceled) return [];
+  return result.assets.slice(0, remaining).map(toPicked);
+}
+
+/** Shoot proof there and then. The camera is the common case for a receipt. */
+export async function captureProofMedia(): Promise<PickedMedia | null> {
+  const permission = await ImagePicker.requestCameraPermissionsAsync();
+  if (!permission.granted) throw new Error('Camera access is off for Lotus Bet.');
+
+  const result = await ImagePicker.launchCameraAsync({
+    mediaTypes: ['images', 'videos'],
+    ...COMPRESSION.proof,
+  });
+
+  if (result.canceled) return null;
+  const asset = result.assets[0];
+  return asset ? toPicked(asset) : null;
 }
 
 /** Opens the camera. Returns null when the user backs out or declines access. */
@@ -86,8 +182,7 @@ export async function captureMedia(): Promise<PickedMedia | null> {
 
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: ['images', 'videos'],
-    quality: 0.85,
-    videoMaxDuration: 60,
+    ...COMPRESSION.attachment,
   });
 
   if (result.canceled) return null;
@@ -157,15 +252,34 @@ export async function uploadBetMedia(
 export async function signMedia(rows: BetMediaRow[]): Promise<BetMedia[]> {
   if (rows.length === 0) return [];
 
-  const { data, error } = await supabase.storage
-    .from(BUCKET)
-    .createSignedUrls(
-      rows.map((row) => row.storage_path),
-      SIGNED_URL_TTL_SECONDS
-    );
-  if (error) throw new Error(error.message);
+  const now = Date.now();
+  const urls = new Map<string, string>();
 
-  const urls = new Map((data ?? []).map((entry) => [entry.path, entry.signedUrl]));
+  // Anything still comfortably inside its TTL is answered from memory, so a
+  // refresh that changed one like does not re-sign the whole feed's media.
+  const missing: string[] = [];
+  for (const row of rows) {
+    const hit = signCache.get(row.storage_path);
+    if (hit && hit.expires > now) urls.set(row.storage_path, hit.url);
+    else if (!missing.includes(row.storage_path)) missing.push(row.storage_path);
+  }
+
+  if (missing.length > 0) {
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrls(missing, SIGNED_URL_TTL_SECONDS);
+    if (error) throw new Error(error.message);
+
+    for (const entry of data ?? []) {
+      // `path` and `signedUrl` are both nullable: an object that has gone
+      // comes back as an entry with an error rather than as a missing row.
+      const path = entry.path;
+      const url = entry.signedUrl;
+      if (!path || !url) continue;
+      urls.set(path, url);
+      signCache.set(path, { url, expires: now + SIGN_CACHE_MS });
+    }
+  }
 
   return rows
     .map((row) => {

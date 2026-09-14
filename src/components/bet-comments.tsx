@@ -1,201 +1,592 @@
-import { useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
-import Animated, { FadeIn } from '@/components/animated';
+import { useEffect, useRef, useState } from 'react';
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, {
+  FadeIn,
+  Layout,
+  SlideInDown,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from '@/components/animated';
 
-import { CommentIcon } from '@/components/icons';
+import { CloseIcon, CommentIcon, SendIcon } from '@/components/icons';
 import {
   Avatar,
   ErrorNotice,
   PressableScale,
-  SectionTitle,
   Skeleton,
+  tap,
   useConfirm,
 } from '@/components/ui';
-import { useAsync } from '@/hooks/use-async';
+import {
+  COMMENT_MAX_LENGTH,
+  isPendingComment,
+  useBetCommentThread,
+  type BetCommentThread,
+} from '@/hooks/use-bet-comments';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { formatShortDate } from '@/lib/format';
-import { deleteBetComment, fetchBetComments, postBetComment } from '@/lib/queries';
+import type { BetComment } from '@/lib/database.types';
+import { formatRelativeShort } from '@/lib/format';
 import { useColors } from '@/providers/theme-provider';
+import { elevation, motion } from '@/theme';
 
 /**
- * The comment thread under a bet.
+ * How many comments show before the thread asks to be opened.
  *
- * Deliberately plain: no threading, no replies, no reactions on a reaction. A
- * bet is settled by its own rules, and the comments are the trash talk around
- * it — the moment they become a place to argue about the result, the result
- * stops being the ledger's job.
+ * Three is the number every social app converged on, and for the same reason:
+ * it is enough to see that a conversation is happening and whose it is, and
+ * few enough that the thing the comments are *about* stays on screen.
+ */
+const PREVIEW_COUNT = 3;
+
+/** Who is doing the commenting — the same four values wherever the thread is drawn. */
+interface Commenter {
+  currentUserId: string;
+  currentUserName?: string | null;
+  currentUserAvatar?: string | null;
+}
+
+/**
+ * The comment thread under a bet, inline on the bet screen.
  *
- * Posting clears the box first and reloads the thread after, so the send
- * always feels done even when the round trip is not. A failed post surfaces as
- * an error above the thread rather than restoring the draft: the text is short
- * and retyping it is cheaper than wondering whether it went.
+ * Shaped like the threads people already know — avatar, name and body on one
+ * flowing paragraph, a quiet relative timestamp underneath, newest at the
+ * bottom, a composer that stays put. The familiarity is the point: nobody
+ * should have to learn how to argue with their friends.
+ *
+ * Deliberately still plain underneath: no threading, no replies, no reactions
+ * on a reaction. A bet is settled by its own rules, and the comments are the
+ * trash talk around it — the moment they become a place to argue about the
+ * result, the result stops being the ledger's job.
  */
 export function BetComments({
   betId,
   currentUserId,
-}: {
-  betId: string;
-  currentUserId: string;
-}) {
+  currentUserName,
+  currentUserAvatar,
+}: { betId: string } & Commenter) {
   const colors = useColors();
   const reduced = useReducedMotion();
   const { ask, dialog } = useConfirm();
+  const inputRef = useRef<TextInput>(null);
 
-  const comments = useAsync(() => fetchBetComments(betId), [betId]);
-  const [draft, setDraft] = useState('');
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const thread = useBetCommentThread({
+    betId,
+    currentUserId,
+    currentUserName,
+    currentUserAvatar,
+  });
 
-  const rows = comments.data ?? [];
-
-  async function send() {
-    const body = draft.trim();
-    if (!body || sending) return;
-
-    setSending(true);
-    setError(null);
-    try {
-      await postBetComment(betId, currentUserId, body);
-      setDraft('');
-      await comments.reload({ silent: true });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not post that.');
-    } finally {
-      setSending(false);
-    }
-  }
-
-  function confirmDelete(commentId: string) {
-    ask({
-      title: 'Delete comment?',
-      message: 'It disappears for everyone in the group.',
-      confirmLabel: 'Delete',
-      destructive: true,
-      onConfirm: () => {
-        void (async () => {
-          try {
-            await deleteBetComment(commentId);
-            await comments.reload({ silent: true });
-          } catch (err) {
-            setError(err instanceof Error ? err.message : 'Could not delete that.');
-          }
-        })();
-      },
-    });
-  }
+  // Collapsed until the count is pressed. Unlike the sheet — which exists to
+  // show the whole conversation — this thread sits under the bet it is about,
+  // and that bet has to stay on screen.
+  const [expanded, setExpanded] = useState(false);
+  const total = thread.total;
+  const hidden = Math.max(0, total - PREVIEW_COUNT);
+  const shown = expanded ? thread.rows : thread.rows.slice(-PREVIEW_COUNT);
 
   return (
     <View className="mt-7">
-      <SectionTitle>
-        {rows.length === 0
-          ? 'Comments'
-          : rows.length === 1
-            ? '1 comment'
-            : `${rows.length} comments`}
-      </SectionTitle>
+      <Text className="mb-3 text-lg font-semibold text-primary">
+        {total === 0 ? 'Comments' : total === 1 ? '1 comment' : `${total} comments`}
+      </Text>
 
-      {error && <ErrorNotice message={error} />}
-
-      <View className="rounded-3xl border border-hairline bg-surface">
-        {comments.loading ? (
-          <View className="gap-3 p-4">
-            <Skeleton className="h-4 w-1/3 rounded-md" />
-            <Skeleton className="h-4 w-2/3 rounded-md" />
-          </View>
-        ) : rows.length === 0 ? (
-          <View className="items-center gap-2 px-6 py-8">
-            <CommentIcon size={22} color={colors.textTertiary} />
-            <Text className="text-center text-sm text-secondary">
-              Nothing said yet. First word is worth something.
-            </Text>
-          </View>
-        ) : (
-          <View className="px-4 py-1">
-            {rows.map((comment, index) => (
-              <Animated.View
-                key={comment.id}
-                entering={reduced ? undefined : FadeIn.delay(Math.min(index, 6) * 30)}
-              >
-                <PressableScale
-                  scaleTo={1}
-                  disabled={comment.user_id !== currentUserId}
-                  onLongPress={() => confirmDelete(comment.id)}
-                  accessibilityRole={comment.user_id === currentUserId ? 'button' : 'text'}
-                  accessibilityHint={
-                    comment.user_id === currentUserId
-                      ? 'Press and hold to delete your comment'
-                      : undefined
-                  }
-                  className="flex-row gap-3 py-3"
-                >
-                  <Avatar
-                    id={comment.user_id}
-                    name={comment.author?.display_name ?? 'Someone'}
-                    uri={comment.author?.avatar_url ?? null}
-                    size={30}
-                  />
-                  <View className="flex-1">
-                    <View className="flex-row items-baseline gap-2">
-                      <Text
-                        numberOfLines={1}
-                        className="flex-1 text-sm font-semibold text-primary"
-                      >
-                        {comment.author?.display_name ?? 'Someone'}
-                      </Text>
-                      <Text className="text-2xs text-tertiary">
-                        {formatShortDate(comment.created_at)}
-                      </Text>
-                    </View>
-                    <Text className="mt-0.5 text-subhead leading-5 text-primary">
-                      {comment.body}
-                    </Text>
-                  </View>
-                </PressableScale>
-              </Animated.View>
-            ))}
-          </View>
-        )}
-      </View>
-
-      {/* The send box is its own surface below the thread rather than pinned to
-          the keyboard: this screen is a scroll, not a chat, and a floating bar
-          would cover the bet it is about. */}
-      <View className="mt-3 flex-row items-end gap-2">
-        <View className="flex-1 rounded-2xl border border-hairline bg-surface px-4 py-2.5">
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Add a comment"
-            placeholderTextColor={colors.textTertiary}
-            multiline
-            maxLength={500}
-            editable={!sending}
-            onSubmitEditing={() => void send()}
-            accessibilityLabel="Add a comment"
-            className="max-h-24 text-base text-primary"
-            style={{ color: colors.text }}
-          />
+      {thread.error && (
+        <View className="mb-3">
+          <ErrorNotice message={thread.error} />
         </View>
+      )}
+
+      {thread.loading ? (
+        <View className="gap-4 py-1">
+          <CommentSkeleton />
+          <CommentSkeleton />
+        </View>
+      ) : total === 0 ? (
         <PressableScale
-          onPress={() => void send()}
-          disabled={sending || draft.trim().length === 0}
+          scaleTo={0.99}
+          onPress={() => inputRef.current?.focus()}
           accessibilityRole="button"
-          accessibilityLabel="Post comment"
-          className={`h-11 justify-center rounded-2xl px-4 ${
-            draft.trim().length === 0 ? 'bg-surface3' : 'bg-accent'
-          }`}
+          accessibilityLabel="Be the first to comment"
+          className="items-center gap-2 rounded-3xl border border-hairline bg-surface px-6 py-7"
         >
-          <Text
-            className={`text-callout font-semibold ${
-              draft.trim().length === 0 ? 'text-tertiary' : 'text-accent-ink'
-            }`}
-          >
-            Post
+          <CommentIcon size={22} color={colors.textTertiary} />
+          <Text className="text-center text-sm text-secondary">
+            Nothing said yet. First word is worth something.
           </Text>
         </PressableScale>
+      ) : (
+        <View>
+          {hidden > 0 && !expanded && (
+            <PressableScale
+              scaleTo={1}
+              onPress={() => setExpanded(true)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`View all ${total} comments`}
+              className="mb-3 self-start py-1"
+            >
+              <Text className="text-subhead text-secondary">View all {total} comments</Text>
+            </PressableScale>
+          )}
+
+          <View className="gap-3.5">
+            {shown.map((comment) => (
+              <CommentRow
+                key={comment.id}
+                comment={comment}
+                mine={comment.user_id === currentUserId}
+                reduced={reduced}
+                onDelete={() => askDelete(ask, () => void thread.remove(comment.id))}
+              />
+            ))}
+          </View>
+
+          {expanded && hidden > 0 && (
+            <PressableScale
+              scaleTo={1}
+              onPress={() => setExpanded(false)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Show fewer comments"
+              className="mt-3 self-start py-1"
+            >
+              <Text className="text-subhead text-secondary">Show fewer</Text>
+            </PressableScale>
+          )}
+        </View>
+      )}
+
+      {/* The composer sits under the thread rather than pinned to the keyboard:
+          this screen is a scroll, not a chat, and a floating bar would cover
+          the bet the comments are about. The screen's KeyboardAvoidingView is
+          what keeps it visible while typing. */}
+      <View className="mt-5">
+        <Composer
+          thread={thread}
+          inputRef={inputRef}
+          currentUserId={currentUserId}
+          currentUserName={currentUserName}
+          currentUserAvatar={currentUserAvatar}
+          onSent={() => setExpanded(true)}
+        />
       </View>
 
       {dialog}
     </View>
   );
+}
+
+/**
+ * The same thread, risen over the feed instead of replacing it.
+ *
+ * Pressing "Add a comment" on a feed card used to push the whole bet screen,
+ * which is the wrong trade: you lose the photo you were looking at, the feed's
+ * scroll position, and the video that was playing, to read three sentences. A
+ * sheet keeps the bet exactly where it was and puts the conversation under it —
+ * the shape every feed people already use has converged on.
+ *
+ * One of these is mounted by the feed and pointed at whichever bet is open.
+ * Not one per card: a `FlatList` keeps several cards mounted, and a modal per
+ * card is several modals stacked on the same screen.
+ */
+export function BetCommentsSheet({
+  betId,
+  onClose,
+  onTotalChange,
+  currentUserId,
+  currentUserName,
+  currentUserAvatar,
+}: {
+  /** The bet whose thread is open, or null when the sheet is closed. */
+  betId: string | null;
+  onClose: () => void;
+  /**
+   * The confirmed comment count after a post or delete, so the card underneath
+   * can patch its own line rather than the feed re-reading every bet.
+   */
+  onTotalChange?: (betId: string, total: number) => void;
+} & Commenter) {
+  return (
+    <Modal
+      visible={betId !== null}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      accessibilityViewIsModal
+    >
+      {/* Keyed on the bet, and only mounted while open: the thread's fetch and
+          its optimistic state belong to one bet and should not survive the
+          sheet being pointed at another. */}
+      {betId !== null && (
+        <SheetBody
+          key={betId}
+          betId={betId}
+          onClose={onClose}
+          onTotalChange={onTotalChange}
+          currentUserId={currentUserId}
+          currentUserName={currentUserName}
+          currentUserAvatar={currentUserAvatar}
+        />
+      )}
+    </Modal>
+  );
+}
+
+function SheetBody({
+  betId,
+  onClose,
+  onTotalChange,
+  currentUserId,
+  currentUserName,
+  currentUserAvatar,
+}: {
+  betId: string;
+  onClose: () => void;
+  onTotalChange?: (betId: string, total: number) => void;
+} & Commenter) {
+  const colors = useColors();
+  const reduced = useReducedMotion();
+  const { height } = useWindowDimensions();
+  const { ask, dialog } = useConfirm();
+  const scrollRef = useRef<ScrollView>(null);
+  const inputRef = useRef<TextInput>(null);
+
+  const thread = useBetCommentThread({
+    betId,
+    currentUserId,
+    currentUserName,
+    currentUserAvatar,
+    onTotalChange: (total) => onTotalChange?.(betId, total),
+  });
+
+  // Most of the screen, deliberately not all of it. The strip of feed left
+  // showing above is what makes this read as a layer over the bet rather than
+  // as the other screen this is meant to replace.
+  const sheetHeight = Math.max(360, Math.round(height * 0.74));
+
+  // Newest sits at the bottom, as it does inline, so the thread has to open on
+  // the end of the conversation and stay there as it grows.
+  const total = thread.total;
+  useEffect(() => {
+    const id = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 50);
+    return () => clearTimeout(id);
+  }, [total]);
+
+  // Dragging the grabber down closes it — the gesture the platform has trained
+  // everyone to try first. It is bound to the header only, so it can never
+  // fight the thread's own scroll.
+  const dragY = useSharedValue(0);
+  const drag = Gesture.Pan()
+    .onUpdate((event) => {
+      dragY.value = Math.max(0, event.translationY);
+    })
+    .onEnd((event) => {
+      if (dragY.value > 110 || event.velocityY > 900) {
+        dragY.value = 0;
+        runOnJS(onClose)();
+      } else {
+        dragY.value = withSpring(0, motion.press);
+      }
+    });
+
+  const dragStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: dragY.value }],
+  }));
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={{ flex: 1 }}
+    >
+      <View className="flex-1 justify-end bg-scrim">
+        {/* The dismiss target is a *sibling* above the sheet, not an absolutely
+            positioned overlay. On the web a positioned overlay paints above its
+            unpositioned siblings and swallows presses meant for the card — the
+            trap already written down against the confirm dialog. */}
+        <Pressable
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close comments"
+          style={{ flex: 1 }}
+        />
+
+        <Animated.View
+          entering={
+            reduced
+              ? FadeIn.duration(motion.duration.fast)
+              : SlideInDown.springify().damping(22).stiffness(190)
+          }
+          style={[
+            { height: sheetHeight, flexShrink: 1, maxHeight: '100%' },
+            elevation.floating,
+            dragStyle,
+          ]}
+          className="overflow-hidden rounded-t-4xl border-t border-hairline-strong bg-canvas"
+        >
+          <GestureDetector gesture={drag}>
+            <View className="px-gutter pb-3 pt-2.5">
+              <View className="mb-3 h-1 w-9 self-center rounded-full bg-hairline-strong" />
+              <View className="flex-row items-center justify-between">
+                <Text className="text-base font-semibold text-primary">
+                  {total === 0 ? 'Comments' : total === 1 ? '1 comment' : `${total} comments`}
+                </Text>
+                <PressableScale
+                  onPress={onClose}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close comments"
+                  className="h-8 w-8 items-center justify-center rounded-full bg-surface3"
+                >
+                  <CloseIcon size={16} color={colors.textSecondary} />
+                </PressableScale>
+              </View>
+            </View>
+          </GestureDetector>
+
+          <View className="h-px bg-hairline" />
+
+          <ScrollView
+            ref={scrollRef}
+            className="flex-1"
+            contentContainerClassName="px-gutter py-4 gap-3.5"
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+          >
+            {thread.error && <ErrorNotice message={thread.error} />}
+
+            {thread.loading ? (
+              <>
+                <CommentSkeleton />
+                <CommentSkeleton />
+                <CommentSkeleton />
+              </>
+            ) : total === 0 ? (
+              <PressableScale
+                scaleTo={0.99}
+                onPress={() => inputRef.current?.focus()}
+                accessibilityRole="button"
+                accessibilityLabel="Be the first to comment"
+                className="mt-6 items-center gap-2 px-6 py-7"
+              >
+                <CommentIcon size={26} color={colors.textTertiary} />
+                <Text className="text-center text-base font-semibold text-primary">
+                  No comments yet
+                </Text>
+                <Text className="text-center text-sm text-secondary">
+                  First word is worth something.
+                </Text>
+              </PressableScale>
+            ) : (
+              thread.rows.map((comment) => (
+                <CommentRow
+                  key={comment.id}
+                  comment={comment}
+                  mine={comment.user_id === currentUserId}
+                  reduced={reduced}
+                  onDelete={() => askDelete(ask, () => void thread.remove(comment.id))}
+                />
+              ))
+            )}
+          </ScrollView>
+
+          {/* Pinned, unlike the inline thread: in a sheet the composer *is* the
+              bottom edge, and the safe-area inset is what keeps it off the home
+              indicator. `edges` is bottom-only — the top of this sheet is
+              nowhere near the notch. */}
+          <SafeAreaView edges={['bottom']} className="border-t border-hairline bg-canvas">
+            <View className="px-gutter py-2.5">
+              <Composer
+                thread={thread}
+                inputRef={inputRef}
+                currentUserId={currentUserId}
+                currentUserName={currentUserName}
+                currentUserAvatar={currentUserAvatar}
+                keepKeyboard
+              />
+            </View>
+          </SafeAreaView>
+        </Animated.View>
+      </View>
+
+      {dialog}
+    </KeyboardAvoidingView>
+  );
+}
+
+/**
+ * The box you type into, identical in both places.
+ *
+ * A round send button rather than a word: it is the same control every
+ * messaging app puts here, and it stays out of the way until there is
+ * something to send.
+ */
+function Composer({
+  thread,
+  inputRef,
+  currentUserId,
+  currentUserName,
+  currentUserAvatar,
+  onSent,
+  keepKeyboard = false,
+}: {
+  thread: BetCommentThread;
+  inputRef: React.RefObject<TextInput | null>;
+  onSent?: () => void;
+  /**
+   * True in the sheet: the conversation stays open in front of you, so taking
+   * the keyboard away after every sentence would be the app deciding you were
+   * finished.
+   */
+  keepKeyboard?: boolean;
+} & Commenter) {
+  const colors = useColors();
+
+  return (
+    <View className="flex-row items-end gap-2">
+      <Avatar
+        id={currentUserId}
+        name={currentUserName ?? 'You'}
+        uri={currentUserAvatar ?? null}
+        size={32}
+      />
+
+      <View className="flex-1 flex-row items-end gap-2 rounded-[22px] border border-hairline bg-surface py-1.5 pl-4 pr-1.5">
+        <TextInput
+          ref={inputRef}
+          value={thread.draft}
+          onChangeText={thread.setDraft}
+          placeholder="Add a comment"
+          placeholderTextColor={colors.textTertiary}
+          multiline
+          maxLength={COMMENT_MAX_LENGTH}
+          editable={!thread.sending}
+          accessibilityLabel="Add a comment"
+          className="max-h-24 flex-1 py-2 text-base"
+          // `flex-1` alone sets a zero basis but leaves `min-width: auto`, so
+          // on the web the input keeps its intrinsic width and refuses to
+          // shrink — see the PaymentSheet note in CLAUDE.md §4.
+          style={{ color: colors.text, minWidth: 0 }}
+        />
+
+        <PressableScale
+          onPress={() => {
+            tap();
+            onSent?.();
+            void thread.send();
+            if (!keepKeyboard) inputRef.current?.blur();
+          }}
+          disabled={!thread.canSend}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Post comment"
+          accessibilityState={{ disabled: !thread.canSend }}
+          className={`h-9 w-9 items-center justify-center rounded-full ${
+            thread.canSend ? 'bg-accent' : 'bg-surface3'
+          }`}
+        >
+          <SendIcon
+            size={17}
+            color={thread.canSend ? colors.accentInk : colors.textTertiary}
+          />
+        </PressableScale>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * One comment.
+ *
+ * Name and body share a single flowing paragraph rather than sitting in two
+ * stacked blocks — it is how a spoken remark reads, it wraps naturally at any
+ * length, and it costs a line less per comment, which is most of why a thread
+ * of ten still fits under the bet.
+ */
+function CommentRow({
+  comment,
+  mine,
+  reduced,
+  onDelete,
+}: {
+  comment: BetComment;
+  mine: boolean;
+  reduced: boolean;
+  onDelete: () => void;
+}) {
+  const name = comment.author?.display_name ?? 'Someone';
+  const age = formatRelativeShort(comment.created_at);
+  const pendingWrite = isPendingComment(comment);
+
+  return (
+    <Animated.View
+      entering={reduced ? undefined : FadeIn.duration(180)}
+      layout={reduced ? undefined : Layout.springify().damping(20)}
+      className={pendingWrite ? 'opacity-55' : ''}
+    >
+      <PressableScale
+        scaleTo={mine ? 0.99 : 1}
+        disabled={!mine || pendingWrite}
+        onLongPress={onDelete}
+        accessibilityRole={mine ? 'button' : 'text'}
+        // The whole comment reads as one sentence to a screen reader, because
+        // that is what it is — the name is not a separate element to land on.
+        accessibilityLabel={`${name}: ${comment.body}. ${age}`}
+        accessibilityHint={mine && !pendingWrite ? 'Press and hold to delete' : undefined}
+        className="flex-row gap-3"
+      >
+        <Avatar
+          id={comment.user_id}
+          name={name}
+          uri={comment.author?.avatar_url ?? null}
+          size={32}
+        />
+
+        <View className="flex-1">
+          <Text className="text-subhead leading-5 text-primary">
+            <Text className="font-semibold">{name}</Text>
+            <Text>{'  '}</Text>
+            <Text>{comment.body}</Text>
+          </Text>
+          <Text className="mt-1 text-2xs text-tertiary">{pendingWrite ? 'Sending' : age}</Text>
+        </View>
+      </PressableScale>
+    </Animated.View>
+  );
+}
+
+function CommentSkeleton() {
+  return (
+    <View className="flex-row gap-3">
+      <Skeleton className="h-8 w-8 rounded-full" />
+      <View className="flex-1 gap-2">
+        <Skeleton className="h-3.5 w-2/3 rounded-md" />
+        <Skeleton className="h-3 w-1/4 rounded-md" />
+      </View>
+    </View>
+  );
+}
+
+/** A comment can be withdrawn but never edited — so the prompt is final. */
+function askDelete(ask: ReturnType<typeof useConfirm>['ask'], onConfirm: () => void) {
+  ask({
+    title: 'Delete comment?',
+    message: 'It disappears for everyone in the group.',
+    confirmLabel: 'Delete',
+    destructive: true,
+    onConfirm,
+  });
 }

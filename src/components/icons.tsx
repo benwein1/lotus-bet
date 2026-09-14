@@ -60,36 +60,35 @@ export function HomeIcon({ active, ...props }: IconProps) {
 }
 
 /**
- * A stack of group cards, not people.
+ * A table with three seats around it.
  *
- * Two drawings of "people" were tried here and both failed for the same
- * reason: whatever you do with heads and shoulders, the glyph ends up sharing
- * its silhouette with the profile icon two slots along, and at 23px in a
- * translucent bar the pair became one smudge. Circles in a huddle solved the
- * collision but stopped reading as anything.
+ * The two previous attempts were both generic: a pair of people, then a stack
+ * of rounded squares that reads as "cards" or "copy" anywhere else in an
+ * interface. Neither said anything about *this* app.
  *
- * So this draws the *thing* rather than its members — the same rounded cards
- * the Groups screen is a list of, stacked. Nothing else in the tab bar is
- * rectangular, so the shape is unmistakable at any size, and the meaning is
- * the one the tab actually has: your groups, more than one of them.
+ * A group in Lotus Bet is people sitting round arguing about something, so the
+ * icon is that seen from above. It is not a person glyph — which matters,
+ * because `ProfileIcon` next to it in the same bar already is one, and two
+ * silhouettes differing only in headcount is exactly the confusion the tab bar
+ * cannot afford when it has no labels.
  *
- * The back card is a partial path rather than a whole rectangle, so the front
- * one sits on top cleanly in the stroke-only (inactive) state instead of
- * showing its hidden edges through.
+ * Three seats, not four: three is the smallest number that reads as "several"
+ * rather than "a pair", and a fourth dot at this size turns the whole thing
+ * into a compass rose.
  */
 export function GroupsIcon({ active, ...props }: IconProps) {
   return (
     <Icon {...props}>
-      <Path d="M8.2 8.2V7a3.6 3.6 0 0 1 3.6-3.6H17A3.6 3.6 0 0 1 20.6 7v5.2a3.6 3.6 0 0 1-3.6 3.6h-1.2" />
-      <Rect
-        x={3.4}
-        y={8.2}
-        width={12.4}
-        height={12.4}
-        rx={3.6}
+      <Circle
+        cx={12}
+        cy={12}
+        r={4.4}
         fill={active ? (props.color ?? undefined) : 'none'}
         fillOpacity={active ? 0.2 : 0}
       />
+      <Circle cx={12} cy={3.6} r={1.6} fill={active ? (props.color ?? undefined) : 'none'} />
+      <Circle cx={19.3} cy={16.2} r={1.6} fill={active ? (props.color ?? undefined) : 'none'} />
+      <Circle cx={4.7} cy={16.2} r={1.6} fill={active ? (props.color ?? undefined) : 'none'} />
     </Icon>
   );
 }
@@ -356,6 +355,25 @@ export function CommentIcon(props: IconProps) {
   return (
     <Icon {...props}>
       <Path d="M20.4 12.1a7.9 7.9 0 0 1-8.4 7.8 9 9 0 0 1-2.6-.4L4.8 20.8l1.3-4.2a7.5 7.5 0 0 1-1.5-4.5 7.9 7.9 0 0 1 8.4-7.8 8 8 0 0 1 7.4 7.8z" />
+    </Icon>
+  );
+}
+
+/**
+ * A paper plane, pointing where the words are going.
+ *
+ * Filled rather than outlined, unlike everything else in this set: it sits
+ * inside a solid accent circle at 17px, and at that size an outline reads as a
+ * smudge. The one place a filled glyph is the legible choice.
+ */
+export function SendIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Path
+        d="M4.3 11.2 19.1 4.5c.8-.4 1.6.4 1.2 1.2l-6.7 14.8c-.4.8-1.5.7-1.8-.1l-1.9-5.2a1 1 0 0 0-.6-.6l-5.2-1.9c-.8-.3-.9-1.4-.1-1.8z"
+        fill={props.color ?? undefined}
+        stroke="none"
+      />
     </Icon>
   );
 }

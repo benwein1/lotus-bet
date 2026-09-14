@@ -54,7 +54,7 @@ npm start                 # Expo dev server; press "i" for iOS simulator
 npm run web               # fastest loop for design work — no Xcode needed
 npm run ios / android
 
-npm test                  # jest — 50 tests, pure logic + a theme drift check
+npm test                  # jest — 187 tests, pure logic + a theme drift check
 npm run typecheck         # tsc --noEmit
 npm run lint
 npm run theme             # regenerate global.css from theme-colors.json
@@ -88,7 +88,7 @@ expo-image-picker for bet media.
 ```
 app/                        Expo Router routes
   _layout.tsx               root stack + the single auth redirect gate
-  (auth)/                   sign-in · sign-up · profile-setup
+  (auth)/                   sign-in · sign-up · profile-setup · reset-password
   (tabs)/                   index (the feed) · groups · profile
   group/create.tsx, join.tsx
   join/[token].tsx          what a shared invite link opens
@@ -105,16 +105,23 @@ src/
   components/bet-media.tsx  photo/video renderer and pager
   components/odds-bar.tsx
   components/bet-actions.tsx  the like/comment row; liking is optimistic
-  components/bet-comments.tsx the thread and its send box
+  components/bet-comments.tsx the thread inline under a bet, the sheet that
+                            rises over the feed, and the composer both share
+  components/double-tap-like.tsx  double-tap a photo to like it
+  components/auth-shell.tsx   the frame every pre-sign-in screen sits in
+  components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
   components/payment-sheet.tsx amount entry for a part payment
   components/lotus-mark.tsx  the app mark, wherever the app shows its own face
   components/animated-splash.tsx  the hand-off out of the native splash
+  lib/auth-links.ts         pure: reading a GoTrue recovery redirect
+  lib/coalesce.ts           pure: collapsing a burst of refetches into one
   lib/invite-links.ts       pure: invite URL, share message, expiry wording
   lib/invites.ts            …and the device half — share sheet, pending token
   lib/payout.ts             re-export ONLY — see §5
   lib/settlement.ts         balance netting + greedy debt simplification
   lib/queries.ts            every Supabase read/write the app makes
   lib/media.ts              picking, uploading and signing bet media
+  lib/media-rules.ts        …and its pure half, which is what the tests hold
   lib/format.ts             agorot ↔ shekels, countdowns, initials, email
   lib/database.types.ts     hand-written row types
   lib/supabase.ts           client; `isSupabaseConfigured` guard
@@ -124,7 +131,8 @@ src/
   lib/odds.ts               percentages that always total exactly 100
   lib/postgrest.ts          reading PostgREST's "column does not exist"
   hooks/                    use-async · use-group-realtime · use-settlement ·
-                            use-reduced-motion · use-tab-bar-inset
+                            use-reduced-motion · use-tab-bar-inset ·
+                            use-bet-comments (one thread, two surfaces)
   providers/auth-provider.tsx
   providers/theme-provider.tsx   owns the colour scheme
   theme.ts                  palettes · motion · elevation · avatarColors
@@ -134,11 +142,13 @@ assets/logo/lotus.svg       the mark; scripts/build-icons.mjs renders every size
 supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
                             bet options · notification prefs · social ·
-                            private bets and duels · group invites (11)
+                            private bets and duels · group invites ·
+                            proof of outcome · bet-insert RLS fix (13)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
 __tests__/                  payout · settlement · format · theme · odds ·
-                            postgrest · reminders · invite-links
+                            postgrest · reminders · invite-links · media-split ·
+                            auth-links · coalesce
 ```
 
 **All Supabase access goes through `src/lib/queries.ts`.** Screens never
@@ -312,6 +322,12 @@ thicker: the tab bar takes a much higher blur intensity than a chip would.
    sideways and cut its title in half — invisibly, because the card clips. Any
    `TextInput` sharing a row needs an explicit `minWidth: 0`.
 
+   It bit a second time, in `TextField` itself: the reveal-password eye was
+   pushed 26px past the right edge of the field group on **every** auth screen,
+   measurably (`x=353..380` against a row ending at 354). Both `TextField` and
+   the comment composer now set it. Check any new row that pairs an input with
+   anything else.
+
 5. **Never nest a pressable control inside a `Link`.** On iOS the responder
    system lets the inner one win, so it looks fine; on the web the inner press
    fires *and* the browser's own anchor activation runs afterwards, doing a
@@ -355,6 +371,27 @@ stroke, defaulting to the active scheme's secondary label colour. Emoji ignore
 `color` and render differently per platform — use these instead. Emoji remain
 only as user-chosen group avatars.
 
+### The bet detail screen
+
+**One row of squares, not two.** There used to be a row of buttons to pick a
+side and a second row underneath listing who had picked what — two rows of the
+same N squares, same order, same colours, saying different halves of one thing.
+You picked "Yes" in the top row and then looked down to a *different* "Yes" to
+see who else had.
+
+`OptionCard` is both: label, payoff preview, the avatars of everyone on that
+side, and pressing it puts you there. The roster is what makes the choice
+interesting — you are betting against the people on the other square more than
+against an outcome — so it belongs on the thing you press.
+
+It carries three states at once: joinable (pressable, previews the payoff),
+locked or past deadline (not pressable, still shows who is in), and resolved
+(winner outlined and badged, losers dimmed). The payoff line is hidden once the
+bet closes, because the number would be a promise nobody can take. Its
+accessibility label names who is on the side — the avatars are decorative to a
+screen reader, and without `describeRoster` the merge would lose exactly the
+information it exists to surface.
+
 ### The feed
 
 `app/(tabs)/index.tsx` is the centre of the app: a `FlatList` of `FeedCard`s,
@@ -367,6 +404,88 @@ video (`active` prop, driven by `onViewableItemsChanged`).
 
 Screens leave room for the floating tab bar with `useTabBarInset()`.
 
+### Likes and comments
+
+The interaction is shaped like the feeds people already use, because nobody
+should have to learn how to argue with their friends. What that means here:
+
+- **The feed card carries the icons and one line of text.** Heart with its
+  count, comment bubble without one, and underneath either "View all N
+  comments" or — when there are none — "Add a comment", which asks for the
+  first one instead of printing a zero. The count appears once, not twice.
+- **From the feed the thread opens as a sheet, not as another screen.**
+  Pressing "Add a comment" on a card used to push the bet screen, which is the
+  wrong trade: you lose the photo you were looking at, the feed's scroll
+  position and the video that was playing, to read three sentences.
+  `BetCommentsSheet` rises over the feed instead, dismissed by the scrim, the
+  close button, or dragging the grabber down. Only the header carries the drag
+  gesture, so it can never fight the thread's own scroll.
+
+  **The feed mounts exactly one sheet** and points it at whichever bet is open.
+  A `FlatList` keeps several cards alive at once, so a sheet per card would be
+  several modals stacked on one screen. It is keyed on the bet id, so the
+  thread's fetch and its half-typed draft belong to one bet and do not survive
+  being pointed at another. When a post or delete lands, the confirmed count
+  goes back to the feed and **patches the card's line** — the same trade the
+  like makes, rather than re-reading a hundred bets to move one number.
+- **Inline on the bet screen the thread is collapsed to the last three**, with
+  "View all N comments" to open it and "Show fewer" to close it again. Three is
+  what every social app converged on and for the same reason: enough to see a
+  conversation is happening, few enough that the bet stays on screen. The sheet
+  does not collapse — it exists to show the whole conversation.
+- **One thread, two surfaces.** `useBetCommentThread` owns the fetch, the
+  optimistic post and the delete; `bet-comments.tsx` only draws them. Two
+  surfaces showing the same conversation must not drift into two slightly
+  different sets of rules about when your own sentence appears.
+- **The composer is pinned in the sheet and not inline.** In a sheet it *is*
+  the bottom edge, above the safe-area inset, and the keyboard stays up after
+  a send because the conversation is still in front of you. Inline it sits
+  under the thread and the screen's own `KeyboardAvoidingView` keeps it
+  visible — a floating bar there would cover the bet the comments are about.
+- **Name and body share one flowing paragraph.** It reads the way a spoken
+  remark reads, it wraps at any length, and it costs a line less per comment —
+  which is most of why ten comments still fit under a bet.
+- **Posting is optimistic.** The comment appears greyed the instant you send it
+  and is removed with the error surfaced if the write fails — and the text is
+  handed back to the box, because retyping a sentence is a worse outcome than
+  tapping send twice.
+- **Double-tap to like is on the bet screen's hero only, never the feed card.**
+  A double-tap detector has to hold the first tap ~280ms to see whether a second
+  is coming. On the feed a single tap opens the bet, so that trade would add a
+  quarter-second of dead air to every navigation in the app to buy one
+  shortcut. On the hero, a single tap does nothing, so it costs nothing.
+- The heart is **accent blue**, never red. Red is money you owe. This is
+  restated here because it is the first thing anyone copying Instagram changes.
+
+### Making it feel fast
+
+The rule is *remove work*, not *add caching*. `useAsync` stays small and there
+is deliberately no query library (§10).
+
+- **Never refetch a screen to move one number.** A like patches the feed's local
+  state through `setData`. It used to re-read a hundred bets and re-sign every
+  media URL to change a count by one, and the card visibly restated itself a
+  second later.
+- **Collapse bursts.** Screen focus, a Realtime event and the user's own write
+  routinely ask for the same refetch in the same moment. `createCoalescer`
+  (`lib/coalesce.ts`) turns N asks into a leading run plus at most one trailing
+  one — measured at six asks → two runs in `__tests__/coalesce.test.ts`. The
+  trailing run is load-bearing: a request that arrived mid-flight may be about a
+  change the in-flight read was too late to see.
+- **Embed rather than waterfall.** `fetchBet` carries the group's members and
+  the ledger, because both used to be their own `useAsync` keyed on something
+  only the first response could supply — the group id, the status — so opening a
+  bet was three sequential round trips. It is one. The feed deliberately does
+  **not** get those embeds: it reads a hundred bets and would pay for a hundred
+  member lists it never renders.
+- **Signed URLs are cached for 45 minutes** (`media.ts`), comfortably inside the
+  hour they are valid for. Re-signing the same paths on every refresh was a
+  storage round trip that bought nothing. The cache is dropped on sign-out, so
+  the next person on the device inherits nothing.
+- **`FeedCard` is memoised** on everything except its callbacks, which the feed
+  writes as inline arrows. They close over nothing that is not also a compared
+  prop.
+
 ### Chrome the tabs don't have
 
 The floating tab bar is **icons only** — three destinations with unambiguous
@@ -374,6 +493,27 @@ glyphs do not need captions, and the label survives where it was actually doing
 work, as the accessibility name. **No tab screen prints its own name at the top
 either**: the bar already says where you are, so Feed, Groups and You open
 straight onto their content.
+
+---
+
+### The entrance
+
+`auth-shell.tsx` is the frame for sign-in, sign-up, profile setup and
+reset-password. They used to each carry their own copy of the mark, the
+headline, the scroll, the keyboard handling and the disclaimer — and the drift
+showed, because moving between them is the first thing anyone does and the mark
+jumped a few pixels each time.
+
+The hero **gives way to the keyboard** rather than being shoved off the top: the
+mark scales down and the explanatory sentence fades, on `transform` and
+`opacity` only. By the time somebody is typing they have read it.
+
+Profile setup swaps the Lotus mark for the user's own avatar, because by then
+the thing being introduced is them.
+
+**The money disclaimer is in the shell, not in the screens.** It is load-bearing
+(§1) and putting it in one place is what stops a future redesign of one screen
+quietly dropping it.
 
 ---
 
@@ -416,7 +556,49 @@ make a change pass, stop and reconsider.
 
 ### Auth
 
-**Email + password.** `signUp` sends the display name in `raw_user_meta_data`,
+**Email + password.**
+
+**Password reset needs four halves, and only the first existed.** Sending
+the link was there and looked fine; what was missing was `redirectTo` (so the
+link opens a screen that expects it), a `PASSWORD_RECOVERY` branch in
+`onAuthStateChange`, a screen that calls `updateUser`, and — the one that was
+missed on the first pass — **something that actually reads the link**.
+
+The subtle part is the gate. **A recovery session is a real session** — that is
+what lets `updateUser` work — so every branch in `app/_layout.tsx` would happily
+wave it through to the tabs. `recovering` is checked *first*, holding you on
+`reset-password` until `updatePassword` clears it.
+`redirectTo` comes from `passwordResetRedirectTo()`, which reuses the invite
+link's origin resolution; the app scheme is an acceptable fallback here, unlike
+for invites, because anyone clicking a reset link already has the app.
+
+**The latch is read off the URL, not waited for as an event**, and that is not
+belt-and-braces. GoTrue lands on `…/reset-password#access_token=…&type=recovery`
+under the implicit flow, which is the client default, and three things conspire
+against the event:
+
+- `detectSessionInUrl` was `false` on **every** platform, so nothing parsed the
+  fragment at all. No parse, no session, no `PASSWORD_RECOVERY` — a perfectly
+  valid link rendered "That link has expired", which is a lie that looks like a
+  feature. It is now `Platform.OS === 'web'`.
+- GoTrue emits the event from inside its own `_initialize()`, which can beat a
+  React effect's subscription. The event is a race; the URL is not.
+- It then **strips the fragment** once it has read it. So the URL has to be
+  captured *before* `createClient` runs — that is what `openedWithUrl` in
+  `supabase.ts` is, and why it sits above the client rather than next to it.
+
+`auth-links.ts` is the pure parser (fragment *and* query, fragment wins, since
+tokens arrive in one and some errors in the other). `isRecoveryRedirect` fires
+without tokens present on purpose: the gate must latch before the session is
+confirmed, or it gets a frame in which a recovery session looks ordinary.
+
+On native there is no `detectSessionInUrl`, so the `lotusbet://` deep link is
+handled by hand: lift the tokens out, `setSession`, and latch **first**, because
+`setSession` announces itself as an ordinary `SIGNED_IN`.
+
+Email delivery is a separate problem: Supabase's built-in sender is heavily
+rate-limited and in practice only reaches the project owner. Custom SMTP is the
+fix; none of the above changes that. `signUp` sends the display name in `raw_user_meta_data`,
 and the `handle_new_auth_user` trigger uses it to seed `public.users` with
 `profile_completed = true`; an account without one gets a placeholder name and
 the app routes it to profile-setup. There is no phone OTP and no SMS provider
@@ -497,7 +679,20 @@ transactions.**
 
 ### Notifications
 
-Four events, and one switch each on Profile (`users.notify_*`).
+Four events, **one switch** on Profile.
+
+The four `users.notify_*` columns stay: `push_targets_for_bet` and
+`push_targets_for_group` read them per kind, and the reminder scheduler reads
+`notify_deadlines` on its own. Collapsing the *storage* would mean touching the
+push fan-out and the SQL that decides who hears about what, to solve a problem
+that was entirely in the UI. So one switch writes all four together and the
+backend never learns anything changed.
+
+It reads as on if **any** kind is on. An account from before the collapse can be
+in a mixed state, and a switch reading "off" while the phone still buzzes would
+be a lie; toggling either way writes all four, so a mixed state survives exactly
+one tap. Turning it off also cancels the local reminders and drops the push
+token — with one switch, off means off.
 
 Three are **push**, sent by the `notify` Edge Function: a new bet in one of
 your groups, somebody joining a group you are in, and a bet you took a side on
@@ -563,12 +758,84 @@ the policy checks asserts the two functions agree.
 ### Who can see a bet
 
 **`can_see_bet(id)` is the single gate**, and every policy that guards a bet or
-anything attached to one goes through it — `bets`, `bet_options`,
-`bet_positions`, `bet_media`, `bet_likes`, `bet_comments`, `bet_invitees`. It
-is group membership *plus* the invitee list. Keeping it in one function is the
-whole point: a private bet whose comments were still readable, or whose options
+anything attached to one goes through it — `bet_options`, `bet_positions`,
+`bet_media`, `bet_likes`, `bet_comments`, `bet_invitees`. It is group
+membership *plus* the invitee list. Keeping it in one function is the whole
+point: a private bet whose comments were still readable, or whose options
 leaked, would be private in name only. If you add a table that hangs off a bet,
 gate it on `can_see_bet`, never on `is_group_member(bet_group_id(...))`.
+
+**`bets` itself is the one exception, and it has to be.** Its SELECT policy
+calls `can_see_bet_row(id, group_id, visibility, creator_id)` — the same rule,
+over the row's own columns rather than over an id.
+
+The reason is a trap worth remembering, because it cost the app its
+post-a-bet flow entirely. `queries.ts` inserts with
+`.insert(...).select().single()`, which PostgREST turns into
+`INSERT ... RETURNING *`, and **Postgres evaluates the SELECT policy against
+the new row to satisfy that RETURNING**. `can_see_bet` is `stable` and looks
+the bet up in `bets`; a `stable` function sees the snapshot from the start of
+the statement, where the row being inserted does not exist yet. So it returned
+false, the SELECT policy denied the row, and Postgres reported it as
+
+    new row violates row-level security policy for table "bets"
+
+— pointing at the INSERT policy, which was fine all along. The insert worked
+without `RETURNING` and failed with it, which is what made it findable.
+
+It was a regression: the policy `…_private_and_duels.sql` replaced was
+`is_group_member(group_id)`, which reads `group_members` — a row that already
+exists — and so never had to see the row being written.
+
+There is still exactly one implementation of the rule: `can_see_bet(id)` is now
+a thin wrapper that looks the row up and delegates to `can_see_bet_row`. Both
+live in `…_fix_bet_insert_returning.sql`.
+
+**Never write a policy on table X whose `using` clause re-queries table X**, if
+anything ever inserts into X with `RETURNING`. Sections 23 and 24 of the policy
+checks guard this one.
+
+### Proof of outcome
+
+`bet_media` carries **two kinds of file, told apart by `purpose`**. An
+`attachment` is the creator's illustration, posted with the bet while it is
+open — that was the table's only job until now, and the old insert policy said
+so (`creator_id = auth.uid() and status = 'open'`). A `proof` is the receipt,
+added *after* the bet is called.
+
+They live in one table because they are the same object: same bucket, same
+`<group_id>/<bet_id>/<file>` path, same signing code, same viewer. What differs
+is when each may be written and where it is shown, and one column carries that.
+
+**Proof belongs to the people who were in the bet, not to its creator.** The
+policy accepts an insert from the creator *or* anyone with a `bet_positions`
+row, and only once `status = 'resolved'`. A group member who never picked a
+side is a spectator, and a spectator's photo is not evidence. It is gated on
+`can_see_bet`, like everything else hanging off a bet, so a private bet's proof
+is exactly as private as the bet.
+
+The two rules do not overlap: the attachment policy now also requires
+`purpose = 'attachment'`, which it did not before — without that a creator
+could file an open bet's illustration as "proof" and have it render in the
+receipt gallery.
+
+Deleting is `uploaded_by = auth.uid()`: you can withdraw what you put up, and
+nobody else can, **including the bet's creator**. The old rule required you to
+be uploader *and* creator, which was the same person in every row that could
+exist then and would now stop a participant removing their own photo.
+
+`splitMedia` (in `media-rules.ts`, pure so it is testable) keeps the two apart
+on the way out. **A row with no `purpose` is an attachment** — not a guess: until
+the column existed the creator posting a bet was the only way a row could be
+made. Get this wrong in the permissive direction and a photo somebody added
+after the result silently becomes the bet's own face at the top of the screen.
+
+Compression lives in one table in `media.ts`. Proof is squeezed harder than an
+illustration (quality 0.6 vs 0.85, Medium vs High, 30s vs 60s) because a receipt
+only has to be legible enough to end an argument and is uploaded on a phone in
+a bar; the illustration sits full-bleed in the feed. `expo-image-picker`
+re-encodes before handing back a URI, so there is no second compression
+dependency.
 
 ### Invite links
 
@@ -816,6 +1083,13 @@ before touching any component.
   applied one.
 - Route files under `app/` export their screen and nothing else — shared
   helpers live in `src/` (see `use-tab-bar-inset.ts`).
+- **Delete a branch once its pull request is merged** — every one, with two
+  permanent exceptions: `main`, and `dev`. `dev` is the integration branch
+  everything is cut from and merged back into; it is never deleted, including
+  when it is merged into `main`. If a `dev` → `main` pull request is merged
+  with GitHub's "automatically delete head branches" setting on, `dev` will be
+  deleted — recreate it immediately (`git checkout -B dev main && git push -u
+  origin dev`), since at that moment it is identical to `main` anyway.
 - Don't add a dependency without a reason the existing stack can't cover.
   `useAsync` is deliberately tiny — an MVP with eight screens doesn't need a
   query cache when Realtime already says when to refetch.

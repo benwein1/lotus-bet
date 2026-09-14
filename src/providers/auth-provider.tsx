@@ -1,11 +1,16 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import * as Linking from 'expo-linking';
+import { Platform } from 'react-native';
 
 import type { UserRow } from '@/lib/database.types';
 import { demo, demoProfile, demoSession, disableDemoMode, enableDemoMode, isDemoMode } from '@/lib/demo';
+import { passwordResetRedirectTo } from '@/lib/invites';
+import { clearMediaCache } from '@/lib/media';
 import { registerForPushNotifications } from '@/lib/notifications';
 import { isUnknownWriteColumn } from '@/lib/postgrest';
-import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { isRecoveryRedirect, recoveryTokens } from '@/lib/auth-links';
+import { isSupabaseConfigured, openedWithUrl, supabase } from '@/lib/supabase';
 
 export interface SignUpResult {
   /** True when the project has email confirmation on and no session was issued. */
@@ -22,6 +27,16 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<SignUpResult>;
   sendPasswordReset: (email: string) => Promise<void>;
+  /**
+   * True between clicking a reset link and setting a new password.
+   *
+   * Supabase signs you in when you open a recovery link — the session is real,
+   * which is what lets `updateUser` work. Without a flag, the redirect gate
+   * would see a valid session and drop you on the feed, and you would still
+   * not know your password. This is what keeps you on the reset screen.
+   */
+  recovering: boolean;
+  updatePassword: (password: string) => Promise<void>;
   updateProfile: (
     patch: Partial<
       Pick<
@@ -47,6 +62,14 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserRow | null>(null);
+  // Latched from the opening URL rather than waited for as an event. GoTrue
+  // emits PASSWORD_RECOVERY from inside its own initialisation, which can beat
+  // this component's subscription, and it strips the fragment once it has read
+  // it — so the event is a race and the URL is not. `openedWithUrl` was
+  // captured before the client was built precisely so this can read it.
+  const [recovering, setRecovering] = useState(
+    () => Boolean(openedWithUrl && isRecoveryRedirect(openedWithUrl))
+  );
   const [loading, setLoading] = useState(true);
   const [demoActive, setDemoActive] = useState(false);
 
@@ -78,14 +101,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, next) => {
+    const { data: subscription } = supabase.auth.onAuthStateChange((event, next) => {
       setSession(next);
       if (!next) setProfile(null);
+
+      // Opening a reset link fires PASSWORD_RECOVERY with a live session.
+      // Latch it; `updatePassword` is the only thing that clears it.
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true);
+      if (event === 'SIGNED_OUT') setRecovering(false);
     });
 
     return () => {
       active = false;
       subscription.subscription.unsubscribe();
+    };
+  }, []);
+
+  // The native half of a reset link.
+  //
+  // `detectSessionInUrl` is a web-only mechanism, so on a device the tokens
+  // arrive in a `lotusbet://reset-password#…` deep link that nothing consumes.
+  // Lift them out and hand them to `setSession` by hand — and latch *first*,
+  // because `setSession` announces itself as an ordinary SIGNED_IN and the
+  // redirect gate would otherwise get a frame in which it drops you on the
+  // feed, which is the exact bug this flow exists to fix.
+  useEffect(() => {
+    if (Platform.OS === 'web' || !isSupabaseConfigured || isDemoMode()) return;
+
+    let active = true;
+
+    const handle = async (url: string | null) => {
+      if (!url || !active) return;
+      const tokens = recoveryTokens(url);
+      if (!tokens) return;
+
+      setRecovering(true);
+      const { error } = await supabase.auth.setSession({
+        access_token: tokens.accessToken,
+        refresh_token: tokens.refreshToken,
+      });
+      // A link that has expired or been used already fails here. Drop the
+      // latch so the reset screen says so instead of holding an empty form.
+      if (active && error) setRecovering(false);
+    };
+
+    void Linking.getInitialURL().then(handle);
+    const sub = Linking.addEventListener('url', ({ url }) => void handle(url));
+
+    return () => {
+      active = false;
+      sub.remove();
     };
   }, []);
 
@@ -101,6 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       session,
       profile,
+      recovering,
       loading,
       demo: demoActive,
       needsProfileSetup:
@@ -136,8 +202,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
 
       async sendPasswordReset(email: string) {
-        const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase());
+        // Without `redirectTo`, Supabase sends people to the project's Site URL
+        // — which lands them on the app's root with a recovery token in the
+        // fragment and no screen expecting it. Naming the route means the link
+        // opens the one screen that can actually finish the job.
+        const { error } = await supabase.auth.resetPasswordForEmail(
+          email.trim().toLowerCase(),
+          { redirectTo: passwordResetRedirectTo() }
+        );
         if (error) throw new Error(friendlyAuthError(error.message));
+      },
+
+      async updatePassword(password: string) {
+        // Demo mode has no GoTrue to talk to. Pretend it worked and release the
+        // latch, so the screen can be walked without a project behind it.
+        if (demoActive) {
+          setRecovering(false);
+          return;
+        }
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) throw new Error(friendlyAuthError(error.message));
+        // The session is already signed in at full strength — recovery only
+        // ever described how it started. Clearing the latch releases the gate.
+        setRecovering(false);
       },
 
       async updateProfile(patch) {
@@ -183,6 +270,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
 
       async signOut() {
+        // Signed media URLs are minted against the session that is going away.
+        // Whoever uses this device next must not inherit a working link to the
+        // last person's photos.
+        clearMediaCache();
+
         if (demoActive) {
           disableDemoMode();
           setDemoActive(false);
@@ -194,7 +286,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
       },
     }),
-    [session, profile, loading, demoActive, loadProfile]
+    [session, profile, loading, demoActive, loadProfile, recovering]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,13 +1,23 @@
 import * as Haptics from 'expo-haptics';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
 import Animated, { FadeIn, FadeInDown, ZoomIn } from '@/components/animated';
 
 import { BetActions, betSocial } from '@/components/bet-actions';
 import { betSlices, myOptionId, winningLabel } from '@/components/bet-card';
 import { BetComments } from '@/components/bet-comments';
+import { DoubleTapToLike } from '@/components/double-tap-like';
 import { BetMediaView } from '@/components/bet-media';
+import { BetProof } from '@/components/bet-proof';
+import { splitMedia } from '@/lib/media';
 import { AlertIcon, ClockIcon, LockIcon, TrophyIcon } from '@/components/icons';
 import { OddsBar } from '@/components/odds-bar';
 import { ContentWidth, Screen } from '@/components/screen';
@@ -31,8 +41,6 @@ import { previewShareAgorot } from '@/lib/payout';
 import {
   cancelBet,
   fetchBet,
-  fetchBetLedger,
-  fetchGroup,
   joinBetOption,
   leaveBet,
   lockBet,
@@ -46,22 +54,17 @@ import { motion, optionColor } from '@/theme';
 export default function BetDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const betId = id ?? '';
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
   const colors = useColors();
   const router = useRouter();
   const userId = session?.user.id ?? '';
 
+  // One request, not three. The group's members and the ledger rows used to be
+  // their own `useAsync`, each keyed on something only the *first* response
+  // could supply — the group id, the status — so opening a bet was a waterfall
+  // three deep on a cold cache. `fetchBet` embeds both now.
   const bet = useAsync(() => fetchBet(betId), [betId]);
   const groupId = bet.data?.group_id;
-  const group = useAsync(
-    () => (groupId ? fetchGroup(groupId) : Promise.resolve(null)),
-    [groupId]
-  );
-  // Only resolved bets have ledger rows; skip the round-trip otherwise.
-  const ledger = useAsync(
-    () => (bet.data?.status === 'resolved' ? fetchBetLedger(betId) : Promise.resolve([])),
-    [betId, bet.data?.status]
-  );
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -106,14 +109,56 @@ export default function BetDetailScreen() {
   const canJoin = data.status === 'open' && !deadlinePassed;
   const isResolved = data.status === 'resolved';
   const isCancelled = data.status === 'cancelled';
-  const media = data.media ?? [];
+  // The hero at the top of the screen is the bet's *illustration*; proof of
+  // outcome is a separate gallery further down. Without the split, a photo
+  // somebody added after the result would silently become the bet's face.
+  const { attachments: media, proof } = splitMedia(data.media ?? []);
+
+  // The same rule the RLS policy enforces, mirrored here only so the button is
+  // absent rather than present-and-refused. The server is still the gate.
+  const iHadASide = (data.positions ?? []).some((p) => p.user_id === userId);
+  const canAddProof = isResolved && (isCreator || iHadASide);
 
   const myLedgerAmount =
-    (ledger.data ?? []).find((entry) => entry.user_id === userId)?.amount_agorot ?? null;
+    (data.ledger ?? []).find((entry) => entry.user_id === userId)?.amount_agorot ?? null;
 
   const usersById = new Map<string, UserRow>(
-    (group.data?.members ?? []).map((m) => [m.user_id, m.user])
+    (data.group?.members ?? []).map((m) => [m.user_id, m.user])
   );
+
+  /**
+   * Like without re-reading the bet.
+   *
+   * `BetActions` has already moved the heart and will roll itself back if this
+   * throws, so the only thing left is the write and a patch of the one field
+   * that changed. Re-fetching the whole bet — options, positions, media,
+   * ledger, the group's members — to move a number by one was most of why
+   * liking felt heavier than it looks.
+   */
+  async function toggleLike(next: boolean) {
+    await setBetLike(betId, userId, next);
+    bet.setData((current) =>
+      current
+        ? {
+            ...current,
+            likes: next
+              ? [...(current.likes ?? []), { user_id: userId }]
+              : (current.likes ?? []).filter((like) => like.user_id !== userId),
+          }
+        : current
+    );
+  }
+
+  /** Double-tap only ever adds a like; it never takes one away. */
+  async function likeFromGesture() {
+    if (social.liked) return;
+    try {
+      await toggleLike(true);
+    } catch {
+      // The heart animation has already played. A failed write is picked up by
+      // the next refresh rather than yanked back under the finger.
+    }
+  }
 
   async function withBusy(action: () => Promise<void>) {
     setActionError(null);
@@ -177,8 +222,16 @@ export default function BetDetailScreen() {
     <>
       <Stack.Screen options={{ title: data.group?.name ?? 'Bet' }} />
       <Screen ground="sunken">
+        {/* The comment composer lives at the bottom of a long scroll, so
+            without this the keyboard covers the thing you are typing into. */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          className="flex-1"
+        >
         <ScrollView
           contentContainerClassName="px-gutter pb-12 pt-2"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           refreshControl={
             <RefreshControl
               refreshing={bet.refreshing}
@@ -191,7 +244,17 @@ export default function BetDetailScreen() {
           <ContentWidth>
             {media.length > 0 && (
               <Animated.View entering={FadeIn.duration(motion.duration.base)} className="mb-5">
-                <BetMediaView media={media} active radius={24} className="h-72 w-full" />
+                {/* Double-tap to like, the gesture everyone already has in
+                    their fingers. It belongs *here* and not on the feed card:
+                    there, a single tap opens the bet, and waiting ~250ms to
+                    find out whether a second tap is coming would make every
+                    navigation in the app feel slow to buy one shortcut. */}
+                <DoubleTapToLike
+                  enabled={!social.liked}
+                  onLike={() => void likeFromGesture()}
+                >
+                  <BetMediaView media={media} active radius={24} className="h-72 w-full" />
+                </DoubleTapToLike>
               </Animated.View>
             )}
 
@@ -241,31 +304,44 @@ export default function BetDetailScreen() {
               </View>
             )}
 
-            {/* Pick a side */}
-            {canJoin && (
-              <Animated.View
-                entering={FadeInDown.delay(120).duration(motion.duration.base)}
-                className="mt-4 flex-row flex-wrap gap-3"
-              >
-                {slices.map((slice, index) => (
-                  <OptionButton
-                    key={slice.id}
-                    label={slice.label}
-                    index={index}
-                    count={slices.length}
-                    selected={picked === slice.id}
-                    disabled={busy}
-                    // Joining makes that option one bigger, so preview against
-                    // n+1 unless you are already on it.
-                    shareAgorot={previewShareAgorot(
-                      data.total_pot_agorot,
-                      picked === slice.id ? slice.count : slice.count + 1
-                    )}
-                    onPress={() => void pickOption(slice.id)}
-                  />
-                ))}
-              </Animated.View>
-            )}
+            {/* One row of squares: the tap target and the roster in the same
+                object. See OptionCard for why these used to be two rows. */}
+            <Animated.View
+              entering={FadeInDown.delay(120).duration(motion.duration.base)}
+              className="mt-4 flex-row flex-wrap gap-3"
+            >
+              {slices.map((slice, index) => (
+                <OptionCard
+                  key={slice.id}
+                  label={slice.label}
+                  index={index}
+                  count={slices.length}
+                  selected={picked === slice.id}
+                  pressable={canJoin}
+                  disabled={busy}
+                  // Joining makes that option one bigger, so preview against
+                  // n+1 unless you are already on it. No preview once the bet
+                  // is closed — the number would be a promise nobody can take.
+                  shareAgorot={
+                    canJoin
+                      ? previewShareAgorot(
+                          data.total_pot_agorot,
+                          picked === slice.id ? slice.count : slice.count + 1
+                        )
+                      : null
+                  }
+                  won={isResolved ? data.winning_option_id === slice.id : null}
+                  people={(data.positions ?? [])
+                    .filter((p) => p.option_id === slice.id)
+                    .map((p) => ({
+                      id: p.user_id,
+                      name: usersById.get(p.user_id)?.display_name ?? 'Someone',
+                      avatarUrl: usersById.get(p.user_id)?.avatar_url ?? null,
+                    }))}
+                  onPress={() => void pickOption(slice.id)}
+                />
+              ))}
+            </Animated.View>
 
             {!canJoin && !isResolved && !isCancelled && (
               <View className="mt-4 flex-row items-center gap-3 rounded-2xl border border-hairline bg-surface px-4 py-3.5">
@@ -291,28 +367,18 @@ export default function BetDetailScreen() {
               <ResolvedSummary bet={data} userId={userId} myAmountAgorot={myLedgerAmount} />
             )}
 
-            {/* Who's in */}
-            <View className="mt-7">
-              <SectionTitle>Who&apos;s in</SectionTitle>
-              <View className="flex-row flex-wrap gap-3">
-                {slices.map((slice, index) => (
-                  <OptionRoster
-                    key={slice.id}
-                    label={slice.label}
-                    index={index}
-                    count={slices.length}
-                    won={isResolved ? data.winning_option_id === slice.id : null}
-                    people={(data.positions ?? [])
-                      .filter((p) => p.option_id === slice.id)
-                      .map((p) => ({
-                        id: p.user_id,
-                        name: usersById.get(p.user_id)?.display_name ?? 'Someone',
-                        avatarUrl: usersById.get(p.user_id)?.avatar_url ?? null,
-                      }))}
-                  />
-                ))}
-              </View>
-            </View>
+            {/* Proof sits directly under the result it is proof of, and above
+                "Who's in" — the answer, then the evidence, then the roster. */}
+            {isResolved && (
+              <BetProof
+                bet={data}
+                proof={proof}
+                currentUserId={userId}
+                canAdd={canAddProof}
+                usersById={usersById}
+                onChanged={() => bet.reload({ silent: true })}
+              />
+            )}
 
             {/* Reactions sit between the bet and the creator's controls: the
                 bet is what you came for, the talk about it is next, and the
@@ -322,14 +388,16 @@ export default function BetDetailScreen() {
                 liked={social.liked}
                 likeCount={social.likeCount}
                 commentCount={social.commentCount}
-                onToggleLike={async (next) => {
-                  await setBetLike(betId, userId, next);
-                  void bet.reload({ silent: true });
-                }}
+                onToggleLike={toggleLike}
               />
             </View>
 
-            <BetComments betId={betId} currentUserId={userId} />
+            <BetComments
+              betId={betId}
+              currentUserId={userId}
+              currentUserName={profile?.display_name}
+              currentUserAvatar={profile?.avatar_url}
+            />
 
             {isCreator && !isResolved && !isCancelled && (
               <View className="mt-7">
@@ -371,102 +439,78 @@ export default function BetDetailScreen() {
             )}
           </ContentWidth>
         </ScrollView>
+        </KeyboardAvoidingView>
         {dialog}
       </Screen>
     </>
   );
 }
 
-function OptionButton({
+/**
+ * One square per outcome: the tap target *and* the roster of who is on it.
+ *
+ * There used to be two rows — a row of buttons to pick a side, then a second
+ * row underneath listing who had picked what. Two rows of the same N squares,
+ * in the same order, in the same colours, saying different halves of one
+ * thing. You picked "Yes" in the top row and then looked down to a *different*
+ * "Yes" to see who else had.
+ *
+ * Merging them makes the square the whole object: its label, what you would
+ * win, who is already on it, and pressing it puts you there. The roster is
+ * what makes the choice interesting — you are not betting on an outcome so
+ * much as against the people who took the other one — so it belongs on the
+ * thing you press, not in a separate list below.
+ *
+ * The states it has to carry at once:
+ * - open and joinable  → pressable, shows the payoff preview
+ * - locked / past deadline → not pressable, still shows who is in
+ * - resolved → winner outlined and badged, losers dimmed, nothing pressable
+ */
+function OptionCard({
   label,
   index,
   count,
   selected,
+  pressable,
   disabled,
   shareAgorot,
+  won,
+  people,
   onPress,
 }: {
   label: string;
   index: number;
   count: number;
   selected: boolean;
+  /** False once the bet is locked, past its deadline, resolved or cancelled. */
+  pressable: boolean;
   disabled: boolean;
-  shareAgorot: number;
+  /** Null while the bet is still joinable — there is no payoff to preview. */
+  shareAgorot: number | null;
+  /** Null while unresolved; true/false once a winner is declared. */
+  won: boolean | null;
+  people: { id: string; name: string; avatarUrl?: string | null }[];
   onPress: () => void;
 }) {
+  const colors = useColors();
   const scheme = useScheme();
   // With an arbitrary number of options there is no literal class name to
   // write, so the colour is an inline style. Tailwind cannot see an
   // interpolated class — see §4.
   const color = optionColor(index, count, scheme);
-
-  return (
-    <PressableScale
-      onPress={onPress}
-      disabled={disabled}
-      scaleTo={0.955}
-      accessibilityRole="button"
-      accessibilityLabel={selected ? `Withdraw from ${label}` : `Back ${label}`}
-      accessibilityState={{ selected, disabled }}
-      style={{
-        borderColor: selected ? color : undefined,
-        // Two fill the row; three or more take half and wrap.
-        flexBasis: count === 2 ? 0 : '47%',
-        flexGrow: 1,
-      }}
-      className={`rounded-3xl border-2 px-4 py-4 ${
-        selected ? '' : 'border-hairline bg-surface'
-      } ${disabled ? 'opacity-50' : ''}`}
-    >
-      <Text
-        numberOfLines={2}
-        style={selected ? { color } : undefined}
-        className={`text-base font-semibold ${selected ? '' : 'text-primary'}`}
-      >
-        {label}
-      </Text>
-      <Text className="mt-1.5 text-sm text-secondary">
-        {selected ? 'Tap to withdraw' : `Win ~${formatAgorot(shareAgorot)}`}
-      </Text>
-    </PressableScale>
-  );
-}
-
-function OptionRoster({
-  label,
-  index,
-  count,
-  won,
-  people,
-}: {
-  label: string;
-  index: number;
-  count: number;
-  /** null while unresolved; true/false once a winner is declared. */
-  won: boolean | null;
-  people: { id: string; name: string; avatarUrl?: string | null }[];
-}) {
-  const colors = useColors();
-  const scheme = useScheme();
   const dimmed = won === false;
-  const color = optionColor(index, count, scheme);
 
-  return (
-    <View
-      style={{ flexBasis: count === 2 ? 0 : '47%', flexGrow: 1 }}
-      className={`rounded-3xl border bg-surface p-4 ${
-        won === true ? 'border-positive' : 'border-hairline'
-      } ${dimmed ? 'opacity-60' : ''}`}
-    >
+  const body = (
+    <>
       <View className="mb-3 flex-row items-center gap-1.5">
         <Text
-          numberOfLines={1}
+          numberOfLines={2}
           style={dimmed ? undefined : { color }}
-          className={`flex-1 text-subhead font-semibold ${dimmed ? 'text-tertiary' : ''}`}
+          className={`flex-1 text-base font-semibold ${dimmed ? 'text-tertiary' : ''}`}
         >
           {label}
         </Text>
-        {won === true && <TrophyIcon size={14} color={colors.positive} />}
+        {won === true && <TrophyIcon size={15} color={colors.positive} />}
       </View>
 
       {people.length === 0 ? (
@@ -481,8 +525,71 @@ function OptionRoster({
           </View>
         ))
       )}
-    </View>
+
+      {/* The payoff line sits under the roster, not over it: the people are
+          the reason to choose, the number is the consequence of choosing. */}
+      {shareAgorot !== null && (
+        <Text className="mt-1 text-sm text-secondary">
+          {selected ? 'Tap to withdraw' : `Win ~${formatAgorot(shareAgorot)}`}
+        </Text>
+      )}
+    </>
   );
+
+  // Two fill the row; three or more take half and wrap.
+  const sizing = { flexBasis: count === 2 ? 0 : '47%' as const, flexGrow: 1 };
+
+  if (!pressable) {
+    return (
+      <View
+        style={sizing}
+        className={`rounded-3xl border bg-surface p-4 ${
+          won === true ? 'border-positive' : 'border-hairline'
+        } ${dimmed ? 'opacity-60' : ''}`}
+      >
+        {body}
+      </View>
+    );
+  }
+
+  return (
+    <PressableScale
+      onPress={onPress}
+      disabled={disabled}
+      scaleTo={0.955}
+      accessibilityRole="button"
+      accessibilityLabel={
+        selected
+          ? `Withdraw from ${label}. ${describeRoster(people)}`
+          : `Back ${label}. ${describeRoster(people)}`
+      }
+      accessibilityState={{ selected, disabled }}
+      style={{ ...sizing, borderColor: selected ? color : undefined }}
+      className={`rounded-3xl border-2 p-4 ${
+        selected ? '' : 'border-hairline bg-surface'
+      } ${disabled ? 'opacity-50' : ''}`}
+    >
+      {body}
+    </PressableScale>
+  );
+}
+
+/**
+ * The roster as a sentence, for the accessibility label.
+ *
+ * A screen reader announcing the button has to say who is on it too, or the
+ * merge loses exactly the information it was meant to surface — the avatars
+ * are decorative to it.
+ */
+function describeRoster(people: { name: string }[]): string {
+  if (people.length === 0) return 'Nobody on this side yet.';
+  if (people.length === 1) return `${people[0]!.name} is on this side.`;
+  if (people.length <= 3) {
+    const names = people.map((p) => p.name);
+    const last = names.pop();
+    return `${names.join(', ')} and ${last} are on this side.`;
+  }
+  return `${people[0]!.name} and ${people.length - 1} others are on this side.`;
 }
 
 /**

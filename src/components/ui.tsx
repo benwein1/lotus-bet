@@ -967,6 +967,12 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
             onBlur?.(e);
           }}
           className="h-12 flex-1 text-base text-primary"
+          // `flex-1` sets a zero basis but leaves `min-width: auto`, so on the
+          // web the input keeps its intrinsic width and refuses to shrink —
+          // which shoved the reveal-password eye past the right edge of the
+          // field group on every auth screen. Same trap as PaymentSheet;
+          // CLAUDE.md §4 gotcha 4b.
+          style={{ minWidth: 0 }}
           {...props}
         />
         {accessory}

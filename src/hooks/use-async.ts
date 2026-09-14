@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { createCoalescer } from '@/lib/coalesce';
+
 export interface AsyncState<T> {
   data: T | null;
   error: string | null;
@@ -33,8 +35,14 @@ export function useAsync<T>(loader: () => Promise<T>, deps: React.DependencyList
     };
   }, []);
 
-  const reload = useCallback(async (options?: { silent?: boolean }) => {
-    if (!options?.silent) setRefreshing(true);
+  // Screen focus, Realtime events and the user's own write all ask for the same
+  // refetch at the same moment; `createCoalescer` turns that burst into two
+  // round trips instead of N. It lives in `lib/` rather than here so the number
+  // it produces can be asserted without a renderer — see `coalesce.test.ts`.
+  const coalescer = useRef(createCoalescer());
+
+  const run = useCallback(async (silent: boolean) => {
+    if (!silent) setRefreshing(true);
     try {
       const next = await loaderRef.current();
       if (!mounted.current) return;
@@ -50,6 +58,25 @@ export function useAsync<T>(loader: () => Promise<T>, deps: React.DependencyList
       }
     }
   }, []);
+
+  const reload = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = options?.silent ?? false;
+
+      // A pull-to-refresh landing on top of a silent refetch still has to show
+      // its spinner, or the gesture reads as ignored.
+      if (!silent) setRefreshing(true);
+
+      let first = true;
+      await coalescer.current.run(async () => {
+        // Only the caller's own run honours their `silent`; the trailing
+        // re-run is never a user-visible refresh.
+        await run(first ? silent : true);
+        first = false;
+      });
+    },
+    [run]
+  );
 
   useEffect(() => {
     setLoading(true);

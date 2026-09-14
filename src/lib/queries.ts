@@ -7,7 +7,9 @@
  */
 import type {
   BetComment,
+  BetDetail,
   BetLedgerEntryRow,
+  BetMediaPurpose,
   BetMediaRow,
   BetRow,
   BetSide,
@@ -242,6 +244,24 @@ const betSelectWithGroup = (withAvatar: boolean) =>
   `${BET_SELECT}, group:groups(id, name, emoji${withAvatar ? ', avatar_url' : ''})`;
 
 /**
+ * The bet screen's select. Same as the feed's, plus the two things that screen
+ * used to fetch *afterwards*.
+ *
+ * The roster under each option needs names and faces, and the ledger needs its
+ * rows once the bet is called. Both used to be their own `useAsync`, keyed on
+ * something only the first response could tell them — the group id, the status
+ * — so opening a bet cost three round trips end to end, each waiting on the
+ * one before it. Embedding them makes it one.
+ *
+ * Deliberately *not* folded into `BET_SELECT`: the feed reads a hundred bets
+ * at once and would pay for a hundred copies of a member list it never renders.
+ */
+const betDetailSelect = (withAvatar: boolean) =>
+  `${BET_SELECT}, ledger:bet_ledger_entries(*), group:groups(id, name, emoji${
+    withAvatar ? ', avatar_url' : ''
+  }, members:group_members(*, user:users(*)))`;
+
+/**
  * Media rows arrive as storage paths; the bucket is private, so they have to be
  * signed before anything can render them. Signing is batched across the whole
  * result — a feed of ten bets with photos costs one round trip, not ten.
@@ -291,11 +311,11 @@ export async function fetchFeedBets(): Promise<BetWithPositions[]> {
   return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
 }
 
-export async function fetchBet(betId: string): Promise<BetWithPositions> {
-  if (isDemoMode()) return demo.fetchBet(betId);
+export async function fetchBet(betId: string): Promise<BetDetail> {
+  if (isDemoMode()) return demo.fetchBet(betId) as unknown as Promise<BetDetail>;
   const bet = (await withGroupAvatarFallback((withAvatar) =>
-    supabase.from('bets').select(betSelectWithGroup(withAvatar)).eq('id', betId).single()
-  )) as unknown as BetWithPositions;
+    supabase.from('bets').select(betDetailSelect(withAvatar)).eq('id', betId).single()
+  )) as unknown as BetDetail;
 
   const [withMedia] = await attachSignedMedia([bet]);
   return withMedia ?? bet;
@@ -391,13 +411,16 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
 async function attachMediaToBet(
   bet: BetRow,
   media: PickedMedia[],
-  uploaderId: string
+  uploaderId: string,
+  purpose: BetMediaPurpose = 'attachment',
+  positionFrom = 0
 ): Promise<void> {
   const uploaded = [] as {
     bet_id: string;
     group_id: string;
     uploaded_by: string;
     kind: string;
+    purpose: BetMediaPurpose;
     storage_path: string;
     width: number | null;
     height: number | null;
@@ -412,15 +435,46 @@ async function attachMediaToBet(
       group_id: bet.group_id,
       uploaded_by: uploaderId,
       kind: result.kind,
+      purpose,
       storage_path: result.storagePath,
       width: result.width,
       height: result.height,
       duration_ms: result.durationMs,
-      position: index,
+      position: positionFrom + index,
     });
   }
 
   const { error } = await supabase.from('bet_media').insert(uploaded);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Attach proof of outcome to a bet that has already been called.
+ *
+ * Deliberately not folded into `createBet`'s media path: that one runs once,
+ * owned by the creator, before anybody has seen the bet. This one runs any
+ * number of times, from any of the people who had a side, long after the
+ * argument started — so it appends rather than replaces, and `position`
+ * continues from what is already there instead of restarting at zero and
+ * shuffling the gallery every time somebody adds a photo.
+ *
+ * The RLS policy is the real gate (resolved bet, participant or creator); this
+ * only has to hand it well-formed rows.
+ */
+export async function addBetProof(
+  bet: BetRow,
+  media: PickedMedia[],
+  uploaderId: string,
+  existingProofCount = 0
+): Promise<void> {
+  if (media.length === 0) return;
+  if (isDemoMode()) return demo.addBetProof(bet.id, media, existingProofCount);
+  await attachMediaToBet(bet, media, uploaderId, 'proof', existingProofCount);
+}
+
+export async function deleteBetMedia(mediaId: string): Promise<void> {
+  if (isDemoMode()) return demo.deleteBetMedia(mediaId);
+  const { error } = await supabase.from('bet_media').delete().eq('id', mediaId);
   if (error) throw new Error(error.message);
 }
 

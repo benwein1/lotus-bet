@@ -137,12 +137,24 @@ export interface BetOptionRow {
 
 export type BetMediaKind = 'image' | 'video';
 
+/**
+ * Why a file is attached to a bet.
+ *
+ * `attachment` is the creator's illustration, posted with the bet while it is
+ * open. `proof` is the receipt — added by somebody who actually had a side in
+ * it, only once the bet has been called. Same bucket, same path, same viewer;
+ * different rules about when it may be written and where it is shown.
+ */
+export type BetMediaPurpose = 'attachment' | 'proof';
+
 export interface BetMediaRow {
   id: string;
   bet_id: string;
   group_id: string;
   uploaded_by: string;
   kind: BetMediaKind;
+  /** Older rows predate the column and read as `attachment`, which they are. */
+  purpose?: BetMediaPurpose;
   /** Path inside the private `bet-media` bucket. Signed on read. */
   storage_path: string;
   width: number | null;
@@ -255,6 +267,21 @@ export interface BetWithPositions extends BetRow {
   likes?: { user_id: string }[];
   /** Just the count — the comments themselves are only read on the bet screen. */
   comments?: { count: number }[];
+}
+
+/**
+ * One bet, with everything the bet screen needs to draw itself.
+ *
+ * The extra two embeds are the difference between one round trip and three:
+ * the option rosters need the group's members, and a called bet needs its
+ * ledger rows, and neither could be asked for until the bet itself had come
+ * back and named its group and its status.
+ */
+export interface BetDetail extends BetWithPositions {
+  group?: Pick<GroupRow, 'id' | 'name' | 'emoji' | 'avatar_url'> & {
+    members?: (GroupMemberRow & { user: UserRow })[];
+  };
+  ledger?: BetLedgerEntryRow[];
 }
 
 /**
