@@ -54,7 +54,7 @@ npm start                 # Expo dev server; press "i" for iOS simulator
 npm run web               # fastest loop for design work — no Xcode needed
 npm run ios / android
 
-npm test                  # jest — 174 tests, pure logic + a theme drift check
+npm test                  # jest — 187 tests, pure logic + a theme drift check
 npm run typecheck         # tsc --noEmit
 npm run lint
 npm run theme             # regenerate global.css from theme-colors.json
@@ -105,12 +105,15 @@ src/
   components/bet-media.tsx  photo/video renderer and pager
   components/odds-bar.tsx
   components/bet-actions.tsx  the like/comment row; liking is optimistic
-  components/bet-comments.tsx the thread and its send box
+  components/bet-comments.tsx the thread, collapsed to three, and its composer
+  components/double-tap-like.tsx  double-tap a photo to like it
+  components/auth-shell.tsx   the frame every pre-sign-in screen sits in
   components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
   components/payment-sheet.tsx amount entry for a part payment
   components/lotus-mark.tsx  the app mark, wherever the app shows its own face
   components/animated-splash.tsx  the hand-off out of the native splash
   lib/auth-links.ts         pure: reading a GoTrue recovery redirect
+  lib/coalesce.ts           pure: collapsing a burst of refetches into one
   lib/invite-links.ts       pure: invite URL, share message, expiry wording
   lib/invites.ts            …and the device half — share sheet, pending token
   lib/payout.ts             re-export ONLY — see §5
@@ -143,7 +146,7 @@ supabase/
   functions/notify/         the single push fan-out for all three server events
 __tests__/                  payout · settlement · format · theme · odds ·
                             postgrest · reminders · invite-links · media-split ·
-                            auth-links
+                            auth-links · coalesce
 ```
 
 **All Supabase access goes through `src/lib/queries.ts`.** Screens never
@@ -317,6 +320,12 @@ thicker: the tab bar takes a much higher blur intensity than a chip would.
    sideways and cut its title in half — invisibly, because the card clips. Any
    `TextInput` sharing a row needs an explicit `minWidth: 0`.
 
+   It bit a second time, in `TextField` itself: the reveal-password eye was
+   pushed 26px past the right edge of the field group on **every** auth screen,
+   measurably (`x=353..380` against a row ending at 354). Both `TextField` and
+   the comment composer now set it. Check any new row that pairs an input with
+   anything else.
+
 5. **Never nest a pressable control inside a `Link`.** On iOS the responder
    system lets the inner one win, so it looks fine; on the web the inner press
    fires *and* the browser's own anchor activation runs afterwards, doing a
@@ -393,6 +402,63 @@ video (`active` prop, driven by `onViewableItemsChanged`).
 
 Screens leave room for the floating tab bar with `useTabBarInset()`.
 
+### Likes and comments
+
+The interaction is shaped like the feeds people already use, because nobody
+should have to learn how to argue with their friends. What that means here:
+
+- **The feed card carries the icons and one line of text.** Heart with its
+  count, comment bubble without one, and underneath either "View all N
+  comments" or — when there are none — "Add a comment", which asks for the
+  first one instead of printing a zero. The count appears once, not twice.
+- **The thread lives on the bet screen**, collapsed to the last three with
+  "View all N comments" to open it and "Show fewer" to close it again. Three is
+  what every social app converged on and for the same reason: enough to see a
+  conversation is happening, few enough that the bet stays on screen.
+- **Name and body share one flowing paragraph.** It reads the way a spoken
+  remark reads, it wraps at any length, and it costs a line less per comment —
+  which is most of why ten comments still fit under a bet.
+- **Posting is optimistic.** The comment appears greyed the instant you send it
+  and is removed with the error surfaced if the write fails — and the text is
+  handed back to the box, because retyping a sentence is a worse outcome than
+  tapping send twice.
+- **Double-tap to like is on the bet screen's hero only, never the feed card.**
+  A double-tap detector has to hold the first tap ~280ms to see whether a second
+  is coming. On the feed a single tap opens the bet, so that trade would add a
+  quarter-second of dead air to every navigation in the app to buy one
+  shortcut. On the hero, a single tap does nothing, so it costs nothing.
+- The heart is **accent blue**, never red. Red is money you owe. This is
+  restated here because it is the first thing anyone copying Instagram changes.
+
+### Making it feel fast
+
+The rule is *remove work*, not *add caching*. `useAsync` stays small and there
+is deliberately no query library (§10).
+
+- **Never refetch a screen to move one number.** A like patches the feed's local
+  state through `setData`. It used to re-read a hundred bets and re-sign every
+  media URL to change a count by one, and the card visibly restated itself a
+  second later.
+- **Collapse bursts.** Screen focus, a Realtime event and the user's own write
+  routinely ask for the same refetch in the same moment. `createCoalescer`
+  (`lib/coalesce.ts`) turns N asks into a leading run plus at most one trailing
+  one — measured at six asks → two runs in `__tests__/coalesce.test.ts`. The
+  trailing run is load-bearing: a request that arrived mid-flight may be about a
+  change the in-flight read was too late to see.
+- **Embed rather than waterfall.** `fetchBet` carries the group's members and
+  the ledger, because both used to be their own `useAsync` keyed on something
+  only the first response could supply — the group id, the status — so opening a
+  bet was three sequential round trips. It is one. The feed deliberately does
+  **not** get those embeds: it reads a hundred bets and would pay for a hundred
+  member lists it never renders.
+- **Signed URLs are cached for 45 minutes** (`media.ts`), comfortably inside the
+  hour they are valid for. Re-signing the same paths on every refresh was a
+  storage round trip that bought nothing. The cache is dropped on sign-out, so
+  the next person on the device inherits nothing.
+- **`FeedCard` is memoised** on everything except its callbacks, which the feed
+  writes as inline arrows. They close over nothing that is not also a compared
+  prop.
+
 ### Chrome the tabs don't have
 
 The floating tab bar is **icons only** — three destinations with unambiguous
@@ -400,6 +466,27 @@ glyphs do not need captions, and the label survives where it was actually doing
 work, as the accessibility name. **No tab screen prints its own name at the top
 either**: the bar already says where you are, so Feed, Groups and You open
 straight onto their content.
+
+---
+
+### The entrance
+
+`auth-shell.tsx` is the frame for sign-in, sign-up, profile setup and
+reset-password. They used to each carry their own copy of the mark, the
+headline, the scroll, the keyboard handling and the disclaimer — and the drift
+showed, because moving between them is the first thing anyone does and the mark
+jumped a few pixels each time.
+
+The hero **gives way to the keyboard** rather than being shoved off the top: the
+mark scales down and the explanatory sentence fades, on `transform` and
+`opacity` only. By the time somebody is typing they have read it.
+
+Profile setup swaps the Lotus mark for the user's own avatar, because by then
+the thing being introduced is them.
+
+**The money disclaimer is in the shell, not in the screens.** It is load-bearing
+(§1) and putting it in one place is what stops a future redesign of one screen
+quietly dropping it.
 
 ---
 

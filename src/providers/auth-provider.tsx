@@ -6,6 +6,7 @@ import { Platform } from 'react-native';
 import type { UserRow } from '@/lib/database.types';
 import { demo, demoProfile, demoSession, disableDemoMode, enableDemoMode, isDemoMode } from '@/lib/demo';
 import { passwordResetRedirectTo } from '@/lib/invites';
+import { clearMediaCache } from '@/lib/media';
 import { registerForPushNotifications } from '@/lib/notifications';
 import { isUnknownWriteColumn } from '@/lib/postgrest';
 import { isRecoveryRedirect, recoveryTokens } from '@/lib/auth-links';
@@ -269,6 +270,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
 
       async signOut() {
+        // Signed media URLs are minted against the session that is going away.
+        // Whoever uses this device next must not inherit a working link to the
+        // last person's photos.
+        clearMediaCache();
+
         if (demoActive) {
           disableDemoMode();
           setDemoActive(false);

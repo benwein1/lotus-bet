@@ -1,5 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { Link, useRouter } from 'expo-router';
+import { memo } from 'react';
 import { Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 
@@ -66,7 +67,7 @@ export function winningLabel(bet: BetWithPositions): string | null {
  * card falls back to type: the question gets the whole card, because on a
  * text-only bet the question *is* the content.
  */
-export function FeedCard({
+function FeedCardImpl({
   bet,
   currentUserId,
   height,
@@ -96,6 +97,8 @@ export function FeedCard({
   const media = bet.media ?? [];
   const hasMedia = media.length > 0;
   const joinable = bet.status === 'open' && Boolean(onPickOption);
+
+  const openThread = () => router.push({ pathname: '/bet/[id]', params: { id: bet.id } });
 
   // Over an image the palette has to stop following the colour scheme: white
   // on a scrim is legible over anything, a semantic label colour is not.
@@ -268,23 +271,71 @@ export function FeedCard({
             a pressable inside an anchor fires twice on the web, once as the
             button and once as the browser navigating. */}
         {onToggleLike && (
-          <View className="mt-5">
+          <View className="mt-5 gap-2">
             <BetActions
               liked={social.liked}
               likeCount={social.likeCount}
               commentCount={social.commentCount}
               onToggleLike={onToggleLike}
-              onPressComments={() =>
-                router.push({ pathname: '/bet/[id]', params: { id: bet.id } })
-              }
+              onPressComments={openThread}
               onMedia={hasMedia}
+              showCommentCount={false}
             />
+
+            {/* The line every feed has under a post, and the one that turns a
+                count into an invitation. When there is nothing there yet it
+                asks for the first comment instead of printing a zero. */}
+            <PressableScale
+              scaleTo={1}
+              onPress={openThread}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={
+                social.commentCount > 0
+                  ? `View all ${social.commentCount} ${
+                      social.commentCount === 1 ? 'comment' : 'comments'
+                    }`
+                  : 'Add a comment'
+              }
+              className="self-start"
+            >
+              <Text className={`text-sm ${metaClass}`}>
+                {social.commentCount > 0
+                  ? `View all ${social.commentCount} ${
+                      social.commentCount === 1 ? 'comment' : 'comments'
+                    }`
+                  : 'Add a comment'}
+              </Text>
+            </PressableScale>
           </View>
         )}
       </View>
     </View>
   );
 }
+
+/**
+ * The card is memoised on everything except its two callbacks.
+ *
+ * Patching one bet's likes makes a new array, so without this every mounted
+ * card re-renders — media, gradient, odds bar and all — because one number
+ * moved on one of them. The callbacks are excluded deliberately: the feed
+ * writes them as inline arrows, so their identity changes on every render and
+ * comparing them would defeat the memo entirely. They close over nothing that
+ * is not also a compared prop, so behaviour cannot go stale behind them.
+ */
+export const FeedCard = memo(FeedCardImpl, (prev, next) => {
+  return (
+    prev.bet === next.bet &&
+    prev.currentUserId === next.currentUserId &&
+    prev.height === next.height &&
+    prev.active === next.active &&
+    prev.isNew === next.isNew &&
+    prev.busyOptionId === next.busyOptionId &&
+    Boolean(prev.onToggleLike) === Boolean(next.onToggleLike) &&
+    Boolean(prev.onPickOption) === Boolean(next.onPickOption)
+  );
+});
 
 /**
  * Picking an option without leaving the feed.

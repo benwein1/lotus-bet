@@ -1,12 +1,20 @@
 import * as Haptics from 'expo-haptics';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
 import Animated, { FadeIn, FadeInDown, ZoomIn } from '@/components/animated';
 
 import { BetActions, betSocial } from '@/components/bet-actions';
 import { betSlices, myOptionId, winningLabel } from '@/components/bet-card';
 import { BetComments } from '@/components/bet-comments';
+import { DoubleTapToLike } from '@/components/double-tap-like';
 import { BetMediaView } from '@/components/bet-media';
 import { BetProof } from '@/components/bet-proof';
 import { splitMedia } from '@/lib/media';
@@ -33,8 +41,6 @@ import { previewShareAgorot } from '@/lib/payout';
 import {
   cancelBet,
   fetchBet,
-  fetchBetLedger,
-  fetchGroup,
   joinBetOption,
   leaveBet,
   lockBet,
@@ -48,22 +54,17 @@ import { motion, optionColor } from '@/theme';
 export default function BetDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const betId = id ?? '';
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
   const colors = useColors();
   const router = useRouter();
   const userId = session?.user.id ?? '';
 
+  // One request, not three. The group's members and the ledger rows used to be
+  // their own `useAsync`, each keyed on something only the *first* response
+  // could supply — the group id, the status — so opening a bet was a waterfall
+  // three deep on a cold cache. `fetchBet` embeds both now.
   const bet = useAsync(() => fetchBet(betId), [betId]);
   const groupId = bet.data?.group_id;
-  const group = useAsync(
-    () => (groupId ? fetchGroup(groupId) : Promise.resolve(null)),
-    [groupId]
-  );
-  // Only resolved bets have ledger rows; skip the round-trip otherwise.
-  const ledger = useAsync(
-    () => (bet.data?.status === 'resolved' ? fetchBetLedger(betId) : Promise.resolve([])),
-    [betId, bet.data?.status]
-  );
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -119,11 +120,45 @@ export default function BetDetailScreen() {
   const canAddProof = isResolved && (isCreator || iHadASide);
 
   const myLedgerAmount =
-    (ledger.data ?? []).find((entry) => entry.user_id === userId)?.amount_agorot ?? null;
+    (data.ledger ?? []).find((entry) => entry.user_id === userId)?.amount_agorot ?? null;
 
   const usersById = new Map<string, UserRow>(
-    (group.data?.members ?? []).map((m) => [m.user_id, m.user])
+    (data.group?.members ?? []).map((m) => [m.user_id, m.user])
   );
+
+  /**
+   * Like without re-reading the bet.
+   *
+   * `BetActions` has already moved the heart and will roll itself back if this
+   * throws, so the only thing left is the write and a patch of the one field
+   * that changed. Re-fetching the whole bet — options, positions, media,
+   * ledger, the group's members — to move a number by one was most of why
+   * liking felt heavier than it looks.
+   */
+  async function toggleLike(next: boolean) {
+    await setBetLike(betId, userId, next);
+    bet.setData((current) =>
+      current
+        ? {
+            ...current,
+            likes: next
+              ? [...(current.likes ?? []), { user_id: userId }]
+              : (current.likes ?? []).filter((like) => like.user_id !== userId),
+          }
+        : current
+    );
+  }
+
+  /** Double-tap only ever adds a like; it never takes one away. */
+  async function likeFromGesture() {
+    if (social.liked) return;
+    try {
+      await toggleLike(true);
+    } catch {
+      // The heart animation has already played. A failed write is picked up by
+      // the next refresh rather than yanked back under the finger.
+    }
+  }
 
   async function withBusy(action: () => Promise<void>) {
     setActionError(null);
@@ -187,8 +222,16 @@ export default function BetDetailScreen() {
     <>
       <Stack.Screen options={{ title: data.group?.name ?? 'Bet' }} />
       <Screen ground="sunken">
+        {/* The comment composer lives at the bottom of a long scroll, so
+            without this the keyboard covers the thing you are typing into. */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          className="flex-1"
+        >
         <ScrollView
           contentContainerClassName="px-gutter pb-12 pt-2"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           refreshControl={
             <RefreshControl
               refreshing={bet.refreshing}
@@ -201,7 +244,17 @@ export default function BetDetailScreen() {
           <ContentWidth>
             {media.length > 0 && (
               <Animated.View entering={FadeIn.duration(motion.duration.base)} className="mb-5">
-                <BetMediaView media={media} active radius={24} className="h-72 w-full" />
+                {/* Double-tap to like, the gesture everyone already has in
+                    their fingers. It belongs *here* and not on the feed card:
+                    there, a single tap opens the bet, and waiting ~250ms to
+                    find out whether a second tap is coming would make every
+                    navigation in the app feel slow to buy one shortcut. */}
+                <DoubleTapToLike
+                  enabled={!social.liked}
+                  onLike={() => void likeFromGesture()}
+                >
+                  <BetMediaView media={media} active radius={24} className="h-72 w-full" />
+                </DoubleTapToLike>
               </Animated.View>
             )}
 
@@ -335,14 +388,16 @@ export default function BetDetailScreen() {
                 liked={social.liked}
                 likeCount={social.likeCount}
                 commentCount={social.commentCount}
-                onToggleLike={async (next) => {
-                  await setBetLike(betId, userId, next);
-                  void bet.reload({ silent: true });
-                }}
+                onToggleLike={toggleLike}
               />
             </View>
 
-            <BetComments betId={betId} currentUserId={userId} />
+            <BetComments
+              betId={betId}
+              currentUserId={userId}
+              currentUserName={profile?.display_name}
+              currentUserAvatar={profile?.avatar_url}
+            />
 
             {isCreator && !isResolved && !isCancelled && (
               <View className="mt-7">
@@ -384,6 +439,7 @@ export default function BetDetailScreen() {
             )}
           </ContentWidth>
         </ScrollView>
+        </KeyboardAvoidingView>
         {dialog}
       </Screen>
     </>

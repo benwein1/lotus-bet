@@ -42,6 +42,27 @@ export const MAX_PROOF = 8;
 /** Signed URLs are re-fetched on every load, so they only need to outlive one. */
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
+/**
+ * How long a signed URL is reused before being asked for again.
+ *
+ * Comfortably inside the hour the URL is actually good for, so a cached one is
+ * never handed out close enough to expiry to break mid-render. The gap is the
+ * whole point: a feed refresh is triggered by every realtime event and every
+ * screen focus, and re-signing the same twenty paths each time is a storage
+ * round trip that buys nothing — the objects have not moved.
+ */
+const SIGN_CACHE_MS = 45 * 60 * 1000;
+
+const signCache = new Map<string, { url: string; expires: number }>();
+
+/**
+ * Drops the cache. Called on sign-out, because the next person to use this
+ * device must not inherit URLs minted for somebody else's session.
+ */
+export function clearMediaCache(): void {
+  signCache.clear();
+}
+
 export interface PickedMedia {
   /** Local file URI, straight from the picker. */
   uri: string;
@@ -231,15 +252,34 @@ export async function uploadBetMedia(
 export async function signMedia(rows: BetMediaRow[]): Promise<BetMedia[]> {
   if (rows.length === 0) return [];
 
-  const { data, error } = await supabase.storage
-    .from(BUCKET)
-    .createSignedUrls(
-      rows.map((row) => row.storage_path),
-      SIGNED_URL_TTL_SECONDS
-    );
-  if (error) throw new Error(error.message);
+  const now = Date.now();
+  const urls = new Map<string, string>();
 
-  const urls = new Map((data ?? []).map((entry) => [entry.path, entry.signedUrl]));
+  // Anything still comfortably inside its TTL is answered from memory, so a
+  // refresh that changed one like does not re-sign the whole feed's media.
+  const missing: string[] = [];
+  for (const row of rows) {
+    const hit = signCache.get(row.storage_path);
+    if (hit && hit.expires > now) urls.set(row.storage_path, hit.url);
+    else if (!missing.includes(row.storage_path)) missing.push(row.storage_path);
+  }
+
+  if (missing.length > 0) {
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrls(missing, SIGNED_URL_TTL_SECONDS);
+    if (error) throw new Error(error.message);
+
+    for (const entry of data ?? []) {
+      // `path` and `signedUrl` are both nullable: an object that has gone
+      // comes back as an entry with an error rather than as a missing row.
+      const path = entry.path;
+      const url = entry.signedUrl;
+      if (!path || !url) continue;
+      urls.set(path, url);
+      signCache.set(path, { url, expires: now + SIGN_CACHE_MS });
+    }
+  }
 
   return rows
     .map((row) => {

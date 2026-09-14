@@ -7,6 +7,7 @@
  */
 import type {
   BetComment,
+  BetDetail,
   BetLedgerEntryRow,
   BetMediaPurpose,
   BetMediaRow,
@@ -243,6 +244,24 @@ const betSelectWithGroup = (withAvatar: boolean) =>
   `${BET_SELECT}, group:groups(id, name, emoji${withAvatar ? ', avatar_url' : ''})`;
 
 /**
+ * The bet screen's select. Same as the feed's, plus the two things that screen
+ * used to fetch *afterwards*.
+ *
+ * The roster under each option needs names and faces, and the ledger needs its
+ * rows once the bet is called. Both used to be their own `useAsync`, keyed on
+ * something only the first response could tell them — the group id, the status
+ * — so opening a bet cost three round trips end to end, each waiting on the
+ * one before it. Embedding them makes it one.
+ *
+ * Deliberately *not* folded into `BET_SELECT`: the feed reads a hundred bets
+ * at once and would pay for a hundred copies of a member list it never renders.
+ */
+const betDetailSelect = (withAvatar: boolean) =>
+  `${BET_SELECT}, ledger:bet_ledger_entries(*), group:groups(id, name, emoji${
+    withAvatar ? ', avatar_url' : ''
+  }, members:group_members(*, user:users(*)))`;
+
+/**
  * Media rows arrive as storage paths; the bucket is private, so they have to be
  * signed before anything can render them. Signing is batched across the whole
  * result — a feed of ten bets with photos costs one round trip, not ten.
@@ -292,11 +311,11 @@ export async function fetchFeedBets(): Promise<BetWithPositions[]> {
   return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
 }
 
-export async function fetchBet(betId: string): Promise<BetWithPositions> {
-  if (isDemoMode()) return demo.fetchBet(betId);
+export async function fetchBet(betId: string): Promise<BetDetail> {
+  if (isDemoMode()) return demo.fetchBet(betId) as unknown as Promise<BetDetail>;
   const bet = (await withGroupAvatarFallback((withAvatar) =>
-    supabase.from('bets').select(betSelectWithGroup(withAvatar)).eq('id', betId).single()
-  )) as unknown as BetWithPositions;
+    supabase.from('bets').select(betDetailSelect(withAvatar)).eq('id', betId).single()
+  )) as unknown as BetDetail;
 
   const [withMedia] = await attachSignedMedia([bet]);
   return withMedia ?? bet;

@@ -360,6 +360,25 @@ export function CommentIcon(props: IconProps) {
 }
 
 /**
+ * A paper plane, pointing where the words are going.
+ *
+ * Filled rather than outlined, unlike everything else in this set: it sits
+ * inside a solid accent circle at 17px, and at that size an outline reads as a
+ * smudge. The one place a filled glyph is the legible choice.
+ */
+export function SendIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Path
+        d="M4.3 11.2 19.1 4.5c.8-.4 1.6.4 1.2 1.2l-6.7 14.8c-.4.8-1.5.7-1.8-.1l-1.9-5.2a1 1 0 0 0-.6-.6l-5.2-1.9c-.8-.3-.9-1.4-.1-1.8z"
+        fill={props.color ?? undefined}
+        stroke="none"
+      />
+    </Icon>
+  );
+}
+
+/**
  * Two crossed blades — one against one.
  *
  * The only icon in the set that is not a literal object from the app. It reads

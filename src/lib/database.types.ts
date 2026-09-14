@@ -270,6 +270,21 @@ export interface BetWithPositions extends BetRow {
 }
 
 /**
+ * One bet, with everything the bet screen needs to draw itself.
+ *
+ * The extra two embeds are the difference between one round trip and three:
+ * the option rosters need the group's members, and a called bet needs its
+ * ledger rows, and neither could be asked for until the bet itself had come
+ * back and named its group and its status.
+ */
+export interface BetDetail extends BetWithPositions {
+  group?: Pick<GroupRow, 'id' | 'name' | 'emoji' | 'avatar_url'> & {
+    members?: (GroupMemberRow & { user: UserRow })[];
+  };
+  ledger?: BetLedgerEntryRow[];
+}
+
+/**
  * What one person owes another, netted across every group they share.
  *
  * Derived from `simplifyDebts`, not stored: there is no such thing as a

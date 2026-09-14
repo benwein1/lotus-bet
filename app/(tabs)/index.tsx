@@ -67,8 +67,9 @@ export default function FeedScreen() {
   const [listHeight, setListHeight] = useState<number | null>(null);
   const listRef = useRef<FlatList<BetWithPositions>>(null);
 
-  // `feed` is a new object every render; `feed.reload` is stable.
-  const { reload: reloadFeed } = feed;
+  // `feed` is a new object every render; `feed.reload` and `feed.setData` are
+  // stable.
+  const { reload: reloadFeed, setData: setFeedData } = feed;
   const { reload: reloadGroups } = groups;
 
   const refresh = useCallback(() => {
@@ -149,12 +150,31 @@ export default function FeedScreen() {
 
   /**
    * The heart has already moved by the time this runs — `BetActions` owns the
-   * optimistic state and rolls itself back if this throws. So the only job
-   * here is the write and a quiet refresh to pick up anyone else's likes.
+   * optimistic state and rolls itself back if this throws.
+   *
+   * The write is followed by a **patch, not a refetch**. Re-reading the feed to
+   * move one number meant a hundred bets and every one of their signed URLs,
+   * which is absurd next to the one row that actually changed — and the card
+   * would visibly restate itself a second later. Patching also survives the
+   * card scrolling out of the window and remounting, which the row's own
+   * optimistic state does not.
    */
   async function toggleLike(betId: string, next: boolean) {
     await setBetLike(betId, userId, next);
-    void reloadFeed({ silent: true });
+    setFeedData((current) =>
+      current
+        ? current.map((bet) =>
+            bet.id === betId
+              ? {
+                  ...bet,
+                  likes: next
+                    ? [...(bet.likes ?? []), { user_id: userId }]
+                    : (bet.likes ?? []).filter((like) => like.user_id !== userId),
+                }
+              : bet
+          )
+        : current
+    );
   }
 
   const myGroups = groups.data ?? [];
