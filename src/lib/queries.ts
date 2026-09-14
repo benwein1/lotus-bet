@@ -32,6 +32,32 @@ import { isMissingColumn } from './postgrest';
 import { personBalances, type BalanceLine } from './settlement';
 import { supabase } from './supabase';
 
+/**
+ * The columns of `public.users` a client is allowed to read.
+ *
+ * Not a tidiness preference — it is half of the fix in
+ * `…_user_column_privileges.sql`, and the half that has to live here. RLS is
+ * row-level: the policy on `users` decides whether you may see a person at
+ * all, and has nothing to say about which of their columns. `users(*)` was
+ * therefore handing every group member the email address, phone number and
+ * device push token of everyone else in the group.
+ *
+ * The migration revokes those three at the column level, which makes
+ * `select *` on this table an outright error ("permission denied for column
+ * email") rather than a quietly narrower row. So every read site names its
+ * columns, and there is exactly one list to audit.
+ *
+ * Adding a column to `users` does **not** add it here. Read the migration
+ * before extending this.
+ */
+const USER_COLUMNS =
+  'id, display_name, username, avatar_url, profile_completed, notify_new_bets, notify_resolutions, notify_group_joins, notify_deadlines, created_at';
+
+/** The subset needed to draw somebody: a name, a handle, a face. */
+const USER_PUBLIC_COLUMNS = 'id, display_name, username, avatar_url';
+
+export { USER_COLUMNS, USER_PUBLIC_COLUMNS };
+
 function unwrap<T>(result: { data: T | null; error: { message: string } | null }): T {
   if (result.error) throw new Error(result.error.message);
   if (result.data === null) throw new Error('No data returned');
@@ -99,7 +125,7 @@ export async function fetchMyGroups(): Promise<GroupWithMembers[]> {
   if (isDemoMode()) return demo.fetchMyGroups();
   const { data, error } = await supabase
     .from('groups')
-    .select('*, members:group_members(*, user:users(*))')
+    .select(`*, members:group_members(*, user:users(${USER_PUBLIC_COLUMNS}))`)
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -113,7 +139,7 @@ export async function fetchAllMyGroups(): Promise<GroupWithMembers[]> {
   if (isDemoMode()) return demo.fetchAllMyGroups();
   const { data, error } = await supabase
     .from('groups')
-    .select('*, members:group_members(*, user:users(*))')
+    .select(`*, members:group_members(*, user:users(${USER_PUBLIC_COLUMNS}))`)
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -125,7 +151,7 @@ export async function fetchGroup(groupId: string): Promise<GroupWithMembers> {
   return unwrap(
     await supabase
       .from('groups')
-      .select('*, members:group_members(*, user:users(*))')
+      .select(`*, members:group_members(*, user:users(${USER_PUBLIC_COLUMNS}))`)
       .eq('id', groupId)
       .single()
   ) as unknown as GroupWithMembers;
@@ -259,7 +285,7 @@ const betSelectWithGroup = (withAvatar: boolean) =>
 const betDetailSelect = (withAvatar: boolean) =>
   `${BET_SELECT}, ledger:bet_ledger_entries(*), group:groups(id, name, emoji${
     withAvatar ? ', avatar_url' : ''
-  }, members:group_members(*, user:users(*)))`;
+  }, members:group_members(*, user:users(${USER_PUBLIC_COLUMNS})))`;
 
 /**
  * Media rows arrive as storage paths; the bucket is private, so they have to be

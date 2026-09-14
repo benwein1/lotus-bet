@@ -9,6 +9,7 @@ import { passwordResetRedirectTo } from '@/lib/invites';
 import { clearMediaCache } from '@/lib/media';
 import { registerForPushNotifications } from '@/lib/notifications';
 import { isUnknownWriteColumn } from '@/lib/postgrest';
+import { USER_COLUMNS } from '@/lib/queries';
 import { isRecoveryRedirect, recoveryTokens } from '@/lib/auth-links';
 import { isSupabaseConfigured, openedWithUrl, supabase } from '@/lib/supabase';
 
@@ -74,9 +75,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [demoActive, setDemoActive] = useState(false);
 
   const loadProfile = useCallback(async (userId: string) => {
+    // Named columns, never `*`. `email`, `phone` and `expo_push_token` are
+    // revoked from `authenticated` at the column level, and `select *` on a
+    // table with a revoked column is a hard error rather than a narrower row —
+    // see USER_COLUMNS and `…_user_column_privileges.sql`.
     const { data, error } = await supabase
       .from('users')
-      .select('*')
+      .select(USER_COLUMNS)
       .eq('id', userId)
       .maybeSingle<UserRow>();
 
@@ -243,7 +248,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             .from('users')
             .update(values)
             .eq('id', session.user.id)
-            .select()
+            // The RETURNING clause is a read, and reads name their columns.
+            .select(USER_COLUMNS)
             .single<UserRow>();
 
         let { data, error } = await write(full);

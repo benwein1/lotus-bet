@@ -20,10 +20,21 @@ export type GroupRole = 'admin' | 'member';
 
 export interface UserRow {
   id: string;
-  /** Set for accounts created with email + password, which is all of them now. */
-  email: string | null;
-  /** Kept for the accounts created under the old phone-OTP flow. */
-  phone: string | null;
+  /**
+   * **Never present on a row the client read.** `email`, `phone` and
+   * `expo_push_token` are revoked from `authenticated` at the column level by
+   * `…_user_column_privileges.sql`, because RLS is row-level and could not
+   * stop a group member reading them off everyone else's row.
+   *
+   * They stay on the type because the row still has them server-side — the
+   * signup trigger writes `email`, `push_targets_*` reads the token — and
+   * because a `SECURITY DEFINER` function is unaffected by the grant. For the
+   * signed-in user's own address, read `session.user.email` from GoTrue, which
+   * is what this column was only ever a mirror of.
+   */
+  email?: string | null;
+  /** Kept for the accounts created under the old phone-OTP flow. Never read. */
+  phone?: string | null;
   display_name: string;
   /**
    * The handle other people challenge you by. Assigned on signup and
@@ -40,7 +51,8 @@ export interface UserRow {
    */
   profile_completed?: boolean;
   avatar_url: string | null;
-  expo_push_token: string | null;
+  /** Never present on a client-read row — see `email` above. */
+  expo_push_token?: string | null;
   notify_new_bets: boolean;
   notify_resolutions: boolean;
   /**

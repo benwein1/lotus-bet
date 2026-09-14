@@ -217,8 +217,12 @@ export default function ProfileScreen() {
                     @{profile.username}
                   </Text>
                 ) : null}
+                {/* Read off the session, not off `public.users`. That column
+                    is revoked from clients now, and the GoTrue session holds
+                    the authoritative copy anyway — `users.email` was only ever
+                    a mirror of it. */}
                 <Text numberOfLines={1} className="mt-0.5 text-subhead text-secondary">
-                  {profile.email ?? profile.phone ?? ''}
+                  {session?.user.email ?? ''}
                 </Text>
 
                 <View className="mt-6 items-center">

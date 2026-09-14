@@ -13,7 +13,7 @@ Reviewed at `dc94dd6` plus the changes in this branch. Last updated 2026-09-14.
 
 | # | Severity | Finding | Fix order |
 | --- | --- | --- | --- |
-| 1 | **CRITICAL** | Every group member can read every other member's **email, phone and Expo push token** | 1st |
+| 1 | ~~**CRITICAL**~~ **FIXED** | Every group member could read every other member's **email, phone and Expo push token** | ✅ `…_user_column_privileges.sql` |
 | 2 | **HIGH** | No rate limiting of any kind on application writes | 2nd |
 | 3 | **HIGH** | No blocking, reporting or moderation — also an App Store blocker (§1.2) | 3rd |
 | 4 | **MEDIUM** | No account deletion — also an App Store blocker (§5.1.1(v)) | 4th |
@@ -28,7 +28,7 @@ Reviewed at `dc94dd6` plus the changes in this branch. Last updated 2026-09-14.
 
 ---
 
-## 1. CRITICAL — the `users` table leaks contact details and push tokens
+## 1. ~~CRITICAL~~ FIXED — the `users` table leaked contact details and push tokens
 
 ### What is true
 
@@ -75,54 +75,75 @@ This directly contradicts the intent already written into CLAUDE.md §6, where
 member must not be able to list their friends' phones." That hardening is
 correct and it is bypassed by reading the base table.
 
-### The fix
+### The fix, as applied
 
-Two workable shapes. **(A) is the smaller change; (B) is the more durable one.**
-
-**(A) Column-level revocation.** Postgres composes column privileges with RLS:
+Option (A) — **column-level privileges**, in
+`supabase/migrations/20260916090000_user_column_privileges.sql`. Postgres
+composes column privileges with RLS: RLS decides *which rows*, `GRANT ...
+(column_list)` decides *which columns*, and this table only ever had the first.
 
 ```sql
--- New migration, e.g. 20260915090000_user_privacy.sql
-revoke select on public.users from anon, authenticated;
-grant select (id, display_name, avatar_url, username, created_at)
+revoke all on public.users from anon;
+revoke all on public.users from authenticated;
+
+grant select (id, display_name, username, avatar_url, profile_completed,
+              notify_new_bets, notify_resolutions, notify_group_joins,
+              notify_deadlines, created_at)
   on public.users to authenticated;
--- The owner still needs their own settings; those reads go through a
--- SECURITY DEFINER `my_profile()` returning the full row for auth.uid() only.
 ```
 
-**This breaks `select('*')`** — PostgREST expands `*` to every column and
-Postgres then refuses the whole statement. So it must land together with a
-`queries.ts` change from `user:users(*)` to an explicit safe column list, plus
-a `PublicUser` type distinct from the self-only `UserRow`.
+`email`, `phone` and `expo_push_token` are simply not in the list. `anon` gets
+nothing at all — RLS already denied it every row, but a table with sensitive
+columns should not rest on one mechanism.
 
-**(B) Split the table.** Move `email`, `phone` and `expo_push_token` into
-`public.user_private` with `using (id = auth.uid())`, and repoint
-`set_push_token`, `push_targets_for_bet` and `push_targets_for_group` at it.
-More migration work, but afterwards the sensitive columns cannot be re-exposed
-by someone adding a policy to `users` without thinking.
+It closed a second, quieter hole on the way: UPDATE is now column-scoped too,
+so a client can no longer write its own `users.email` (desynchronising it from
+the `auth.users` row that actually governs signing in) or overwrite its own
+`expo_push_token`, which `set_push_token` exists to own.
 
-### Why I did not apply it in this pass
+**What did not break, and why.** `SECURITY DEFINER` functions run as the owner
+and are unaffected by the grant: `handle_new_auth_user` still seeds `email`,
+`suggest_username` still reads it, and `push_targets_for_bet` /
+`push_targets_for_group` still return tokens to the service role. Those two
+being revoked from `authenticated` was always the real boundary around a push
+token; this makes the table agree with it.
 
-It changes the single most load-bearing query in the app, and the failure mode
-is the one CLAUDE.md §6 already warns about for `BET_SELECT`: a select that
-PostgREST refuses returns **no rows at all**, so the feed, every group and every
-bet screen go blank rather than degrading. The SQL harness exercises Postgres
-but not PostgREST, so this specific change cannot be proven here — it needs a
-smoke test against a real project. Doing it blind is how the app ships broken.
+**The client half had to land at the same time.** `select *` on a table with a
+revoked column is a hard refusal — `permission denied for table users` — not a
+narrower row. So `queries.ts` now names columns at every read site through one
+`USER_COLUMNS` / `USER_PUBLIC_COLUMNS` pair, the auth provider's profile read
+and its update-returning clause name them too, and the Profile screen reads the
+user's address from `session.user.email` (GoTrue's copy, which
+`public.users.email` was only ever mirroring).
 
-**This should be the next piece of work after this branch merges.**
+That refusal being loud is the point. A silent narrowing is how this leak would
+come back unnoticed, and a client older than the migration stops reading
+`users` rather than degrading — the safe direction.
 
-### How to test it
+### How it is tested
 
-Add to `supabase/test/20_policy_checks.sql`:
+`supabase/test/20_policy_checks.sql` §25 drives it as `authenticated`:
+`select *` refused, `email` refused, `phone` refused, `expo_push_token`
+refused, **your own** `email` refused, an `update` of `email` refused, an
+`update` of `expo_push_token` refused — and the safe columns still readable,
+`display_name` still writable. §26 then proves the fan-out still works: the
+service role reads a real token back, and the same call as `authenticated` is
+refused. The harness is at 39 asserted refusals, exit 0.
 
-```sql
--- As a groupmate, these three columns must be unreadable.
-set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"<member-a>"}', true);
--- expect: permission denied for column email
-select email from public.users where id = '<member-b>';
-```
+### What is still worth doing
+
+Two things this does not cover.
+
+1. **The harness exercises Postgres, not PostgREST.** The refusal shape is
+   proven; that the app's exact embed strings still parse is not. Worth one
+   smoke test against a real project — open the feed, a group and a bet screen
+   — after applying the migration.
+2. **Option (B), splitting the columns into `public.user_private`, remains the
+   more durable shape.** Column grants sit beside the table rather than inside
+   it, so someone adding a policy to `users` without thinking cannot re-expose
+   them — but someone re-running a blanket `grant select on public.users`
+   could. (B) makes that impossible rather than merely wrong. Not urgent now
+   that the leak is closed.
 
 ---
 
@@ -164,7 +185,7 @@ revoke execute on function public.push_targets_for_group(...) from public, anon,
 grant  execute on function public.push_targets_for_bet(...)  to service_role;
 ```
 
-Correct — and undermined only by finding #1, which reaches the same data by
+Correct — and no longer undermined by finding #1, which used to reach the same data by
 another route.
 
 ### One gate for everything hanging off a bet

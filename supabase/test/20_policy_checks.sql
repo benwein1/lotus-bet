@@ -979,3 +979,102 @@ begin;
          public.can_see_bet('99999999-0000-4000-8000-000000000001') as visible;
   rollback to s7;
 rollback;
+
+\echo '--- 25. Column privileges on public.users (SECURITY.md finding #1) ---'
+-- RLS is row-level. It decides whether you may see a person at all and has
+-- nothing to say about which of their columns, so a groupmate used to read
+-- everyone's email, phone number and device push token off `users(*)`.
+--
+-- What is asserted here is a *refusal*: `select *` and each sensitive column
+-- must raise "permission denied for column", and the safe columns must still
+-- come back. The refusal is the whole point — a quietly narrower row would be
+-- how this leak comes back unnoticed.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (a) the columns the app renders are still readable'
+  select 'safe columns readable' as check, count(*) as rows
+    from (
+      select id, display_name, username, avatar_url, profile_completed,
+             notify_new_bets, notify_resolutions, notify_group_joins,
+             notify_deadlines, created_at
+      from public.users
+    ) t;
+
+  savepoint u1;
+  \echo '  (b) select * is refused outright (must fail)'
+  select * from public.users limit 1;
+  rollback to u1;
+
+  savepoint u2;
+  \echo '  (c) a groupmate cannot read email (must fail)'
+  select email from public.users
+   where id = '11111111-1111-4000-8000-000000000002';
+  rollback to u2;
+
+  savepoint u3;
+  \echo '  (d) nor phone (must fail)'
+  select phone from public.users
+   where id = '11111111-1111-4000-8000-000000000002';
+  rollback to u3;
+
+  savepoint u4;
+  \echo '  (e) nor the push token, which is a capability not an identifier (must fail)'
+  select expo_push_token from public.users
+   where id = '11111111-1111-4000-8000-000000000002';
+  rollback to u4;
+
+  savepoint u5;
+  \echo '  (f) not even your own email — the session holds that (must fail)'
+  select email from public.users where id = auth.uid();
+  rollback to u5;
+
+  savepoint u6;
+  \echo '  (g) a client cannot desynchronise its own email from auth.users (must fail)'
+  update public.users set email = 'attacker@example.com' where id = auth.uid();
+  rollback to u6;
+
+  savepoint u7;
+  \echo '  (h) nor overwrite its own push token, which set_push_token owns (must fail)'
+  update public.users set expo_push_token = 'ExponentPushToken[forged]'
+   where id = auth.uid();
+  rollback to u7;
+
+  \echo '  (i) the fields the app does edit still write'
+  update public.users set display_name = 'Renamed' where id = auth.uid();
+  select 'own display_name writable' as check, display_name
+    from public.users where id = auth.uid();
+rollback;
+
+\echo '--- 26. The push fan-out still reaches tokens, as the service role ---'
+-- The grant above must not have broken the one legitimate reader. These are
+-- SECURITY DEFINER and run as the owner, so column privileges do not apply to
+-- them — that is exactly why the token is reachable there and nowhere else.
+begin;
+  -- Give the group's one member a token to find, so a green result here
+  -- cannot be an empty one. `member_joined` is the kind this function gates
+  -- `notify_group_joins` on; every other kind returns nothing by design.
+  update public.users
+     set expo_push_token = 'ExponentPushToken[harness]', notify_group_joins = true
+   where id = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  set local role service_role;
+  select 'service role still reads the token' as check, user_id, expo_push_token
+    from public.push_targets_for_group(
+      'bbbbbbbb-0000-4000-8000-000000000000'::uuid,
+      'member_joined',
+      '11111111-1111-4000-8000-000000000002'::uuid
+    );
+
+  savepoint p1;
+  \echo '  and a signed-in client still cannot call it (must fail)'
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select count(*) from public.push_targets_for_group(
+    'bbbbbbbb-0000-4000-8000-000000000000'::uuid,
+    'member_joined',
+    '11111111-1111-4000-8000-000000000002'::uuid
+  );
+  rollback to p1;
+rollback;
