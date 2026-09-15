@@ -13,7 +13,7 @@ import { TERMS_VERSION } from '@/lib/legal';
 import { isUnknownWriteColumn } from '@/lib/postgrest';
 import { USER_COLUMNS } from '@/lib/queries';
 import { isRecoveryRedirect, recoveryTokens } from '@/lib/auth-links';
-import { isSupabaseConfigured, openedWithUrl, supabase } from '@/lib/supabase';
+import { isSupabaseConfigured, openedWithUrl, setSessionLostHandler, supabase } from '@/lib/supabase';
 
 export interface SignUpResult {
   /** True when the project has email confirmation on and no session was issued. */
@@ -124,6 +124,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // A 401 from anything other than the auth endpoints means this session is
+  // gone — expired, revoked, or its account deleted on another device. Without
+  // this the app keeps looking signed in while every screen quietly fails, and
+  // the only way out is to find Sign out and use it on a dead session.
+  //
+  // `supabase.auth.signOut()` is deliberately not called: it would POST to
+  // GoTrue with the same dead token and fail. Dropping the local session is
+  // what actually ends it, and the redirect gate does the rest.
+  useEffect(() => {
+    return setSessionLostHandler(() => {
+      // Signed URLs were minted for the session that just died. The next
+      // person on this device must not inherit them — same reason `signOut`
+      // clears them.
+      clearMediaCache();
+      setSession(null);
+      setProfile(null);
+      setRecovering(false);
+    });
+  }, []);
+
   // The native half of a reset link.
   //
   // `detectSessionInUrl` is a web-only mechanism, so on a device the tokens
@@ -164,8 +184,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!session?.user.id || isDemoMode()) return;
     void loadProfile(session.user.id);
-    // Push registration is best-effort: it no-ops on simulators and when the
-    // user declines the permission prompt.
+    // Refreshes the token for somebody who has *already* granted permission,
+    // and does nothing at all otherwise. It deliberately cannot trigger the
+    // system dialog any more: `NotificationPrimer` on the feed owns that, so
+    // the ask arrives with an explanation and after the user has seen a bet.
     void registerForPushNotifications();
   }, [session?.user.id, loadProfile]);
 

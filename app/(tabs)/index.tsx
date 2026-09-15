@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedCard } from '@/components/bet-card';
 import { BetCommentsSheet } from '@/components/bet-comments';
+import { NotificationPrimer } from '@/components/notification-primer';
 import { ReportSheet, type ReportTarget } from '@/components/report-sheet';
 import { BetSuggestions } from '@/components/bet-suggestions';
 import { DemoBadge } from '@/components/demo-entry';
@@ -22,6 +23,7 @@ import { BetFeedSkeleton } from '@/components/skeletons';
 import { ErrorNotice, PressableScale, tap } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { syncDeadlineReminders, toReminderBet } from '@/lib/reminders';
+import { useForegroundRefresh } from '@/hooks/use-foreground-refresh';
 import { useFeedRealtime } from '@/hooks/use-group-realtime';
 import { isNewSince, useLastSeen } from '@/hooks/use-last-seen';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -86,6 +88,11 @@ export default function FeedScreen() {
   }, [reloadFeed, reloadGroups]);
 
   useFeedRealtime(Boolean(userId), refresh);
+
+  // A feed left open on a locked phone comes back with expired signed URLs and
+  // no error anywhere — it just renders broken tiles. Nothing failed, so
+  // nothing retries; only a re-read re-signs.
+  useForegroundRefresh(refresh, Boolean(userId));
 
   // Tab screens stay mounted, so without this the feed would still be showing
   // whatever it loaded at launch — a bet you just posted would not appear
@@ -354,6 +361,11 @@ export default function FeedScreen() {
         currentUserName={profile?.display_name}
         currentUserAvatar={profile?.avatar_url}
       />
+
+      {/* Asked here rather than on sign-in, and only once there is a bet on
+          screen to be notified *about*. A cold permission prompt gets declined,
+          and on iOS a declined prompt is effectively permanent. */}
+      <NotificationPrimer ready={!feed.loading && bets.length > 0} />
 
       {/* Blocking changes what the feed may show, so a successful block has to
           re-read it rather than leave the blocked person's bets on screen. */}

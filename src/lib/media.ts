@@ -51,7 +51,7 @@ const SIGNED_URL_TTL_SECONDS = 60 * 60;
  * screen focus, and re-signing the same twenty paths each time is a storage
  * round trip that buys nothing — the objects have not moved.
  */
-const SIGN_CACHE_MS = 45 * 60 * 1000;
+export const SIGN_CACHE_MS = 45 * 60 * 1000;
 
 const signCache = new Map<string, { url: string; expires: number }>();
 
@@ -243,6 +243,35 @@ export async function uploadBetMedia(
     height: media.height,
     durationMs: media.durationMs,
   };
+}
+
+/**
+ * Removes objects that were uploaded but never got a row.
+ *
+ * `createBet` and `addBetProof` upload first and insert the `bet_media` rows
+ * afterwards, because the bet's id is part of the storage path and so the row
+ * has to exist before there is anywhere to put the file. That ordering is
+ * correct and it leaves a window: if the third upload of four fails, or the
+ * insert is refused, the objects already in the bucket have nothing pointing
+ * at them and nothing will ever delete them.
+ *
+ * Orphaned bytes are the better half of that failure — the bet survives — but
+ * they are bytes the group pays for forever, and SCALEABILITY.md puts storage
+ * at the top of the cost list. So the caller sweeps up what it uploaded.
+ *
+ * Best-effort and silent by design: this runs while an error is already on its
+ * way to the user, and "could not post the bet, and also could not tidy up" is
+ * two failures reported where one is actionable.
+ */
+export async function discardUploads(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  try {
+    await supabase.storage.from(BUCKET).remove(paths);
+  } catch {
+    // Nothing to do and nobody to tell. The orphan is now a storage-sweep
+    // problem rather than a user-facing one.
+  }
+  for (const path of paths) signCache.delete(path);
 }
 
 /**

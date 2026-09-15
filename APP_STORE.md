@@ -71,10 +71,10 @@ most of the defence. See §2.
 | 2 | **Report / block / moderate** — missing entirely | **P0** |
 | 3 | **Custom SMTP** — password reset only reaches the project owner without it | **P0** |
 | 4 | **Proof-media migration not run** on the live project | **P0** |
-| 5 | Offline behaviour — requests fail with a generic error; no offline state | P1 |
-| 6 | Media upload is not transactional with the bet (CLAUDE.md §7.1); a partial failure orphans objects | P1 |
-| 7 | Signed URLs expire after an hour; a screen left open shows broken media | P1 |
-| 8 | No global 401 handler — a revoked session surfaces as a failed request, not a clean sign-out | P1 |
+| 5 | ~~Offline behaviour~~ **FIXED** — failures are classified; offline, expired, rate-limited and unavailable each say so | ✅ `errors.ts` |
+| 6 | ~~Media upload orphans objects~~ **FIXED** — a partial failure sweeps what it uploaded | ✅ `discardUploads` |
+| 7 | ~~Signed URLs expire~~ **FIXED** — a screen re-reads when the app returns after being away | ✅ `use-foreground-refresh.ts` |
+| 8 | ~~No global 401 handler~~ **FIXED** — a 401 off the auth endpoints ends the session cleanly | ✅ `supabase.ts` fetch wrapper |
 | 9 | Part payment capped at the outstanding amount; genuine overpayment has nowhere to go (CLAUDE.md §7.3) | P2 |
 | 10 | One push token per user — second device silently overwrites the first | P2 |
 | 11 | `my_stats.bets_settled` counts ledger rows, so zero-winner bets do not appear | P2 |
@@ -131,7 +131,18 @@ before submission.**
 
 **Also relevant: guideline 1.4.5** — apps should not urge users into activities
 that risk physical harm. The bet-suggestion feature (`suggestions.ts`) should be
-checked to make sure nothing it proposes is a dare. Worth a read-through. **P1.**
+checked to make sure nothing it proposes is a dare. **Audited in full — clean.**
+
+Every suggestion is a *prediction about something that was going to happen
+anyway* — will it rain, will they be late, will anyone reply — and not one asks
+the user to perform an act. That is the distinction 1.4.5 turns on: a dare has
+the grammar of an instruction or an endurance superlative, and none of these do.
+
+The audit is now a check rather than a memory. `__tests__/suggestions.test.ts`
+fails the build on dare vocabulary, on a title that is not a question, and on
+one that opens as an imperative aimed at the user — so a suggestion added next
+year cannot quietly reintroduce the problem. The rule is written at the top of
+`suggestions.ts` where somebody adding one will read it.
 
 ### 2.2 Sign in with Apple — **not required**
 
@@ -413,10 +424,16 @@ supabase/test/run.sh               # migrations + RLS + RPCs on throwaway Postgr
 npx expo export --platform ios --output-dir /tmp/export-check
 ```
 
-**Note:** `npm run lint` currently fails in a clean checkout — the repo has **no
-ESLint config**, so `expo lint` tries to download one. Either commit an ESLint
-config or drop the script; a check that cannot run is worse than no check.
-**P1.**
+**Note:** `eslint.config.js` now exists, so `expo lint` finds a config instead
+of trying to download one. Beyond the Expo preset it encodes the four traps
+CLAUDE.md records as having already bitten once — importing `Animated` from
+reanimated directly, `Alert.alert`, a `dark:` variant, and an interpolated
+class name — as errors rather than as prose somebody has to remember.
+
+**Not verified here.** This environment's registry cannot resolve ESLint's
+dependency tree through the proxy, so the config has never been executed. Run
+`npm run lint` once on your machine; `expo lint` installs what it needs on
+first run.
 
 ### Device matrix
 

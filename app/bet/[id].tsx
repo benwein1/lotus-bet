@@ -34,6 +34,7 @@ import {
   useConfirm,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
+import { useForegroundRefresh } from '@/hooks/use-foreground-refresh';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import type { BetSide, BetWithPositions, UserRow } from '@/lib/database.types';
@@ -82,6 +83,10 @@ export default function BetDetailScreen() {
   }, [reloadBet]);
 
   useGroupRealtime(groupId, refresh);
+
+  // Same reason as the feed: the hero photo is a signed URL with an hour on it,
+  // and a screen nobody has touched never re-signs.
+  useForegroundRefresh(refresh, Boolean(betId));
 
   // Same reason as the group screen: this one is still mounted under the
   // settle-up screen, so a balance settled there would otherwise be stale on

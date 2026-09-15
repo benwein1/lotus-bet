@@ -28,7 +28,7 @@ import type {
   UserRow,
 } from './database.types';
 import { demo, isDemoMode } from './demo';
-import { signMedia, uploadBetMedia, type PickedMedia } from './media';
+import { discardUploads, signMedia, uploadBetMedia, type PickedMedia } from './media';
 import { announceBetResolved, announceGroupJoin, announceNewBet } from './notifications';
 import { computeBetPayouts } from './payout';
 import { prepareContent } from './content-rules';
@@ -507,24 +507,38 @@ async function attachMediaToBet(
     position: number;
   }[];
 
-  for (const [index, item] of media.entries()) {
-    const result = await uploadBetMedia(bet.group_id, bet.id, item);
-    uploaded.push({
-      bet_id: bet.id,
-      group_id: bet.group_id,
-      uploaded_by: uploaderId,
-      kind: result.kind,
-      purpose,
-      storage_path: result.storagePath,
-      width: result.width,
-      height: result.height,
-      duration_ms: result.durationMs,
-      position: positionFrom + index,
-    });
-  }
+  // Every path that reaches the bucket, so a failure part way can take them
+  // back out again. Without this the objects stay, paid for, with nothing
+  // pointing at them and nothing that will ever delete them — CLAUDE.md §7.1.
+  const written: string[] = [];
 
-  const { error } = await supabase.from('bet_media').insert(uploaded);
-  if (error) throw new Error(error.message);
+  try {
+    for (const [index, item] of media.entries()) {
+      const result = await uploadBetMedia(bet.group_id, bet.id, item);
+      written.push(result.storagePath);
+      uploaded.push({
+        bet_id: bet.id,
+        group_id: bet.group_id,
+        uploaded_by: uploaderId,
+        kind: result.kind,
+        purpose,
+        storage_path: result.storagePath,
+        width: result.width,
+        height: result.height,
+        duration_ms: result.durationMs,
+        position: positionFrom + index,
+      });
+    }
+
+    const { error } = await supabase.from('bet_media').insert(uploaded);
+    if (error) throw new Error(error.message);
+  } catch (err) {
+    // The rows are all-or-nothing — one insert — so a failure here means no
+    // row exists for any of these objects. Sweep them and re-throw the real
+    // error, which is the one worth showing.
+    await discardUploads(written);
+    throw err;
+  }
 }
 
 /**
