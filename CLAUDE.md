@@ -67,8 +67,19 @@ supabase/test/run.sh      # migrations + RLS + RPCs against a throwaway Postgres
 the only thing that exercises the SQL — see §7.
 
 Always run `npm run typecheck && npm test` before claiming a change works.
-They are fast (a few seconds combined) and there is **no CI in this repo** —
-nothing will catch a regression for you.
+They are fast (a few seconds combined).
+
+**There is CI now** — `.github/workflows/checks.yml` runs typecheck, the jest
+suite, the theme drift check, an iOS bundle and the full SQL harness on every
+pull request and on pushes to `main` and `dev`. It needs no secret: the harness
+builds its own throwaway Postgres and never touches a real project. `npm run
+lint` is in there as advisory only, because ESLint is not a devDependency and
+`expo lint` installs it on first run — a failure there is as likely to be the
+install as the code. That stops being true the moment somebody runs
+`npm i -D eslint` locally and commits the lockfile.
+
+CI is a backstop, not a substitute: it tells you after you push, and the loop
+above tells you before.
 
 To check the app actually bundles (catches things typecheck can't, like a
 bad Metro resolution):

@@ -1,0 +1,7 @@
+# The web build is a test surface until the iOS app ships, so it should not
+# be findable — but the legal pages served from it are the privacy policy and
+# support URLs App Store Connect points at, and those must stay reachable.
+
+User-agent: *
+Disallow: /
+Allow: /legal/
