@@ -1916,3 +1916,56 @@ begin;
     from public.review_queue(null)
    where target_id = '99999999-0000-4000-8000-000000000001';
 rollback;
+
+\echo '--- 42. Cancelled-bet media is sweepable, resolved-bet media is not ---'
+-- `…_media_retention.sql`. Nothing is owed on a cancelled bet, so its photos
+-- are not evidence of anything. Proof on a *resolved* bet is, which is why the
+-- retention policy stops where it does (SCALEABILITY.md §4 item 4).
+begin;
+  set local role postgres;
+
+  -- An old cancelled bet, and an old resolved one, each with a file.
+  insert into public.bets
+    (id, group_id, creator_id, title, option_a_label, option_b_label,
+     total_pot_agorot, status, created_at)
+  values ('77777777-0000-4000-8000-000000000001',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'Called off ages ago', 'Yes', 'No', 100, 'cancelled',
+          now() - interval '90 days');
+
+  insert into public.bet_media
+    (bet_id, group_id, uploaded_by, kind, storage_path, purpose)
+  values ('77777777-0000-4000-8000-000000000001',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'image',
+          'bbbbbbbb-0000-4000-8000-000000000000/77777777/old-cancelled.jpg',
+          'attachment');
+
+  \echo '  (a) the cancelled bet''s file is named'
+  select 'sweepable files' as check, count(*) as rows
+    from public.sweepable_media(interval '30 days')
+   where storage_path like '%old-cancelled.jpg';
+
+  \echo '  (b) proof on a resolved bet is left alone, however old'
+  select 'resolved-bet files named' as check, count(*) as rows
+    from public.sweepable_media(interval '1 day') s
+    join public.bet_media m on m.id = s.id
+    join public.bets b on b.id = m.bet_id
+   where b.status = 'resolved';
+
+  \echo '  (c) a recently cancelled bet is not swept yet'
+  update public.bets set created_at = now() - interval '3 days'
+   where id = '77777777-0000-4000-8000-000000000001';
+  select 'swept too early' as check, count(*) as rows
+    from public.sweepable_media(interval '30 days')
+   where storage_path like '%old-cancelled.jpg';
+
+  savepoint s1;
+  \echo '  (d) a client cannot list other groups'' storage paths (must fail)'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select * from public.sweepable_media(interval '30 days');
+  rollback to s1;
+rollback;

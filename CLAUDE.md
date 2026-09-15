@@ -156,6 +156,7 @@ supabase/
                             user devices · moderation review (21)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
+  functions/sweep-media/    scheduled retention for cancelled bets' media
 supabase/seed/              test_members.sql · review_account.sql (the App
                             Review account; exercised by run.sh §37)
 supabase/admin/             review_queue.sql — the moderation queue as things
@@ -846,11 +847,28 @@ made. Get this wrong in the permissive direction and a photo somebody added
 after the result silently becomes the bet's own face at the top of the screen.
 
 Compression lives in one table in `media.ts`. Proof is squeezed harder than an
-illustration (quality 0.6 vs 0.85, Medium vs High, 30s vs 60s) because a receipt
-only has to be legible enough to end an argument and is uploaded on a phone in
-a bar; the illustration sits full-bleed in the feed. `expo-image-picker`
-re-encodes before handing back a URI, so there is no second compression
-dependency.
+illustration (quality 0.6 vs 0.85, Medium vs High, **15s vs 60s**) because a
+receipt only has to be legible enough to end an argument and is uploaded on a
+phone in a bar; the illustration sits full-bleed in the feed. Video is the
+overwhelming majority of the storage risk for a small slice of the value, which
+is why the proof cap is the shorter one.
+
+**Every still is re-encoded before it is uploaded**, by `stripMetadata`. A
+photo taken to prove a bet in somebody's flat can carry GPS, and every member
+of the group can download the object — SECURITY.md finding #6. The picker's own
+re-encode drops most metadata *in practice*, and "in practice" is not a
+property; a manipulator pass with no actions writes a fresh file from decoded
+pixels, so there is no EXIF block to carry anything over. A failure throws
+rather than falling back to the original, because a silent fallback uploads the
+coordinates anyway.
+
+**Videos are not covered and the code says so.** Nothing here transcodes them.
+The 15-second cap is the mitigation that exists.
+
+Media on bets **cancelled** more than 30 days ago is swept by the `sweep-media`
+Edge Function. Nothing is owed on a cancelled bet, so its photos are evidence of
+nothing. Proof on a *resolved* bet is never swept — that is somebody's record of
+who won.
 
 ### Invite links
 

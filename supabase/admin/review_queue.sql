@@ -84,3 +84,47 @@ select
   count(*) filter (where reviewed_at is not null
                      and reviewed_at - created_at >= interval '24 hours') as answered_late
 from public.reports;
+
+-- ===========================================================================
+-- Media retention
+-- ===========================================================================
+-- Nothing is owed on a cancelled bet, so its photos are not evidence of
+-- anything. `sweepable_media` names what may go; the `sweep-media` Edge
+-- Function removes the objects and then the rows, in that order, so a run that
+-- dies part way leaves rows the next run finds again rather than bytes nothing
+-- points at.
+--
+-- Requires `20260917090400_media_retention.sql`.
+
+-- What would go, and how much it is worth:
+--   select count(*) as files, pg_size_pretty(sum(bytes)) as reclaimable
+--     from public.sweepable_media(interval '30 days');
+
+-- Deploy the function once:
+--   supabase functions deploy sweep-media
+--
+-- Try it without deleting anything:
+--   curl -X POST "$SUPABASE_URL/functions/v1/sweep-media" \
+--     -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+--     -H 'Content-Type: application/json' \
+--     -d '{"dryRun": true}'
+--
+-- Then schedule it. `pg_cron` and `pg_net` are both enabled from the
+-- dashboard's Extensions page:
+--
+--   select cron.schedule(
+--     'sweep-cancelled-media',
+--     '17 3 * * *',                       -- 03:17 daily, off the hour
+--     $$
+--       select net.http_post(
+--         url     := '<your project url>/functions/v1/sweep-media',
+--         headers := jsonb_build_object(
+--                      'Authorization', 'Bearer <service role key>',
+--                      'Content-Type',  'application/json'),
+--         body    := '{"olderThanDays": 30}'::jsonb
+--       );
+--     $$
+--   );
+--
+-- **That key is a service-role key.** It belongs in a scheduled job on your
+-- own project and nowhere near the app bundle — it bypasses RLS entirely.

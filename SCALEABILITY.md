@@ -237,17 +237,21 @@ egress.
 
 ### What to do about it, in order
 
-1. **Cap video, or drop it.** It is 90% of the storage risk for a small
-   fraction of the value. Shortening proof video to 15s would roughly halve the
-   worst case.
+1. ~~**Cap video, or drop it.**~~ **Done** — proof clips are capped at 15s
+   (`COMPRESSION.proof.videoMaxDuration`), which roughly halves the worst case.
+   A bet's own illustration keeps its minute: it is the thing people actually
+   look at.
 2. **Use Supabase image transformations** to serve a feed-sized rendition rather
    than the original. Serving a 400 KB rendition instead of a 2 MB original cuts
    egress ~5×. This is a Pro feature and is the best egress-per-shekel available.
 3. **Keep the signing cache** added on this branch.
-4. **Build a retention policy** before you need one: delete media for bets
-   cancelled more than 30 days ago, and archive attachments on bets resolved
-   more than a year ago. Needs a product decision — proof of outcome is evidence
-   somebody may want to keep.
+4. ~~**Build a retention policy** before you need one~~ — **half done, and the
+   half that is not is deliberate.** Media on bets cancelled more than 30 days
+   ago is swept by the `sweep-media` Edge Function off `sweepable_media`;
+   nothing is owed on a cancelled bet, so its photos are evidence of nothing.
+   Archiving attachments on bets *resolved* over a year ago is left alone —
+   proof of outcome is evidence somebody may want to keep, and a year is not
+   obviously long enough to stop caring who won.
 5. **Build an orphan sweep** for the `createBet` failure mode.
 6. **Per-user storage quota** (see SECURITY.md finding #2) — this is a security
    control and a cost control at the same time.
@@ -476,7 +480,7 @@ Ordered by **value ÷ effort**, not by severity.
 | 8 | ~~`group_id` on `bet_positions` + filtered subscriptions~~ | ✅ `…_position_group_id.sql` | done |
 | 9 | ~~Patch from Realtime payloads instead of refetching~~ | ✅ feed positions | done |
 | 10 | Image transformations for feed renditions | when egress costs money | small, Pro only |
-| 11 | Media retention | when storage costs money | needs a product call |
+| 11 | ~~Media retention~~ | ✅ cancelled bets, `sweep-media` | done; resolved-bet archiving left open on purpose |
 | 11b | ~~Orphan sweep~~ | ✅ `discardUploads` | done |
 | 12 | ~~`user_devices` table~~ | ✅ `…_user_devices.sql` | done |
 | 12b | ~~Per-uploader storage quota~~ | ✅ `…_media_limits.sql`, 250 MB | done |

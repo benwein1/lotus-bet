@@ -18,7 +18,7 @@ Reviewed at `dc94dd6` plus the changes in this branch. Last updated 2026-09-14.
 | 3 | ~~**HIGH**~~ **FIXED, less the person** | No blocking, reporting or moderation | ✅ `…_moderation.sql` + `…_moderation_review.sql`; somebody still has to read the queue |
 | 4 | ~~**MEDIUM**~~ **FIXED** | No account deletion — also an App Store blocker (§5.1.1(v)) | ✅ `…_account_deletion.sql` |
 | 5 | **LOW** (what is left) | Uploads are not validated server-side: type, size and magic bytes are all client-asserted | Path-vs-group constrained; size and kind now taken from Storage; 250 MB per account. **Bucket limits are still a dashboard change** |
-| 6 | **MEDIUM** | EXIF (incl. GPS) is not stripped from uploaded photos | 6th |
+| 6 | ~~**MEDIUM**~~ **FIXED for photos** | EXIF (incl. GPS) is not stripped from uploaded photos | ✅ `stripMetadata` in `media.ts`; video is not covered |
 | 7 | **LOW** | `group_invites` tokens are `select`-able by every group member | **Won't fix as written** — see §4 |
 | 8 | **LOW** | Signed media URLs are bearer tokens with a 1-hour life and no revocation | 8th |
 | 9 | ~~**INFO**~~ **FIXED** | Realtime subscribes unfiltered to `bet_positions` — a metadata side channel | ✅ `…_position_group_id.sql` |
@@ -384,8 +384,21 @@ most metadata in practice, but this is **not a guarantee** and it does not apply
 to video at all. A photo taken to prove a bet in someone's flat can carry GPS
 coordinates, and every member of the group can download the object.
 
-Fix: strip on the way in (`expo-image-manipulator` re-encode) or, better, on the
-way out with a Storage transformation. Cheap to do; genuinely private data.
+**Fixed for stills.** `stripMetadata` in `media.ts` re-encodes every picked or
+captured photo through `expo-image-manipulator` with no actions before it is
+uploaded. The encoder writes a fresh file from decoded pixels, so there is no
+EXIF block to carry anything over; on the web the same call goes through a
+canvas, which drops metadata for the same reason. It runs on all four entry
+points — library and camera, attachment and proof.
+
+A failure is **surfaced, not swallowed**. Falling back to the original would
+upload the coordinates anyway and say nothing, which is precisely the "not a
+guarantee" state this finding is about.
+
+**Video is not covered, and pretending otherwise would be worse than not
+trying.** `expo-image-manipulator` does not touch it. The mitigation that
+exists is the 15-second cap on proof clips; stripping video metadata needs a
+transcoding step nothing in this stack has. Left open, honestly.
 
 ### Finding #8 (LOW) — signed URLs are unrevocable bearer tokens
 
