@@ -90,6 +90,10 @@ create table if not exists storage.objects (
   bucket_id text references storage.buckets (id),
   name text,
   owner uuid,
+  -- Supabase Storage writes the object's real size and content type in here
+  -- once the upload lands. It is the only server-observed fact about an
+  -- upload, which is what the storage quota in `…_media_limits.sql` counts.
+  metadata jsonb,
   created_at timestamptz default now()
 );
 alter table storage.objects enable row level security;

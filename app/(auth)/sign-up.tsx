@@ -8,6 +8,7 @@ import { AuthShell, AuthSwitch } from '@/components/auth-shell';
 import { EyeIcon, MailIcon } from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
 import { Button, ErrorNotice, FieldGroup, PressableScale, TextField } from '@/components/ui';
+import { CheckIcon } from '@/components/icons';
 import { isValidEmail, passwordProblem } from '@/lib/format';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
@@ -27,10 +28,15 @@ export default function SignUpScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmationSent, setConfirmationSent] = useState(false);
+  const [agreed, setAgreed] = useState(false);
 
   const trimmedName = name.trim();
   const problem = passwordProblem(password);
-  const ready = trimmedName.length >= 2 && isValidEmail(email) && problem === null;
+  // Agreement gates the button rather than being a line of small print under
+  // it. Guideline 1.2 wants people to have agreed to the rules, and a checkbox
+  // that is ticked by default is not an agreement.
+  const ready =
+    trimmedName.length >= 2 && isValidEmail(email) && problem === null && agreed;
   // Only once they have typed enough for the rule to be about *their* password
   // rather than a scolding for an empty field.
   const showProblem = password.length > 0 && problem !== null;
@@ -157,6 +163,49 @@ export default function SignUpScreen() {
           <Text className="mt-2.5 px-1 text-sm text-secondary">{problem}</Text>
         </Animated.View>
       )}
+
+      {/* Above the error, not below: it is part of the form, and a control that
+          gates the button belongs next to the fields rather than after the
+          thing that tells you the form failed.
+
+          Both links open a screen inside the app rather than a URL. The text is
+          bundled with the build, so the one place where somebody agrees to the
+          rules works with no domain, no hosting and no network — it used to
+          point at a placeholder host and open nothing at all. */}
+      <PressableScale
+        scaleTo={0.99}
+        onPress={() => setAgreed((v) => !v)}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: agreed }}
+        accessibilityLabel="I agree to the Terms and the Privacy Policy"
+        className="mt-5 flex-row items-start gap-3 px-1 py-1"
+      >
+        <View
+          className={`mt-0.5 h-[22px] w-[22px] items-center justify-center rounded-md border-2 ${
+            agreed ? 'border-accent bg-accent' : 'border-hairline-strong'
+          }`}
+        >
+          {agreed && <CheckIcon size={14} color={colors.accentInk} />}
+        </View>
+        <Text className="flex-1 text-sm leading-[18px] text-secondary">
+          I agree to the{' '}
+          <Text
+            className="font-semibold text-accent"
+            onPress={() => router.push('/legal/terms')}
+          >
+            Terms
+          </Text>{' '}
+          and the{' '}
+          <Text
+            className="font-semibold text-accent"
+            onPress={() => router.push('/legal/privacy')}
+          >
+            Privacy Policy
+          </Text>
+          , including that abusive or objectionable content is not tolerated and
+          accounts posting it are removed.
+        </Text>
+      </PressableScale>
 
       {error && (
         <Animated.View entering={FadeIn.duration(180)} className="mt-4">

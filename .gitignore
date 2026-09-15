@@ -29,3 +29,6 @@ coverage/
 
 # wrangler dev writes local runtime state here.
 .wrangler/
+
+# Generated from legal-text.json by scripts/build-legal-html.js at build time.
+public/legal/

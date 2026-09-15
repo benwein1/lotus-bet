@@ -58,6 +58,7 @@ npm test                  # jest — 187 tests, pure logic + a theme drift check
 npm run typecheck         # tsc --noEmit
 npm run lint
 npm run theme             # regenerate global.css from theme-colors.json
+npm run legal             # regenerate public/legal/*.html from legal-text.json
 
 supabase/test/run.sh      # migrations + RLS + RPCs against a throwaway Postgres
 ```
@@ -66,8 +67,19 @@ supabase/test/run.sh      # migrations + RLS + RPCs against a throwaway Postgres
 the only thing that exercises the SQL — see §7.
 
 Always run `npm run typecheck && npm test` before claiming a change works.
-They are fast (a few seconds combined) and there is **no CI in this repo** —
-nothing will catch a regression for you.
+They are fast (a few seconds combined).
+
+**There is CI now** — `.github/workflows/checks.yml` runs typecheck, the jest
+suite, the theme drift check, an iOS bundle and the full SQL harness on every
+pull request and on pushes to `main` and `dev`. It needs no secret: the harness
+builds its own throwaway Postgres and never touches a real project. `npm run
+lint` is in there as advisory only, because ESLint is not a devDependency and
+`expo lint` installs it on first run — a failure there is as likely to be the
+install as the code. That stops being true the moment somebody runs
+`npm i -D eslint` locally and commits the lockfile.
+
+CI is a backstop, not a substitute: it tells you after you push, and the loop
+above tells you before.
 
 To check the app actually bundles (catches things typecheck can't, like a
 bad Metro resolution):
@@ -90,6 +102,7 @@ app/                        Expo Router routes
   _layout.tsx               root stack + the single auth redirect gate
   (auth)/                   sign-in · sign-up · profile-setup · reset-password
   (tabs)/                   index (the feed) · groups · profile
+  legal/terms.tsx, privacy.tsx, support.tsx
   group/create.tsx, join.tsx
   join/[token].tsx          what a shared invite link opens
   challenge.tsx             start a one-on-one by handle
@@ -109,14 +122,17 @@ src/
                             rises over the feed, and the composer both share
   components/double-tap-like.tsx  double-tap a photo to like it
   components/auth-shell.tsx   the frame every pre-sign-in screen sits in
+  components/bet-grid.tsx     the bets you started, as a grid on Profile
   components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
   components/payment-sheet.tsx amount entry for a part payment
+  components/legal-document.tsx  the terms, the policy and the support page
   components/lotus-mark.tsx  the app mark, wherever the app shows its own face
   components/animated-splash.tsx  the hand-off out of the native splash
   lib/auth-links.ts         pure: reading a GoTrue recovery redirect
   lib/coalesce.ts           pure: collapsing a burst of refetches into one
   lib/invite-links.ts       pure: invite URL, share message, expiry wording
   lib/invites.ts            …and the device half — share sheet, pending token
+  lib/legal.ts              URLs, support address, and the text, from one JSON
   lib/payout.ts             re-export ONLY — see §5
   lib/settlement.ts         balance netting + greedy debt simplification
   lib/queries.ts            every Supabase read/write the app makes
@@ -138,17 +154,30 @@ src/
   theme.ts                  palettes · motion · elevation · avatarColors
 theme-colors.json           SINGLE SOURCE OF TRUTH for both palettes
 global.css                  GENERATED from it by scripts/build-theme-css.js
+legal-text.json             SINGLE SOURCE OF TRUTH for terms, privacy, support
+public/legal/*.html         GENERATED from it by scripts/build-legal-html.js,
+                            at build time, gitignored — see §11
 assets/logo/lotus.svg       the mark; scripts/build-icons.mjs renders every size
 supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
                             bet options · notification prefs · social ·
                             private bets and duels · group invites ·
-                            proof of outcome · bet-insert RLS fix (13)
+                            proof of outcome · bet-insert RLS fix · column
+                            privileges · moderation · account deletion · terms ·
+                            abuse limits · position group_id · media limits ·
+                            user devices · moderation review · media retention ·
+                            bets by creator (23)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
+  functions/sweep-media/    scheduled retention for cancelled bets' media
+supabase/seed/              test_members.sql · review_account.sql (the App
+                            Review account; exercised by run.sh §37)
+supabase/admin/             review_queue.sql — the moderation queue as things
+                            to paste; guideline 1.2's 24 hours in practice
 __tests__/                  payout · settlement · format · theme · odds ·
                             postgrest · reminders · invite-links · media-split ·
-                            auth-links · coalesce
+                            auth-links · coalesce · content-rules · errors ·
+                            suggestions · legal
 ```
 
 **All Supabase access goes through `src/lib/queries.ts`.** Screens never
@@ -403,6 +432,30 @@ be picked straight from the card. Only the card actually on screen plays its
 video (`active` prop, driven by `onViewableItemsChanged`).
 
 Screens leave room for the floating tab bar with `useTabBarInset()`.
+
+### Bets you started
+
+The Profile grid is **authorship, not participation** — what you put up, where
+"Bet history" below it answers what you have been in. That distinction is the
+whole point: a bet you created and never took a side on is still yours, and
+this is the only screen that says so.
+
+**Two kinds of tile, because half these bets have no photo.** A photo grid that
+drew only bets with media would be mostly holes, and a placeholder image would
+be worse, so a bet without an attachment shows its own question. The question
+*is* the bet; that tile is not a fallback.
+
+The cover comes from `splitMedia().attachments`, never from proof — letting a
+receipt somebody added after the result become the bet's face in a grid is
+exactly the permissive mistake that function exists to prevent.
+
+A bet that is no longer running recedes, the way `OptionCard` dims a losing
+side. **How it recedes depends on what is underneath**, and both halves were
+learned by looking: over a photo only a scrim works; over a text tile a scrim
+put grey on grey and made the question unreadable. And the tile's *ground* stays
+constant either way — dropping a closed tile to `sunken` made it vanish in dark
+mode, where sunken is the page ground, so it stopped reading as a tile and
+became a hole with text floating in it.
 
 ### Likes and comments
 
@@ -831,11 +884,28 @@ made. Get this wrong in the permissive direction and a photo somebody added
 after the result silently becomes the bet's own face at the top of the screen.
 
 Compression lives in one table in `media.ts`. Proof is squeezed harder than an
-illustration (quality 0.6 vs 0.85, Medium vs High, 30s vs 60s) because a receipt
-only has to be legible enough to end an argument and is uploaded on a phone in
-a bar; the illustration sits full-bleed in the feed. `expo-image-picker`
-re-encodes before handing back a URI, so there is no second compression
-dependency.
+illustration (quality 0.6 vs 0.85, Medium vs High, **15s vs 60s**) because a
+receipt only has to be legible enough to end an argument and is uploaded on a
+phone in a bar; the illustration sits full-bleed in the feed. Video is the
+overwhelming majority of the storage risk for a small slice of the value, which
+is why the proof cap is the shorter one.
+
+**Every still is re-encoded before it is uploaded**, by `stripMetadata`. A
+photo taken to prove a bet in somebody's flat can carry GPS, and every member
+of the group can download the object — SECURITY.md finding #6. The picker's own
+re-encode drops most metadata *in practice*, and "in practice" is not a
+property; a manipulator pass with no actions writes a fresh file from decoded
+pixels, so there is no EXIF block to carry anything over. A failure throws
+rather than falling back to the original, because a silent fallback uploads the
+coordinates anyway.
+
+**Videos are not covered and the code says so.** Nothing here transcodes them.
+The 15-second cap is the mitigation that exists.
+
+Media on bets **cancelled** more than 30 days ago is swept by the `sweep-media`
+Edge Function. Nothing is owed on a cancelled bet, so its photos are evidence of
+nothing. Proof on a *resolved* bet is never swept — that is somebody's record of
+who won.
 
 ### Invite links
 
@@ -967,17 +1037,21 @@ Concrete things worth fixing, roughly by severity:
    balance and quietly make the other person the debtor. A genuine overpayment
    is a new debt the other way and has nowhere to be recorded yet.
 
-4. **One push token per user.** `users.expo_push_token` is a single column,
-   so a second device silently overwrites the first. Needs its own table when
-   multi-device matters.
+4. ~~**One push token per user.**~~ **Fixed** — `user_devices`, keyed on the
+   token so a device changing hands re-points it rather than notifying the
+   previous owner. `users.expo_push_token` is still read, so an account that
+   has not reopened the app is not dropped.
 
-5. **`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps** with an
-   eslint-disable. It works because `reload` is stable, but it's fragile — a
-   refactor of `useAsync` could silently stop refreshing the group list.
+5. ~~**`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps.**~~ It does
+   not, and has not for a while — it depends on `reloadGroups`. Recorded here
+   as a reminder that a known-issues list rots unless it is read against the
+   code.
 
-6. **Realtime subscribes to `bet_positions` unfiltered** (in both
-   `useGroupRealtime` and `useFeedRealtime`) because that table has no
-   `group_id` column. Fine at friend-group scale, wasteful beyond it.
+6. ~~**Realtime subscribes to `bet_positions` unfiltered.**~~ **Fixed** —
+   `…_position_group_id.sql` denormalises `group_id` onto the position, so the
+   group screen filters on `eq.` and the feed on `in.(…)`. The column is
+   derived by a trigger that overwrites whatever the client sent, because a
+   value a client cannot express an opinion about needs no validating.
 
 7. **`my_stats.bets_settled` counts ledger rows**, so bets that resolved with
    nobody on the winning side don't appear in the count. Arguably correct,
@@ -1093,3 +1167,48 @@ before touching any component.
 - Don't add a dependency without a reason the existing stack can't cover.
   `useAsync` is deliberately tiny — an MVP with eight screens doesn't need a
   query cache when Realtime already says when to refetch.
+
+---
+
+## 11. The legal text, and why it is bundled
+
+The terms (which are the EULA), the privacy policy and the support page live as
+text in **`legal-text.json`** and are rendered twice: by `app/legal/*` inside
+the app, and by `scripts/build-legal-html.js` into `public/legal/*.html` for the
+web, which `npm run build:web` regenerates on every build.
+
+One source, two renderers, the same arrangement as the palette and for the same
+reason. What somebody agrees to on the sign-up screen, what `users.terms_version`
+refers to, and what a reviewer reads at the privacy-policy URL in App Store
+Connect are the same words by construction rather than by diligence.
+`TERMS_VERSION` is read *off* the JSON rather than typed next to it, so the
+recorded version and the words actually read cannot drift apart.
+
+**The text is bundled, not only hosted, and that is the point.** The sign-up
+checkbox used to link at `example.invalid` — so the one screen where a person
+agrees to the rules opened nothing at all. Bundling makes the agreement real
+from the first account, before any hosting decision and with no network. The
+hosted copy is then the *listing's* URL rather than the only copy.
+
+Three consequences worth keeping:
+
+- **Two placeholders, `{{app}}` and `{{support}}`.** The app name is a
+  placeholder so the rename ahead is one constant rather than a hunt through
+  nine paragraphs; the support address because it genuinely differs per
+  deployment. `fillPlaceholders` is the only substitution, and
+  `__tests__/legal.test.ts` fails if either survives into rendered output.
+- **The generated pages are gitignored.** They carry the support address from
+  the environment, so a committed copy would carry whichever machine last built
+  them. They also carry no script, no stylesheet and no image — a legal page
+  that fails to render because an asset did not load is a legal page that is
+  not published.
+- **`EXPO_PUBLIC_SUPPORT_EMAIL` unset means no contact row**, rather than a row
+  that opens a mail composer addressed at a placeholder. Guideline 1.2 wants
+  published contact information; a contact that silently goes nowhere is worse
+  than an absent one, because it looks like the app answered you.
+
+`__tests__/legal.test.ts` holds the clauses that are compliance rather than
+prose — no tolerance for objectionable content, a 24-hour response, reporting,
+blocking, removal of accounts that post abuse, and a privacy policy naming
+every row of the App Store nutrition label. They go missing through a
+well-meaning edit, not through a bug, which is exactly why they are tests.

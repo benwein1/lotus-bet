@@ -13,6 +13,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedCard } from '@/components/bet-card';
 import { BetCommentsSheet } from '@/components/bet-comments';
+import { NotificationPrimer } from '@/components/notification-primer';
+import { ReportSheet, type ReportTarget } from '@/components/report-sheet';
 import { BetSuggestions } from '@/components/bet-suggestions';
 import { DemoBadge } from '@/components/demo-entry';
 import { ChevronUpIcon } from '@/components/icons';
@@ -21,11 +23,12 @@ import { BetFeedSkeleton } from '@/components/skeletons';
 import { ErrorNotice, PressableScale, tap } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { syncDeadlineReminders, toReminderBet } from '@/lib/reminders';
-import { useFeedRealtime } from '@/hooks/use-group-realtime';
+import { useForegroundRefresh } from '@/hooks/use-foreground-refresh';
+import { useFeedRealtime, type PositionPayload } from '@/hooks/use-group-realtime';
 import { isNewSince, useLastSeen } from '@/hooks/use-last-seen';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
-import type { BetWithPositions } from '@/lib/database.types';
+import type { BetSide, BetWithPositions } from '@/lib/database.types';
 import { fetchFeedBets, fetchMyGroups, joinBetOption, setBetLike } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
@@ -58,7 +61,9 @@ export default function FeedScreen() {
   const reduced = useReducedMotion();
   const userId = session?.user.id ?? '';
 
-  const feed = useAsync(fetchFeedBets, [userId]);
+  // Passed rather than read from the session inside the query, because the
+  // feed's block filter has to know whose positions count as "mine".
+  const feed = useAsync(() => fetchFeedBets(userId), [userId]);
   const groups = useAsync(fetchMyGroups, [userId]);
   const { since } = useLastSeen();
 
@@ -67,6 +72,8 @@ export default function FeedScreen() {
   const [scrolledAway, setScrolledAway] = useState(false);
   /** The bet whose comments are open in the sheet, if any. */
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
+  /** What the report/block sheet is pointed at, if anything. */
+  const [reporting, setReporting] = useState<ReportTarget | null>(null);
   const [listHeight, setListHeight] = useState<number | null>(null);
   const listRef = useRef<FlatList<BetWithPositions>>(null);
 
@@ -80,7 +87,86 @@ export default function FeedScreen() {
     void reloadGroups({ silent: true });
   }, [reloadFeed, reloadGroups]);
 
-  useFeedRealtime(Boolean(userId), refresh);
+  // The groups the loaded bets belong to, which is what the position
+  // subscription filters on. Derived from the bets rather than from
+  // `fetchMyGroups`, because that one hides duels (CLAUDE.md section 6) and a
+  // duel's positions are exactly as interesting as any other group's.
+  const feedGroupIds = useMemo(
+    () => (userId ? Array.from(new Set((feed.data ?? []).map((bet) => bet.group_id))) : null),
+    [userId, feed.data]
+  );
+
+  // Which bets are actually on screen, kept as a set so the position handler
+  // below can answer "do I know this bet?" without reading through a hundred
+  // of them on every event.
+  const loadedBetIds = useMemo(
+    () => new Set((feed.data ?? []).map((bet) => bet.id)),
+    [feed.data]
+  );
+  const loadedRef = useRef(loadedBetIds);
+  loadedRef.current = loadedBetIds;
+
+  /**
+   * Apply a `bet_positions` change from the Realtime payload itself.
+   *
+   * Returns false for anything it cannot apply — a bet posted since the last
+   * fetch, a payload missing the columns the card draws — and the subscription
+   * falls back to a refetch. Being unable to patch is never being wrong.
+   *
+   * Deliberately decided from `loadedRef` rather than from inside the state
+   * updater: React may call an updater later, or twice, so a value written
+   * inside one is not a safe answer to return from here.
+   */
+  const patchPosition = useCallback(
+    (payload: PositionPayload) => {
+      const row = (payload.new ?? payload.old) as
+        | { bet_id?: string; user_id?: string; side?: BetSide | null; option_id?: string }
+        | null
+        | undefined;
+      const betId = row?.bet_id;
+      const whose = row?.user_id;
+      if (!betId || !whose || !loadedRef.current.has(betId)) return false;
+
+      const removed = payload.eventType === 'DELETE';
+      // An insert or update has to carry the option, because that is what the
+      // odds bar and the side buttons are drawn from. A delete only carries the
+      // primary key, which is all removing somebody needs.
+      if (!removed && !row.option_id) return false;
+
+      setFeedData((current) =>
+        current
+          ? current.map((bet) => {
+              if (bet.id !== betId) return bet;
+              // Switching sides arrives as an update, so the old row goes
+              // whichever kind of event this is.
+              const others = (bet.positions ?? []).filter((p) => p.user_id !== whose);
+              return {
+                ...bet,
+                positions: removed
+                  ? others
+                  : [
+                      ...others,
+                      {
+                        user_id: whose,
+                        side: row.side ?? null,
+                        option_id: row.option_id as string,
+                      },
+                    ],
+              };
+            })
+          : current
+      );
+      return true;
+    },
+    [setFeedData]
+  );
+
+  useFeedRealtime(feedGroupIds, refresh, patchPosition);
+
+  // A feed left open on a locked phone comes back with expired signed URLs and
+  // no error anywhere — it just renders broken tiles. Nothing failed, so
+  // nothing retries; only a re-read re-signs.
+  useForegroundRefresh(refresh, Boolean(userId));
 
   // Tab screens stay mounted, so without this the feed would still be showing
   // whatever it loaded at launch — a bet you just posted would not appear
@@ -336,9 +422,34 @@ export default function FeedScreen() {
         betId={commentsFor}
         onClose={() => setCommentsFor(null)}
         onTotalChange={patchCommentCount}
+        onReportComment={(comment) =>
+          setReporting({
+            kind: 'comment',
+            id: comment.id,
+            authorId: comment.user_id,
+            authorName: comment.author?.display_name ?? 'this person',
+            noun: 'this comment',
+          })
+        }
         currentUserId={userId}
         currentUserName={profile?.display_name}
         currentUserAvatar={profile?.avatar_url}
+      />
+
+      {/* Asked here rather than on sign-in, and only once there is a bet on
+          screen to be notified *about*. A cold permission prompt gets declined,
+          and on iOS a declined prompt is effectively permanent. */}
+      <NotificationPrimer ready={!feed.loading && bets.length > 0} />
+
+      {/* Blocking changes what the feed may show, so a successful block has to
+          re-read it rather than leave the blocked person's bets on screen. */}
+      <ReportSheet
+        target={reporting}
+        onClose={() => setReporting(null)}
+        onBlocked={() => {
+          setCommentsFor(null);
+          void reloadFeed({ silent: true });
+        }}
       />
     </Screen>
   );

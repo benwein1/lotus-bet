@@ -24,8 +24,45 @@ Notifications.setNotificationHandler({
  * Returns null (quietly) on simulators, on web, or when the user says no —
  * push is a nice-to-have, never a blocker.
  */
-export async function registerForPushNotifications(): Promise<string | null> {
+/**
+ * Whether the OS will show its permission dialog if we ask.
+ *
+ * `undetermined` is the only state where asking does anything: once somebody
+ * has answered, iOS never shows the dialog again and the only route back is
+ * Settings. That is why the priming sheet exists — see `promptBeforeAsking`.
+ */
+export async function pushPermissionIsUndetermined(): Promise<boolean> {
+  if (Platform.OS === 'web' || !Device.isDevice || isDemoMode()) return false;
+  try {
+    const existing = await Notifications.getPermissionsAsync();
+    return existing.status === 'undetermined' || existing.canAskAgain === true
+      ? existing.status !== 'granted' && existing.status !== 'denied'
+      : false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Registers for push.
+ *
+ * `promptBeforeAsking: false` means "only register if permission is *already*
+ * granted" — it will never trigger the system dialog. That is what the auth
+ * provider uses on sign-in, so a returning user's token is refreshed without
+ * anybody being asked anything.
+ *
+ * Guideline 4.5.4 wants push opt-in, and APP_STORE.md §2.6 flags the cold
+ * prompt as P1: firing the system dialog the instant a session exists asks for
+ * a permission before the user has seen a single bet, and on iOS a declined
+ * prompt is effectively permanent. The explanation belongs in the app, before
+ * the dialog — which is `NotificationPrimer`, and it is the only caller that
+ * passes `true`.
+ */
+export async function registerForPushNotifications(
+  options: { promptBeforeAsking?: boolean } = {}
+): Promise<string | null> {
   if (Platform.OS === 'web' || !Device.isDevice || isDemoMode()) return null;
+  const mayPrompt = options.promptBeforeAsking ?? false;
 
   try {
     if (Platform.OS === 'android') {
@@ -41,6 +78,8 @@ export async function registerForPushNotifications(): Promise<string | null> {
     let status = existing.status;
 
     if (status !== 'granted') {
+      // Without an explicit ask, this is a no-op rather than a cold prompt.
+      if (!mayPrompt) return null;
       const requested = await Notifications.requestPermissionsAsync();
       status = requested.status;
     }
@@ -55,7 +94,14 @@ export async function registerForPushNotifications(): Promise<string | null> {
     }
 
     const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
-    await supabase.rpc('set_push_token', { p_token: token });
+    // The platform is recorded so a stale token can later be told apart from a
+    // live one per device. `user_devices` keys on the token itself, so signing
+    // in on a second phone adds a device rather than replacing the first —
+    // which is what it used to do, silently (SCALEABILITY.md section 7).
+    await supabase.rpc('set_push_token', {
+      p_token: token,
+      p_platform: Platform.OS,
+    });
 
     return token;
   } catch (err) {
@@ -64,10 +110,16 @@ export async function registerForPushNotifications(): Promise<string | null> {
   }
 }
 
-/** Called from the settings toggles when a user turns all notifications off. */
+/**
+ * Called from the settings toggles when a user turns all notifications off.
+ *
+ * Clears every device on the account rather than just this one. With a single
+ * switch, off has to mean off — a phone that kept buzzing because the tablet
+ * was still registered would make the switch a lie.
+ */
 export async function clearPushToken(): Promise<void> {
   if (isDemoMode()) return;
-  await supabase.rpc('set_push_token', { p_token: '' });
+  await supabase.rpc('set_push_token', { p_token: '', p_platform: null });
 }
 
 /**
