@@ -97,7 +97,7 @@ most of the defence. See §2.
 | 7 | ~~Signed URLs expire~~ **FIXED** — a screen re-reads when the app returns after being away | ✅ `use-foreground-refresh.ts` |
 | 8 | ~~No global 401 handler~~ **FIXED** — a 401 off the auth endpoints ends the session cleanly | ✅ `supabase.ts` fetch wrapper |
 | 9 | Part payment capped at the outstanding amount; genuine overpayment has nowhere to go (CLAUDE.md §7.3) | P2 |
-| 10 | One push token per user — second device silently overwrites the first | P2 |
+| 10 | ~~One push token per user~~ **FIXED** — `user_devices`, one row per device | ✅ `…_user_devices.sql` |
 | 11 | `my_stats.bets_settled` counts ledger rows, so zero-winner bets do not appear | P2 |
 
 ### Error and offline states — **done**
@@ -728,7 +728,7 @@ Struck-through items are done and are left here so the order still reads.
 
 21. Universal Links (`apple-app-site-association` + associated domains) so
     invite links open the app rather than the web build.
-22. Multi-device push (`user_devices` table).
+22. ~~Multi-device push~~ — done, `…_user_devices.sql`.
 23. ~~Media orphan sweep~~ — `discardUploads`. Full transactionality is still
     open.
 24. Overpayment handling.

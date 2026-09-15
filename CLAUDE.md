@@ -150,11 +150,16 @@ supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
                             bet options · notification prefs · social ·
                             private bets and duels · group invites ·
-                            proof of outcome · bet-insert RLS fix (13)
+                            proof of outcome · bet-insert RLS fix · column
+                            privileges · moderation · account deletion · terms ·
+                            abuse limits · position group_id · media limits ·
+                            user devices · moderation review (21)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
 supabase/seed/              test_members.sql · review_account.sql (the App
                             Review account; exercised by run.sh §37)
+supabase/admin/             review_queue.sql — the moderation queue as things
+                            to paste; guideline 1.2's 24 hours in practice
 __tests__/                  payout · settlement · format · theme · odds ·
                             postgrest · reminders · invite-links · media-split ·
                             auth-links · coalesce · content-rules · errors ·
@@ -977,17 +982,21 @@ Concrete things worth fixing, roughly by severity:
    balance and quietly make the other person the debtor. A genuine overpayment
    is a new debt the other way and has nowhere to be recorded yet.
 
-4. **One push token per user.** `users.expo_push_token` is a single column,
-   so a second device silently overwrites the first. Needs its own table when
-   multi-device matters.
+4. ~~**One push token per user.**~~ **Fixed** — `user_devices`, keyed on the
+   token so a device changing hands re-points it rather than notifying the
+   previous owner. `users.expo_push_token` is still read, so an account that
+   has not reopened the app is not dropped.
 
-5. **`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps** with an
-   eslint-disable. It works because `reload` is stable, but it's fragile — a
-   refactor of `useAsync` could silently stop refreshing the group list.
+5. ~~**`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps.**~~ It does
+   not, and has not for a while — it depends on `reloadGroups`. Recorded here
+   as a reminder that a known-issues list rots unless it is read against the
+   code.
 
-6. **Realtime subscribes to `bet_positions` unfiltered** (in both
-   `useGroupRealtime` and `useFeedRealtime`) because that table has no
-   `group_id` column. Fine at friend-group scale, wasteful beyond it.
+6. ~~**Realtime subscribes to `bet_positions` unfiltered.**~~ **Fixed** —
+   `…_position_group_id.sql` denormalises `group_id` onto the position, so the
+   group screen filters on `eq.` and the feed on `in.(…)`. The column is
+   derived by a trigger that overwrites whatever the client sent, because a
+   value a client cannot express an opinion about needs no validating.
 
 7. **`my_stats.bets_settled` counts ledger rows**, so bets that resolved with
    nobody on the winning side don't appear in the count. Arguably correct,

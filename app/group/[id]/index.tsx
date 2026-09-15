@@ -37,6 +37,7 @@ import {
   fetchGroup,
   fetchGroupBalances,
   fetchGroupBets,
+  GROUP_HISTORY_PAGE,
   updateGroupAvatar,
 } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
@@ -54,7 +55,10 @@ export default function GroupDetailScreen() {
   const group = useAsync(() => fetchGroup(groupId), [groupId]);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  const bets = useAsync(() => fetchGroupBets(groupId), [groupId]);
+  // How much settled history is on screen. Live bets are never paged — see
+  // `fetchGroupBets`.
+  const [pastLimit, setPastLimit] = useState(GROUP_HISTORY_PAGE);
+  const bets = useAsync(() => fetchGroupBets(groupId, pastLimit), [groupId, pastLimit]);
   const balances = useAsync(() => fetchGroupBalances(groupId), [groupId]);
 
   // Depend on the `reload` functions, not the state objects: `useAsync`
@@ -149,9 +153,9 @@ export default function GroupDetailScreen() {
   const myBalance = Number(
     (balances.data ?? []).find((row) => row.user_id === userId)?.amount_agorot ?? 0
   );
-  const allBets = bets.data ?? [];
-  const openBets = allBets.filter((b) => b.status !== 'resolved' && b.status !== 'cancelled');
-  const pastBets = allBets.filter((b) => b.status === 'resolved' || b.status === 'cancelled');
+  const openBets = bets.data?.live ?? [];
+  const pastBets = bets.data?.past ?? [];
+  const morePast = bets.data?.morePast ?? false;
 
   return (
     <>
@@ -211,8 +215,10 @@ export default function GroupDetailScreen() {
                     </Text>
                     <Text className="mt-1 text-subhead text-secondary">
                       {group.data.members.length}{' '}
-                      {group.data.members.length === 1 ? 'member' : 'members'}, {allBets.length}{' '}
-                      {allBets.length === 1 ? 'bet' : 'bets'}
+                      {group.data.members.length === 1 ? 'member' : 'members'},{' '}
+                      {openBets.length === 0
+                        ? 'nothing running'
+                        : `${openBets.length} running`}
                     </Text>
                   </View>
                 </View>
@@ -374,6 +380,21 @@ export default function GroupDetailScreen() {
                 {pastBets.map((bet, i) => (
                   <BetCard key={bet.id} bet={bet} currentUserId={userId} index={i} />
                 ))}
+                {/* A group two years old has hundreds of these and used to
+                    fetch every one of them, with every embed, on every open.
+                    Explicit rather than infinite scroll: the section below a
+                    group's live bets is history, and history is something you
+                    go looking for. */}
+                {morePast && (
+                  <View className="mt-2">
+                    <Button
+                      title="Load older bets"
+                      variant="plain"
+                      loading={bets.refreshing}
+                      onPress={() => setPastLimit((n) => n + GROUP_HISTORY_PAGE)}
+                    />
+                  </View>
+                )}
               </View>
             )}
           </ContentWidth>

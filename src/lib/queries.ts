@@ -320,16 +320,94 @@ async function attachSignedMedia<T extends { media?: BetMediaRow[] | null }>(
   }));
 }
 
-export async function fetchGroupBets(groupId: string): Promise<BetWithPositions[]> {
-  if (isDemoMode()) return demo.fetchGroupBets(groupId);
-  const { data, error } = await supabase
-    .from('bets')
-    .select(BET_SELECT)
-    .eq('group_id', groupId)
-    .order('created_at', { ascending: false });
+/** How much settled history the group screen asks for at a time. */
+export const GROUP_HISTORY_PAGE = 25;
 
-  if (error) throw new Error(error.message);
-  return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
+/** What the group screen draws: the two sections, and whether there is more. */
+export type GroupBets = {
+  /** Open and locked, in full. */
+  live: BetWithPositions[];
+  /** Resolved and cancelled, newest first, one page at a time. */
+  past: BetWithPositions[];
+  /** Whether another page of history exists. */
+  morePast: boolean;
+};
+
+/**
+ * The group screen's bets, in the two sections it actually renders.
+ *
+ * This used to be one unbounded `select` — SCALEABILITY.md names it as the
+ * first query in the app that will feel slow, because a group two years old
+ * fetches all 800 bets *with every embed* every time the screen opens.
+ *
+ * The obvious fix, a `limit` on the whole thing, is wrong here. The screen
+ * splits into "Live bets" and "Settled and cancelled", and a limit over the
+ * combined list ordered by `created_at` would silently drop an old bet that is
+ * still running — which is the one row on the screen somebody might need to
+ * act on.
+ *
+ * So the split moves into the query. Live bets are unbounded because they are
+ * bounded by nature: a friend group does not have eighty bets running at once.
+ * History is what grows without end, and history is what pages.
+ *
+ * Two requests rather than one, issued together. Signing is still a single
+ * round trip across both, which is what `attachSignedMedia` is for.
+ */
+export async function fetchGroupBets(
+  groupId: string,
+  pastLimit = GROUP_HISTORY_PAGE
+): Promise<GroupBets> {
+  if (isDemoMode()) {
+    const all = await demo.fetchGroupBets(groupId);
+    return splitGroupBets(
+      all.filter((bet) => bet.status !== 'resolved' && bet.status !== 'cancelled'),
+      all.filter((bet) => bet.status === 'resolved' || bet.status === 'cancelled'),
+      pastLimit
+    );
+  }
+
+  const [live, past] = await Promise.all([
+    supabase
+      .from('bets')
+      .select(BET_SELECT)
+      .eq('group_id', groupId)
+      .in('status', ['open', 'locked'])
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('bets')
+      .select(BET_SELECT)
+      .eq('group_id', groupId)
+      .in('status', ['resolved', 'cancelled'])
+      .order('created_at', { ascending: false })
+      // One more than asked for, which is how the screen knows whether to offer
+      // another page without a second count query.
+      .limit(pastLimit + 1),
+  ]);
+
+  if (live.error) throw new Error(live.error.message);
+  if (past.error) throw new Error(past.error.message);
+
+  // Signed in one batch across both lists — ten bets with photos cost one
+  // storage round trip, not twenty.
+  const signed = await attachSignedMedia([
+    ...((live.data ?? []) as unknown as BetWithPositions[]),
+    ...((past.data ?? []) as unknown as BetWithPositions[]),
+  ]);
+
+  const liveCount = (live.data ?? []).length;
+  return splitGroupBets(signed.slice(0, liveCount), signed.slice(liveCount), pastLimit);
+}
+
+function splitGroupBets(
+  live: BetWithPositions[],
+  past: BetWithPositions[],
+  pastLimit: number
+): GroupBets {
+  return {
+    live,
+    past: past.slice(0, pastLimit),
+    morePast: past.length > pastLimit,
+  };
 }
 
 /** Every bet across every group the user is in — the Home feed's raw input. */

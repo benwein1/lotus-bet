@@ -15,13 +15,13 @@ Reviewed at `dc94dd6` plus the changes in this branch. Last updated 2026-09-14.
 | --- | --- | --- | --- |
 | 1 | ~~**CRITICAL**~~ **FIXED** | Every group member could read every other member's **email, phone and Expo push token** | ✅ `…_user_column_privileges.sql` |
 | 2 | ~~**HIGH**~~ **FIXED** | No rate limiting of any kind on application writes | ✅ `…_abuse_limits.sql` |
-| 3 | ~~**HIGH**~~ **MOSTLY FIXED** | No blocking, reporting or moderation | ✅ `…_moderation.sql` — the human review queue is still outstanding |
+| 3 | ~~**HIGH**~~ **FIXED, less the person** | No blocking, reporting or moderation | ✅ `…_moderation.sql` + `…_moderation_review.sql`; somebody still has to read the queue |
 | 4 | ~~**MEDIUM**~~ **FIXED** | No account deletion — also an App Store blocker (§5.1.1(v)) | ✅ `…_account_deletion.sql` |
-| 5 | **MEDIUM** (halved) | Uploads are not validated server-side: type, size and magic bytes are all client-asserted | Path-vs-group now constrained; **bucket limits are still a dashboard change** |
+| 5 | **LOW** (what is left) | Uploads are not validated server-side: type, size and magic bytes are all client-asserted | Path-vs-group constrained; size and kind now taken from Storage; 250 MB per account. **Bucket limits are still a dashboard change** |
 | 6 | **MEDIUM** | EXIF (incl. GPS) is not stripped from uploaded photos | 6th |
 | 7 | **LOW** | `group_invites` tokens are `select`-able by every group member | **Won't fix as written** — see §4 |
 | 8 | **LOW** | Signed media URLs are bearer tokens with a 1-hour life and no revocation | 8th |
-| 9 | **INFO** | Realtime subscribes unfiltered to `bet_positions` — a metadata side channel | 9th |
+| 9 | ~~**INFO**~~ **FIXED** | Realtime subscribes unfiltered to `bet_positions` — a metadata side channel | ✅ `…_position_group_id.sql` |
 | 10 | ~~**INFO**~~ **FIXED** | Comment/bet/group text has no length-abuse or unicode normalisation | ✅ `content-rules.ts` + `…_abuse_limits.sql` |
 
 **What is already right** is genuinely more than what is wrong; see §2.
@@ -359,8 +359,23 @@ cap) in your own group's prefix, labelled as an image. It is a storage-abuse and
 a serve-untrusted-content problem rather than an RCE — the app renders through
 `expo-image` / `expo-video`, which will simply fail on a non-media file.
 
-Fix: set `allowed_mime_types` and `file_size_limit` on the bucket, and validate
-`purpose`/`kind` against the real content type server-side if it ever matters.
+**Partly fixed** in `…_media_limits.sql`, which does the half that lives in this
+repo:
+
+- `bet_media.bytes` is filled from `storage.objects.metadata` — the size Storage
+  actually recorded, not a number the client sends.
+- A row whose `kind` disagrees with the object's content type is refused, as is
+  anything that is neither `image/*` nor `video/*`.
+- **250 MB of uploads per account**, summed over that column. Sized against the
+  1 GB a Free bucket holds: four accounts could fill it, which is the point — a
+  limit nobody reaches is not a limit.
+
+**What it does not do, and this matters:** Storage records the content type the
+uploader *declared*. Nothing here sniffs magic bytes, so a determined client can
+still call an MP4 a JPEG. What is removed is the unbounded part and the case
+where the row and the object disagree. The bucket's own `allowed_mime_types` and
+`file_size_limit` remain the first line of defence and remain a dashboard
+change only you can make.
 
 ### Finding #6 (MEDIUM) — EXIF is not stripped
 
@@ -425,9 +440,10 @@ Free is a low ceiling to exhaust).
 
 ### What to actually build, in order
 
-1. **Database-level throttles first — they are cheap and they cannot be
-   bypassed by a modified client.** A `check` on insert rate is awkward in
-   Postgres, so use a trigger:
+1. ~~**Database-level throttles first**~~ — **done**, in `…_abuse_limits.sql`:
+   one parameterised `enforce_write_rate` trigger doing comments 30/hr, bets
+   15/hr, groups 5/day and media 40/day. They are cheap and they cannot be
+   bypassed by a modified client. The original sketch:
 
    ```sql
    -- Refuse more than 20 comments per user per hour.
@@ -445,7 +461,9 @@ Free is a low ceiling to exhaust).
    Do the same for bets per hour, groups per day and media uploads per day.
 2. **Bucket limits**: `file_size_limit` and `allowed_mime_types` on `bet-media`.
    One dashboard change, removes the worst vector.
-3. **Storage quota per user** — a trigger summing `bet_media` rows per uploader.
+3. ~~**Storage quota per user**~~ — **done**, in `…_media_limits.sql`: 250 MB,
+   summed from the sizes Storage recorded rather than from anything the client
+   claimed.
 4. **Monitoring before more mitigation.** You cannot tune a limit you cannot
    see. Supabase's dashboard has the request and storage graphs; watch them.
 5. **A WAF / Cloudflare rules** only once there is traffic worth attacking.
@@ -594,11 +612,13 @@ The harness is at **55 asserted refusals**, exit 0.
 3. **Finding #3** — block, report, moderate. Also required by App Store §1.2.
 4. **Finding #4** — account deletion. Also required by §5.1.1(v). Needs the
    soft-delete product decision in §5 first.
-5. **Finding #5 / #6** — upload validation and EXIF stripping.
-6. **Finding #7** — restrict `group_invites` SELECT to admins.
-7. **Finding #10** — length checks and unicode normalisation on user text.
-8. **Finding #8 / #9** — revisit signed-URL lifetime and narrow the Realtime
-   subscriptions when scale makes them matter (see SCALEABILITY.md §6).
+5. ~~**Finding #5**~~ — upload validation, less the bucket settings and magic
+   bytes. **Finding #6**, EXIF stripping, is still open and needs a dependency
+   decision (`expo-image-manipulator`).
+6. ~~**Finding #7**~~ — **won't fix as written**, see §4.
+7. ~~**Finding #10**~~ — length checks and unicode normalisation.
+8. ~~**Finding #9**~~ — the Realtime subscriptions are filtered. **Finding #8**,
+   signed-URL lifetime, stands as an accepted trade.
 
 Items 3 and 4 are on the App Store critical path, so in practice they will be
 scheduled alongside item 1 rather than after it.

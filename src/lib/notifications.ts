@@ -94,7 +94,14 @@ export async function registerForPushNotifications(
     }
 
     const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
-    await supabase.rpc('set_push_token', { p_token: token });
+    // The platform is recorded so a stale token can later be told apart from a
+    // live one per device. `user_devices` keys on the token itself, so signing
+    // in on a second phone adds a device rather than replacing the first —
+    // which is what it used to do, silently (SCALEABILITY.md section 7).
+    await supabase.rpc('set_push_token', {
+      p_token: token,
+      p_platform: Platform.OS,
+    });
 
     return token;
   } catch (err) {
@@ -103,10 +110,16 @@ export async function registerForPushNotifications(
   }
 }
 
-/** Called from the settings toggles when a user turns all notifications off. */
+/**
+ * Called from the settings toggles when a user turns all notifications off.
+ *
+ * Clears every device on the account rather than just this one. With a single
+ * switch, off has to mean off — a phone that kept buzzing because the tablet
+ * was still registered would make the switch a lie.
+ */
 export async function clearPushToken(): Promise<void> {
   if (isDemoMode()) return;
-  await supabase.rpc('set_push_token', { p_token: '' });
+  await supabase.rpc('set_push_token', { p_token: '', p_platform: null });
 }
 
 /**
