@@ -1,12 +1,13 @@
-import { Link } from 'expo-router';
+import Constants from 'expo-constants';
+import { Link, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import { Linking, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarPicker } from '@/components/avatar-picker';
 import { DemoBadge } from '@/components/demo-entry';
-import { LogOutIcon, TrophyIcon } from '@/components/icons';
+import { ChevronRightIcon, LogOutIcon, TrophyIcon } from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
 import { ProfileSkeleton } from '@/components/skeletons';
 import {
@@ -29,6 +30,11 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import type { PersonBalance } from '@/lib/database.types';
 import { formatAgorot, formatShortDate } from '@/lib/format';
+import {
+  SUPPORT_CONTACT_PUBLISHED,
+  SUPPORT_EMAIL,
+  SUPPORT_MAILTO,
+} from '@/lib/legal';
 import { clearPushToken } from '@/lib/notifications';
 import { cancelDeadlineReminders } from '@/lib/reminders';
 import {
@@ -61,6 +67,7 @@ type NotifyKey =
 export default function ProfileScreen() {
   const { session, profile, updateProfile, signOut } = useAuth();
   const colors = useColors();
+  const router = useRouter();
   const reduced = useReducedMotion();
   const tabInset = useTabBarInset();
   const { preference, setPreference } = useAppearance();
@@ -75,6 +82,14 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { ask, dialog } = useConfirm();
+
+  // Spelled as a sentence rather than "1.0.0 · 12". A support request that
+  // quotes the build is worth a great deal and this is the only place anybody
+  // can read it, so it has to be legible rather than terse. The build number
+  // is absent on the web and in Expo Go, where there is no native build.
+  const build = Constants.nativeBuildVersion;
+  const version = Constants.expoConfig?.version ?? '—';
+  const versionLabel = build ? `Version ${version} (build ${build})` : `Version ${version}`;
 
   const { reload: reloadStats } = stats;
   const { reload: reloadHistory } = history;
@@ -415,6 +430,50 @@ export default function ProfileScreen() {
                   ))}
                 </View>
               )}
+            </View>
+
+            {/* Guideline 1.2 asks a user-generated-content app to publish its
+                rules and a way to reach a person, and 5.1.1 asks for the
+                privacy policy to be reachable from inside the app. Sign-up is
+                where somebody agrees; this is where they can go back and read
+                what they agreed to, which is not the same screen and not a
+                place anybody returns to.
+
+                The two documents are screens rather than links out: the text
+                ships with the build, so they open with no network and before
+                any domain exists. */}
+            <View className="mb-7">
+              <SectionTitle>About</SectionTitle>
+              <ListGroup>
+                <Row
+                  label="Terms of Service"
+                  trailing={<ChevronRightIcon size={18} color={colors.textTertiary} />}
+                  onPress={() => router.push('/legal/terms')}
+                />
+                <Row
+                  label="Privacy Policy"
+                  trailing={<ChevronRightIcon size={18} color={colors.textTertiary} />}
+                  onPress={() => router.push('/legal/privacy')}
+                />
+                <Row
+                  label="Support"
+                  trailing={<ChevronRightIcon size={18} color={colors.textTertiary} />}
+                  onPress={() => router.push('/legal/support')}
+                  last={!SUPPORT_CONTACT_PUBLISHED}
+                />
+                {/* Only when there is an address to write to. A contact row
+                    that opens a mail composer addressed at a placeholder is
+                    worse than no row: it looks like the app answered you. */}
+                {SUPPORT_CONTACT_PUBLISHED && (
+                  <Row
+                    label="Contact us"
+                    value={SUPPORT_EMAIL}
+                    onPress={() => void Linking.openURL(SUPPORT_MAILTO)}
+                    last
+                  />
+                )}
+              </ListGroup>
+              <Text className="mt-2.5 px-1 text-sm text-tertiary">{versionLabel}</Text>
             </View>
 
             <Button

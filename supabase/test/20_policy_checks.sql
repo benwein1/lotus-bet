@@ -1526,3 +1526,66 @@ begin;
   select 'non-invitee sees the comment' as check, count(*) as rows
     from public.bet_comments where bet_id = '88888888-0000-4000-8000-000000000001';
 rollback;
+
+\echo '--- 37. The App Review seed lands, and its books balance ---'
+-- `supabase/seed/review_account.sql` is what an Apple reviewer signs into. It
+-- is not schema and it is not shipped, but it is the difference between a
+-- reviewer seeing the app and seeing three empty tabs, so it is checked here
+-- rather than discovered during review.
+--
+-- The ledger literals in it came out of `computeBetPayouts` (CLAUDE.md §5).
+-- These assertions are what stop somebody "tidying" them into numbers that no
+-- longer balance.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-9000-000000000000';
+
+  \echo '  (a) the reviewer sees their group and their duel'
+  select 'groups visible to the reviewer' as check, count(*) as rows
+    from public.groups
+   where id in ('00000000-0000-4000-9000-0000000000f1',
+                '00000000-0000-4000-9000-0000000000f2');
+
+  \echo '  (b) every bet in the group is readable, private one included'
+  select 'bets visible to the reviewer' as check, count(*) as rows
+    from public.bets
+   where group_id = '00000000-0000-4000-9000-0000000000f1';
+
+  \echo '  (c) the three-option bet really has three options'
+  select 'options on the three-way bet' as check, count(*) as rows
+    from public.bet_options
+   where bet_id = '00000000-0000-4000-9000-0000000000c2';
+
+  \echo '  (d) there is a side left to join'
+  select 'reviewer positions on the open bet' as check, count(*) as rows
+    from public.bet_positions
+   where bet_id = '00000000-0000-4000-9000-0000000000c1'
+     and user_id = '00000000-0000-4000-9000-000000000000';
+
+  \echo '  (e) each group nets to zero, which is the property that matters'
+  select 'group nets to zero' as check, sum(b.amount_agorot) as total
+    from public.group_balances('00000000-0000-4000-9000-0000000000f1') b;
+  select 'duel nets to zero' as check, sum(b.amount_agorot) as total
+    from public.group_balances('00000000-0000-4000-9000-0000000000f2') b;
+
+  \echo '  (f) the winning side nets to exactly the pot'
+  select 'credits on the resolved bet' as check, sum(amount_agorot) as total
+    from public.bet_ledger_entries
+   where bet_id = '00000000-0000-4000-9000-0000000000c4' and amount_agorot > 0;
+
+  \echo '  (g) a comment the reviewer can press and hold to report'
+  select 'comments by somebody else' as check, count(*) as rows
+    from public.bet_comments
+   where bet_id = '00000000-0000-4000-9000-0000000000c1'
+     and user_id <> '00000000-0000-4000-9000-000000000000';
+
+  \echo '  (h) the reviewer account has agreed to the terms'
+  select 'terms version on the reviewer account' as check, terms_version
+    from public.users where id = '00000000-0000-4000-9000-000000000000';
+
+  \echo '  (i) a stranger sees none of it'
+  set local request.jwt.claim.sub = '11111111-1111-4000-8000-000000000002';
+  select 'review bets visible to an outsider' as check, count(*) as rows
+    from public.bets
+   where group_id = '00000000-0000-4000-9000-0000000000f1';
+rollback;

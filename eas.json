@@ -18,7 +18,11 @@
     "production": {
       "distribution": "store",
       "channel": "production",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_LEGAL_ORIGIN": "https://example.invalid",
+        "EXPO_PUBLIC_SUPPORT_EMAIL": "support@example.invalid"
+      }
     }
   },
   "submit": {

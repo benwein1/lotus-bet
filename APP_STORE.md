@@ -13,22 +13,43 @@ on 2026-09-14.
 
 ---
 
-## 0. The three things that will get you rejected
+## 0. What will get you rejected
 
-Read this section even if you read nothing else.
+Read this section even if you read nothing else. It is rewritten as things are
+closed, so it describes the repository as it stands rather than as it was.
 
-1. **No in-app account deletion (P0).** Guideline 5.1.1(v): *"If your app
-   supports account creation, you must also offer account deletion within the
-   app."* There is no delete path in `queries.ts`, no RPC, no UI. This is an
-   automatic rejection and it needs a product decision first (see §3).
-2. **No reporting, blocking or moderation (P0).** Guideline 1.2 requires, for
-   apps with user-generated content: a filtering method, a way to report
-   offensive content with timely response, the ability to block abusive users,
-   and published contact information. This app has comments, display names,
-   group names, bet titles and user-uploaded photos and video — it is squarely
-   a UGC app. **None of the four exists.**
-3. **Demo mode must not ship (P0).** See §7. It has reached a deployable build
-   once already.
+### Closed
+
+1. ~~**No in-app account deletion**~~ — `app/delete-account.tsx` and
+   `…_account_deletion.sql`, reachable from Profile. Guideline 5.1.1(v).
+2. ~~**No reporting, blocking or moderation**~~ — all four parts of guideline
+   1.2 exist: a content filter, reporting, blocking, and published rules and
+   contact. See §2.4.
+3. ~~**No EULA**~~ — written, bundled, agreed to at sign-up, version recorded.
+
+### Still open, in the order they will bite
+
+1. **The name (P0, your call).** "Lotus Bet" is also a live online casino and
+   sportsbook, alongside Lotus365 and lotusbet365 — a cluster of real-money
+   gambling brands. A reviewer decides what your app *is* in about ninety
+   seconds and the first thing they have is the name. Everything downstream —
+   bundle id, icon, listing, screenshots — depends on it. See §2.1.
+2. **Nothing is hosted (P0).** App Store Connect requires a live privacy policy
+   URL and a live support URL. The pages are written and generated
+   (`npm run build:web` emits them into the export), but they have to be
+   *deployed*, and `EXPO_PUBLIC_SUPPORT_EMAIL` has to be a real address. Until
+   both are true the listing cannot be completed.
+3. **The migrations have not been run (P0).** Seven of them, listed in §8.
+   Until the second one is applied a bet cannot be posted at all.
+4. **Custom SMTP (P0).** Supabase's built-in sender is heavily rate-limited and
+   in practice only reaches the project owner, so password reset does not work
+   for a real user — including a reviewer who signs out.
+5. **Demo mode must not ship (P0).** See §7. It has reached a deployable build
+   once already, and grepping the bundle does not find it. Loading the built
+   page and looking for "Skip sign-in" is the only honest check.
+6. **A person has to read the reports (P0).** Guideline 1.2 asks for a timely
+   response and the terms promise 24 hours. The table exists; the habit does
+   not.
 
 **The good news:** the single biggest risk you might have expected — being
 treated as a gambling app — is manageable, and your existing architecture is
@@ -79,13 +100,19 @@ most of the defence. See §2.
 | 10 | One push token per user — second device silently overwrites the first | P2 |
 | 11 | `my_stats.bets_settled` counts ledger rows, so zero-winner bets do not appear | P2 |
 
-### Error and offline states (P1)
+### Error and offline states — **done**
 
-Today a failed request becomes a string in an `ErrorNotice`. That is honest but
-undifferentiated: "Failed to fetch" reads identically whether the user is in a
-lift, the project is paused, or their session expired. Before submitting, add a
-connectivity check so an offline feed says so. Reviewers **do** test in
-Airplane Mode.
+A failed request used to become a string in an `ErrorNotice`, which was honest
+but undifferentiated: "Failed to fetch" read identically whether the user was in
+a lift, the project was paused, or their session had expired. Reviewers **do**
+test in Airplane Mode, and that string reads as a broken app rather than an
+offline one.
+
+`src/lib/errors.ts` now classifies a failure as `offline`, `expired`,
+`slow-down`, `unavailable` or `unknown` from the real strings the platforms
+throw, and `useAsync` carries the kind alongside the message. The rate-limit
+sentence written by `enforce_write_rate` is passed through verbatim, because it
+is already aimed at a person.
 
 ---
 
@@ -177,18 +204,25 @@ this; what it does not accept is no path at all.
 
 ### 2.4 User-generated content — **P0**
 
-Guideline 1.2 requires four things. You have none:
+Guideline 1.2 requires four things. All four are built:
 
-| Required | State | Minimum viable |
+| Required | State | Where |
 | --- | --- | --- |
-| Filter objectionable material | ❌ | A profanity filter on comments and bet titles, or an explicit content policy plus reactive takedown |
-| Report offensive content | ❌ | Long-press a comment or bet → Report, writing to a `reports` table; **respond within 24 hours** |
-| Block abusive users | ❌ | A `user_blocks` table; blocked users' comments hidden, and they cannot challenge you |
-| Published contact info | ❌ | Support email on the support URL and in the app |
+| Filter objectionable material | ✅ | `content-rules.ts`, applied to bet titles, descriptions, option labels, comments and display names — and applied **above** the demo short-circuit, so demo is never more permissive than production |
+| Report offensive content | ✅ | Press and hold a comment or a bet → `report-sheet.tsx` → `report_content` RPC. The reported user is resolved server-side; an invisible target is refused with the same error as a nonexistent one, so it is not an oracle for private bets |
+| Block abusive users | ✅ | `user_blocks`, enforced in the policy on `bet_comments` rather than in the client. Mutual, and the blocked party is not told |
+| Published contact info | ⚠️ | Built — Profile → About → Support, plus the generated `/legal/support.html`. **Set `EXPO_PUBLIC_SUPPORT_EMAIL` before you build**, or the app ships with no contact row at all |
 
-You must also present an **EULA** that includes a no-tolerance policy for
-objectionable content, and agreement to it at sign-up. Apple's standard EULA is
-acceptable; add the UGC clause.
+The **EULA** with its no-tolerance clause is `legal-text.json`, rendered at
+`app/legal/terms.tsx` and agreed to on the sign-up screen, with the version
+recorded against the account in `users.terms_version`.
+`__tests__/legal.test.ts` asserts the clauses Apple actually looks for — no
+tolerance, a 24-hour response, reporting, blocking, and removal of accounts
+that post abuse — because the way those go missing is a well-meaning edit
+rather than a bug.
+
+**The one human commitment left (A9):** somebody has to read the `reports`
+table and act within 24 hours. That is not code and it is not optional.
 
 **Scope note:** your content is only ever visible inside private groups, never
 publicly. That reduces real-world risk considerably but does **not** exempt you
@@ -218,8 +252,36 @@ tracker anywhere in `package.json`. So:
 - Declare "Data Not Used to Track You".
 - If you later add analytics, revisit this whole section first.
 
-**Privacy policy (P0)** — required, must be a live URL in App Store Connect, and
-must cover what the table above says.
+**Privacy policy (P0)** — required, must be a live URL in App Store Connect,
+and must cover what the table above says. It is written:
+`legal-text.json` → `app/legal/privacy.tsx` in the app, and
+`<origin>/legal/privacy.html` on the web, generated by `npm run legal` as part
+of `npm run build:web`. Deploy the web build and the URL exists.
+
+#### The answer sheet
+
+App Store Connect asks this as a click-through wizard rather than a table, and
+the wording below is what to pick, in order. Answer it once and it stays
+answered.
+
+**Does this app collect data? → Yes.** Then, for each type:
+
+| Screen | Answer |
+| --- | --- |
+| Contact Info → Email Address | **Collect.** Linked to identity. Purpose: App Functionality. Used for tracking: **No** |
+| Contact Info → Name | **Collect.** Linked. App Functionality. Tracking: No |
+| Contact Info → Phone Number | **Collect.** Linked. App Functionality. Tracking: No. *(Legacy accounts only — nothing collects one now, but rows still carry them, so declaring it is the honest answer)* |
+| User Content → Photos or Videos | **Collect.** Linked. App Functionality. Tracking: No |
+| User Content → Customer Support | **Do not collect** *(support is plain email, outside the app)* |
+| User Content → Other User Content | **Collect.** Linked. App Functionality. Tracking: No *(bet titles, descriptions, option labels, comments)* |
+| Identifiers → User ID | **Collect.** Linked. App Functionality. Tracking: No |
+| Identifiers → Device ID | **Collect.** Linked. App Functionality. Tracking: No *(the Expo push token, only when notifications are on)* |
+| Usage Data, Diagnostics, Location, Financial Info, Health, Contacts, Search History, Browsing History, Sensitive Info, Purchases | **Do not collect** |
+
+**Financial Info is "do not collect" and that is the whole point.** The app
+records an amount; it never sees a payment instrument, a balance, or a
+transaction. If a future change makes that answer anything else, read §2.1
+again before shipping it.
 
 ### 2.6 Push notifications
 
@@ -227,11 +289,17 @@ Guideline 4.5.4: push must be opt-in and must not be required to use the app.
 ✅ Already correct — one switch on Profile, off means off, the app works fine
 without it.
 
-The permission prompt should be preceded by context rather than fired on launch.
-Currently `registerForPushNotifications()` runs as soon as a session exists,
-which triggers the system prompt with no explanation. **P1** — show a short
-"we'll tell you when a bet you're in is called" sheet first. A cold prompt gets
-declined, and a declined prompt is very hard to recover.
+The permission prompt is preceded by context rather than fired on launch —
+**done**. `registerForPushNotifications()` used to run the moment a session
+existed, which triggered the system dialog before the user had seen a single
+bet. On iOS that dialog appears **once**: decline it and the only way back is
+the Settings app, which nobody finds.
+
+`NotificationPrimer` now explains what will be sent and only then calls the one
+function that can trigger the system dialog, and only when the OS permission is
+still `undetermined` — somebody who already granted or already declined never
+sees it. "Not now" leaves the permission untouched, so the Profile switch can
+still ask properly later.
 
 ### 2.7 In-app purchase
 
@@ -244,14 +312,64 @@ positioning gets more complicated.
 Answer the App Store Connect questionnaire honestly. "Contests" and
 "Simulated Gambling" are the questions that matter.
 
-- This app is **not** simulated gambling (no simulated wagering with virtual
-  currency — there is no currency at all).
-- It **does** facilitate contests between users.
-- Expect **12+**, possibly 17+ depending on how you answer the UGC questions
-  (unrestricted web access: no; user-generated content: yes).
+#### The answer sheet
 
-Do not under-declare to chase a lower rating. Misrepresenting here is its own
-violation. **P0** to answer; the outcome is what it is.
+| Question | Answer | Why |
+| --- | --- | --- |
+| Contests | **Yes, Infrequent/Mild** | Friends bet each other on outcomes. That is a contest, and saying otherwise would be the misrepresentation |
+| Simulated Gambling | **None** | Simulated gambling means wagering with virtual currency. There is no currency here at all, virtual or otherwise — §2.1 |
+| Alcohol, Tobacco, or Drug Use or References | **None** | Nothing in the app is about them. Users could of course write anything, which is what the next row is for |
+| Profanity or Crude Humor | **Infrequent/Mild** | It is user-generated text between friends. Filtered, but not sanitised |
+| Violence (all categories) | **None** | |
+| Sexual Content or Nudity | **None** | |
+| Horror/Fear Themes, Mature/Suggestive Themes | **None** | |
+| Medical/Treatment Information | **None** | |
+| Gambling (the separate real-money question) | **No** | No money, no wallet, no payment processor. The same sentence as the review notes |
+| Unrestricted Web Access | **No** | The app opens no browser and renders no arbitrary URL |
+| User-Generated Content | **Yes** | Comments, bet titles, display names, photos. This is why §2.4 exists |
+| Age Assurance | **No** | |
+
+That set lands at **12+**. Do not under-declare to chase a lower one:
+misrepresenting here is its own violation, and the UGC answer in particular is
+what makes the moderation work in §2.4 coherent rather than decorative.
+
+### 2.9 The legal pages, and where they come from
+
+Three documents — the terms (which are the EULA), the privacy policy and the
+support page — live as text in **`legal-text.json`** and are rendered twice:
+
+- `app/legal/terms.tsx`, `privacy.tsx` and `support.tsx` inside the app, over
+  the shared renderer in `src/components/legal-document.tsx`;
+- `public/legal/*.html` for the web, generated by `scripts/build-legal-html.js`
+  and written automatically by `npm run build:web`.
+
+**One source, two renderers.** What somebody agrees to at sign-up, what
+`users.terms_version` refers to, and what a reviewer reads at your privacy
+policy URL are the same words by construction rather than by diligence.
+
+**Why the text is bundled rather than only hosted.** Until this existed, the
+sign-up checkbox linked at `example.invalid` — so the one screen in the app
+where a person agrees to the rules pointed at nothing. Bundling means the
+agreement is real from the first account, before any hosting decision and with
+no network. The hosted copy is then the *listing's* URL rather than the only
+copy.
+
+The generated pages carry no script, no stylesheet and no image: a legal page
+that fails to render because an asset did not load is a legal page that is not
+published. They follow the reader's colour scheme, and they are gitignored,
+because the support address comes from the environment and a committed copy
+would carry whichever machine last built it.
+
+`__tests__/legal.test.ts` holds the parts that are compliance rather than
+prose: that no placeholder survives rendering, that `TERMS_VERSION` is read off
+the text itself, that the terms state a no-tolerance policy and a 24-hour
+response, that the privacy policy names every row of the nutrition label in
+§2.5, and that the generated HTML escapes its input rather than pasting it into
+markup.
+
+**Not legal advice.** This is a careful, honest description of what the app
+actually does, written to satisfy guidelines 1.2 and 5.1.1. Have a lawyer read
+it before you rely on the liability and warranty clauses.
 
 ---
 
@@ -265,8 +383,8 @@ violation. **P0** to answer; the outcome is what it is.
 | **Keywords** | 100 chars. **Avoid** casino, gambling, betting odds, sportsbook, wager. **Use** friends, group, challenge, scoreboard, settle, dare, prediction | P0 |
 | **Screenshots** | 6.9" and 6.5" required; 5.5" if supporting older devices. iPad not needed (`supportsTablet: false`) | P0 |
 | **App icon** | 1024×1024, no alpha, no rounded corners. The lotus mark already renders every size via `scripts/build-icons.mjs` | P0 |
-| **Privacy policy URL** | Required, live | P0 |
-| **Support URL** | Required, live, with a working contact — also satisfies the 1.2 "published contact information" requirement | P0 |
+| **Privacy policy URL** | Required, live. Written and generated — `<origin>/legal/privacy.html`, produced by `npm run build:web`. You still have to deploy it somewhere | P0 |
+| **Support URL** | Required, live — `<origin>/legal/support.html`, same build. Set `EXPO_PUBLIC_SUPPORT_EMAIL` first or it prints a placeholder | P0 |
 | **Marketing URL** | Optional | P2 |
 | **Promotional text** | 170 chars, editable without review — good for "new this week" | P2 |
 
@@ -420,9 +538,23 @@ npm run typecheck                  # tsc --noEmit
 npm test                           # jest
 npm run lint                       # expo lint
 npm run theme:check                # global.css has not drifted from theme-colors.json
-supabase/test/run.sh               # migrations + RLS + RPCs on throwaway Postgres
+supabase/test/run.sh               # migrations + RLS + RPCs + both seeds, on throwaway Postgres
 npx expo export --platform ios --output-dir /tmp/export-check
 ```
+
+**Two environment variables must be set on the production build**, and nothing
+in the code can check them for you because they only exist at build time:
+
+```
+EXPO_PUBLIC_SUPPORT_EMAIL=<a real address somebody reads>
+EXPO_PUBLIC_LEGAL_ORIGIN=<where the web build is deployed>   # or EXPO_PUBLIC_WEB_ORIGIN
+```
+
+Both are listed in `eas.json` under the production profile with placeholder
+values, so they are visible in the file you have to edit anyway. Unset, the
+app is not broken — it simply renders no contact row, which is the one thing
+guideline 1.2 asks for. `npm run legal` prints a warning when it generates the
+pages with a placeholder address; that warning is the check.
 
 **Note:** `eslint.config.js` now exists, so `expo lint` finds a config instead
 of trying to download one. Beyond the Expo preset it encodes the four traps
@@ -483,13 +615,43 @@ Reviewers reject what they do not understand. Give them this:
 > There is no public or global discovery — bets exist only inside private groups
 > the user has been invited to, and users are found by exact handle only.
 >
-> Demo account: <email> / <password>. It is pre-seeded with a group, several
-> bets and a resolved bet so you can see the full flow without needing a second
-> device.
+> Moderation: comments and bets can be reported by pressing and holding them,
+> and users can be blocked from the same sheet. Objectionable content is
+> filtered on submission, the terms carry a no-tolerance policy agreed to at
+> sign-up, and reports are acted on within 24 hours.
+>
+> Demo account: appreview@lotusbet.local / AppReview-2026!
+> It is pre-seeded with a group of five, an open bet with a side still free to
+> join, a three-option bet, a locked bet, a resolved bet with its ledger, a
+> private bet, a one-on-one duel, and a comment thread — so the whole flow is
+> visible without needing a second device.
 
 **Provide a working demo account (P0).** An app whose content only exists inside
 private groups is otherwise an empty screen to a reviewer, and "we couldn't
 evaluate it" is a rejection.
+
+### Making the demo account
+
+`supabase/seed/review_account.sql`, pasted into the Supabase SQL editor of the
+project the submitted build points at. It creates the reviewer plus four
+friends, one group, one duel, five bets and a thread, and it is idempotent.
+
+It is exercised by `supabase/test/run.sh` — section 37 of the policy checks
+asserts that the reviewer sees both groups and all five bets, that the
+three-option bet really has three options, that there is a side left to join,
+that each group nets to zero, that the winning side nets to exactly the pot,
+that somebody else's comment exists to press and hold, and that a stranger sees
+none of it. A seed that half-applies is worse than none, because it looks like
+it worked and the reviewer finds the hole.
+
+The ledger amounts in it came out of `computeBetPayouts`, the canonical module
+(CLAUDE.md §5), and are pasted as literals rather than recomputed. Do not edit
+them by hand; change the bet in the app and let the RPC write the rows.
+
+**What it deliberately does not seed: photos and video.** `bet_media` rows
+point at objects in a private bucket, and a row without its object renders as a
+broken image — worse than no media. Attach one from a device before you submit,
+which is also the only way to check the picker's permission prompt.
 
 ---
 
@@ -517,46 +679,64 @@ button text always finds it, because the component is imported either way.
 
 ## 8. Recommended execution order
 
-### Phase 1 — unblock submission (P0, ~2–3 weeks)
+### Phase 1 — unblock submission (P0)
+
+Struck-through items are done and are left here so the order still reads.
 
 1. **Decide the name.** Everything downstream — bundle id, icon, listing,
    screenshots — depends on it, and the current name collides with live casino
    brands. Decide first or redo the work.
-2. **Fix SECURITY.md finding #1** (email/phone/push-token exposure). Not an
-   Apple requirement, but you should not ship a known privacy hole, and it
-   touches the same `users` table that account deletion will.
-3. **Account deletion** (§2.3) — after the soft-delete decision.
-4. **Report, block, moderate** (§2.4) — the largest single piece of work here.
+2. ~~Fix SECURITY.md finding #1~~ — `…_user_column_privileges.sql`.
+3. ~~Account deletion~~ — §2.3.
+4. ~~Report, block, moderate~~ — §2.4. The code half.
 5. **Custom SMTP** — password reset does not work for real users without it.
-6. **Run the proof-media migration** on the live project.
-7. **EAS setup**: `eas init`, `eas.json`, project id, build numbering.
-8. **Legal pages**: privacy policy, terms/EULA with the UGC clause, support URL.
+6. **Run the migrations** on the live project, in order. Until the second one
+   is applied a bet cannot be posted at all:
+   `20260913090000_proof_media` · `20260915090000_fix_bet_insert_returning` ·
+   `20260916090000_user_column_privileges` · `20260916090100_moderation` ·
+   `20260916090200_account_deletion` · `20260916090300_terms_acceptance` ·
+   `20260916090400_abuse_limits`.
+7. **EAS setup**: `eas init` for the project id; `eas.json` is written.
+8. ~~Write the legal pages~~ — §2.9. **Deploy them**, and set
+   `EXPO_PUBLIC_SUPPORT_EMAIL` and `EXPO_PUBLIC_LEGAL_ORIGIN`.
+9. **Agree the moderation habit** — somebody reads `reports` within 24 hours,
+   which is what the terms now promise on your behalf.
 
-### Phase 2 — submission quality (P1, ~1 week)
+### Phase 2 — submission quality (P1)
 
-9. Offline and error states.
-10. Pre-permission context sheet for notifications.
-11. Crash reporting.
-12. ESLint config so `npm run lint` actually runs.
-13. Full device matrix (§5), on physical hardware.
-14. Screenshots, description, keywords, age rating.
-15. Privacy nutrition labels.
+10. ~~Offline and error states~~ — `errors.ts`.
+11. ~~Pre-permission context sheet for notifications~~ — `NotificationPrimer`.
+12. **Crash reporting.** Deliberately not added: it needs a dependency and it
+    changes your privacy nutrition labels, and right now you have the cleanest
+    possible privacy story. Recommended after approval, not before.
+13. ~~ESLint config~~ — `eslint.config.js`, unverified in this environment.
+14. **Full device matrix (§5), on physical hardware.**
+15. **Screenshots.** Description and keywords are drafted in §3.1.
+16. ~~Age rating and nutrition label answers~~ — §2.8 and §2.5 are answer
+    sheets now; you still have to click them.
 
 ### Phase 3 — submit
 
-16. Bump to `1.0.0`, production build, TestFlight.
-17. Internal testing on real devices, real network conditions.
-18. Review notes + demo account.
-19. Submit.
+17. Production build, TestFlight. Version is already `1.0.0`.
+18. Internal testing on real devices, real network conditions.
+19. ~~Review notes and demo account~~ — §6, with
+    `supabase/seed/review_account.sql` to create it. **Run the seed** against
+    the project the submitted build points at.
+20. Submit.
 
 ### Phase 4 — after approval (P2)
 
-20. Universal Links (`apple-app-site-association` + associated domains) so
+21. Universal Links (`apple-app-site-association` + associated domains) so
     invite links open the app rather than the web build.
-21. Multi-device push (`user_devices` table).
-22. Media upload transactionality and orphan sweep.
-23. Overpayment handling.
-24. Sign in with Apple, if you ever add a social login.
+22. Multi-device push (`user_devices` table).
+23. ~~Media orphan sweep~~ — `discardUploads`. Full transactionality is still
+    open.
+24. Overpayment handling.
+25. Crash reporting, with the nutrition labels revisited.
+26. Sign in with Apple, if you ever add a social login.
 
-**Realistically: 3–5 weeks to submittable**, dominated by moderation tooling
-and account deletion. Neither is glamorous and neither is optional.
+**What is left is no longer dominated by code.** The moderation tooling and the
+account deletion that used to be the long poles are built. What stands between
+here and a submission is a name, a domain with three pages on it, an SMTP
+provider, seven migrations run against the live project, an Apple Developer
+account, a device to test on, and a person who agrees to read the reports.

@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
-import { Linking, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import Animated, { FadeIn } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -10,7 +10,6 @@ import { ContentWidth, Screen } from '@/components/screen';
 import { Button, ErrorNotice, FieldGroup, PressableScale, TextField } from '@/components/ui';
 import { CheckIcon } from '@/components/icons';
 import { isValidEmail, passwordProblem } from '@/lib/format';
-import { LEGAL_PAGES_PUBLISHED, PRIVACY_URL, TERMS_URL } from '@/lib/legal';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
 
@@ -167,7 +166,12 @@ export default function SignUpScreen() {
 
       {/* Above the error, not below: it is part of the form, and a control that
           gates the button belongs next to the fields rather than after the
-          thing that tells you the form failed. */}
+          thing that tells you the form failed.
+
+          Both links open a screen inside the app rather than a URL. The text is
+          bundled with the build, so the one place where somebody agrees to the
+          rules works with no domain, no hosting and no network — it used to
+          point at a placeholder host and open nothing at all. */}
       <PressableScale
         scaleTo={0.99}
         onPress={() => setAgreed((v) => !v)}
@@ -187,14 +191,14 @@ export default function SignUpScreen() {
           I agree to the{' '}
           <Text
             className="font-semibold text-accent"
-            onPress={LEGAL_PAGES_PUBLISHED ? () => void Linking.openURL(TERMS_URL) : undefined}
+            onPress={() => router.push('/legal/terms')}
           >
             Terms
           </Text>{' '}
           and the{' '}
           <Text
             className="font-semibold text-accent"
-            onPress={LEGAL_PAGES_PUBLISHED ? () => void Linking.openURL(PRIVACY_URL) : undefined}
+            onPress={() => router.push('/legal/privacy')}
           >
             Privacy Policy
           </Text>

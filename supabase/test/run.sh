@@ -96,6 +96,12 @@ psql -q -v ON_ERROR_STOP=1 -d lotus -f "$ROOT/supabase/test/10_fixture.sql" >/de
 echo "==> seed script"
 psql -q -v ON_ERROR_STOP=1 -d lotus -f "$ROOT/supabase/seed/test_members.sql" >/dev/null
 
+# The App Review seed is the data an Apple reviewer signs into, and a script
+# that half-applies leaves them looking at a hole. It is exercised here for the
+# same reason the migrations are: nothing else runs it until it matters.
+echo "==> App Review seed"
+psql -q -v ON_ERROR_STOP=1 -d lotus -f "$ROOT/supabase/seed/review_account.sql" >/dev/null
+
 echo "==> policy checks"
 psql -d lotus -f "$ROOT/supabase/test/20_policy_checks.sql" 2>&1 \
   | grep -v '^SET$\|^BEGIN$\|^COMMIT$\|^ROLLBACK$'

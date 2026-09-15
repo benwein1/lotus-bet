@@ -58,6 +58,7 @@ npm test                  # jest — 187 tests, pure logic + a theme drift check
 npm run typecheck         # tsc --noEmit
 npm run lint
 npm run theme             # regenerate global.css from theme-colors.json
+npm run legal             # regenerate public/legal/*.html from legal-text.json
 
 supabase/test/run.sh      # migrations + RLS + RPCs against a throwaway Postgres
 ```
@@ -90,6 +91,7 @@ app/                        Expo Router routes
   _layout.tsx               root stack + the single auth redirect gate
   (auth)/                   sign-in · sign-up · profile-setup · reset-password
   (tabs)/                   index (the feed) · groups · profile
+  legal/terms.tsx, privacy.tsx, support.tsx
   group/create.tsx, join.tsx
   join/[token].tsx          what a shared invite link opens
   challenge.tsx             start a one-on-one by handle
@@ -111,12 +113,14 @@ src/
   components/auth-shell.tsx   the frame every pre-sign-in screen sits in
   components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
   components/payment-sheet.tsx amount entry for a part payment
+  components/legal-document.tsx  the terms, the policy and the support page
   components/lotus-mark.tsx  the app mark, wherever the app shows its own face
   components/animated-splash.tsx  the hand-off out of the native splash
   lib/auth-links.ts         pure: reading a GoTrue recovery redirect
   lib/coalesce.ts           pure: collapsing a burst of refetches into one
   lib/invite-links.ts       pure: invite URL, share message, expiry wording
   lib/invites.ts            …and the device half — share sheet, pending token
+  lib/legal.ts              URLs, support address, and the text, from one JSON
   lib/payout.ts             re-export ONLY — see §5
   lib/settlement.ts         balance netting + greedy debt simplification
   lib/queries.ts            every Supabase read/write the app makes
@@ -138,6 +142,9 @@ src/
   theme.ts                  palettes · motion · elevation · avatarColors
 theme-colors.json           SINGLE SOURCE OF TRUTH for both palettes
 global.css                  GENERATED from it by scripts/build-theme-css.js
+legal-text.json             SINGLE SOURCE OF TRUTH for terms, privacy, support
+public/legal/*.html         GENERATED from it by scripts/build-legal-html.js,
+                            at build time, gitignored — see §11
 assets/logo/lotus.svg       the mark; scripts/build-icons.mjs renders every size
 supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
@@ -146,9 +153,12 @@ supabase/
                             proof of outcome · bet-insert RLS fix (13)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
+supabase/seed/              test_members.sql · review_account.sql (the App
+                            Review account; exercised by run.sh §37)
 __tests__/                  payout · settlement · format · theme · odds ·
                             postgrest · reminders · invite-links · media-split ·
-                            auth-links · coalesce
+                            auth-links · coalesce · content-rules · errors ·
+                            suggestions · legal
 ```
 
 **All Supabase access goes through `src/lib/queries.ts`.** Screens never
@@ -1093,3 +1103,48 @@ before touching any component.
 - Don't add a dependency without a reason the existing stack can't cover.
   `useAsync` is deliberately tiny — an MVP with eight screens doesn't need a
   query cache when Realtime already says when to refetch.
+
+---
+
+## 11. The legal text, and why it is bundled
+
+The terms (which are the EULA), the privacy policy and the support page live as
+text in **`legal-text.json`** and are rendered twice: by `app/legal/*` inside
+the app, and by `scripts/build-legal-html.js` into `public/legal/*.html` for the
+web, which `npm run build:web` regenerates on every build.
+
+One source, two renderers, the same arrangement as the palette and for the same
+reason. What somebody agrees to on the sign-up screen, what `users.terms_version`
+refers to, and what a reviewer reads at the privacy-policy URL in App Store
+Connect are the same words by construction rather than by diligence.
+`TERMS_VERSION` is read *off* the JSON rather than typed next to it, so the
+recorded version and the words actually read cannot drift apart.
+
+**The text is bundled, not only hosted, and that is the point.** The sign-up
+checkbox used to link at `example.invalid` — so the one screen where a person
+agrees to the rules opened nothing at all. Bundling makes the agreement real
+from the first account, before any hosting decision and with no network. The
+hosted copy is then the *listing's* URL rather than the only copy.
+
+Three consequences worth keeping:
+
+- **Two placeholders, `{{app}}` and `{{support}}`.** The app name is a
+  placeholder so the rename ahead is one constant rather than a hunt through
+  nine paragraphs; the support address because it genuinely differs per
+  deployment. `fillPlaceholders` is the only substitution, and
+  `__tests__/legal.test.ts` fails if either survives into rendered output.
+- **The generated pages are gitignored.** They carry the support address from
+  the environment, so a committed copy would carry whichever machine last built
+  them. They also carry no script, no stylesheet and no image — a legal page
+  that fails to render because an asset did not load is a legal page that is
+  not published.
+- **`EXPO_PUBLIC_SUPPORT_EMAIL` unset means no contact row**, rather than a row
+  that opens a mail composer addressed at a placeholder. Guideline 1.2 wants
+  published contact information; a contact that silently goes nowhere is worse
+  than an absent one, because it looks like the app answered you.
+
+`__tests__/legal.test.ts` holds the clauses that are compliance rather than
+prose — no tolerance for objectionable content, a 24-hour response, reporting,
+blocking, removal of accounts that post abuse, and a privacy policy naming
+every row of the App Store nutrition label. They go missing through a
+well-meaning edit, not through a bug, which is exactly why they are tests.
