@@ -122,6 +122,7 @@ src/
                             rises over the feed, and the composer both share
   components/double-tap-like.tsx  double-tap a photo to like it
   components/auth-shell.tsx   the frame every pre-sign-in screen sits in
+  components/bet-grid.tsx     the bets you started, as a grid on Profile
   components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
   components/payment-sheet.tsx amount entry for a part payment
   components/legal-document.tsx  the terms, the policy and the support page
@@ -164,7 +165,8 @@ supabase/
                             proof of outcome · bet-insert RLS fix · column
                             privileges · moderation · account deletion · terms ·
                             abuse limits · position group_id · media limits ·
-                            user devices · moderation review (21)
+                            user devices · moderation review · media retention ·
+                            bets by creator (23)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
   functions/sweep-media/    scheduled retention for cancelled bets' media
@@ -430,6 +432,30 @@ be picked straight from the card. Only the card actually on screen plays its
 video (`active` prop, driven by `onViewableItemsChanged`).
 
 Screens leave room for the floating tab bar with `useTabBarInset()`.
+
+### Bets you started
+
+The Profile grid is **authorship, not participation** — what you put up, where
+"Bet history" below it answers what you have been in. That distinction is the
+whole point: a bet you created and never took a side on is still yours, and
+this is the only screen that says so.
+
+**Two kinds of tile, because half these bets have no photo.** A photo grid that
+drew only bets with media would be mostly holes, and a placeholder image would
+be worse, so a bet without an attachment shows its own question. The question
+*is* the bet; that tile is not a fallback.
+
+The cover comes from `splitMedia().attachments`, never from proof — letting a
+receipt somebody added after the result become the bet's face in a grid is
+exactly the permissive mistake that function exists to prevent.
+
+A bet that is no longer running recedes, the way `OptionCard` dims a losing
+side. **How it recedes depends on what is underneath**, and both halves were
+learned by looking: over a photo only a scrim works; over a text tile a scrim
+put grey on grey and made the question unreadable. And the tile's *ground* stays
+constant either way — dropping a closed tile to `sunken` made it vanish in dark
+mode, where sunken is the page ground, so it stopped reading as a tile and
+became a hole with text floating in it.
 
 ### Likes and comments
 

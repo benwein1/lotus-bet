@@ -1008,6 +1008,37 @@ export async function fetchMyHistory(userId: string): Promise<HistoryEntry[]> {
   return (data ?? []) as unknown as HistoryEntry[];
 }
 
+/** How many of your own bets the Profile grid asks for at a time. */
+export const MY_BETS_PAGE = 30;
+
+/**
+ * The bets you started, newest first.
+ *
+ * Authorship, not participation — `fetchMyHistory` already answers "what have
+ * I been in", and this answers "what have I put up", which is the question a
+ * profile grid is really asking. A bet you created but never took a side on
+ * still belongs to you and still appears.
+ *
+ * No group filter: your bets span every group you are in, duels included, and
+ * RLS decides what comes back the same way it does everywhere else.
+ */
+export async function fetchMyBets(
+  userId: string,
+  limit = MY_BETS_PAGE
+): Promise<BetWithPositions[]> {
+  if (isDemoMode()) return demo.fetchMyBets(userId, limit);
+
+  const { data, error } = await supabase
+    .from('bets')
+    .select(BET_SELECT)
+    .eq('creator_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(error.message);
+  return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
+}
+
 export async function fetchMyStats(): Promise<MyStatsRow | null> {
   if (isDemoMode()) return demo.fetchMyStats();
   const { data, error } = await supabase.rpc('my_stats');

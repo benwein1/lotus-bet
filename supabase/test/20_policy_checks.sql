@@ -1969,3 +1969,47 @@ begin;
   select * from public.sweepable_media(interval '30 days');
   rollback to s1;
 rollback;
+
+\echo '--- 43. Bets you started: authorship, and the index behind it ---'
+-- The Profile grid asks `bets` a question nothing asked before — by
+-- `creator_id` — so `…_bets_by_creator.sql` gives it an index. These assert the
+-- index exists and that the query it serves returns authorship rather than
+-- participation, which is the whole distinction the grid is built on.
+begin;
+  \echo '  (a) the index exists'
+  select 'creator index present' as check, count(*) as rows
+    from pg_indexes
+   where schemaname = 'public' and indexname = 'bets_creator_created_idx';
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (b) a creator sees the bets they posted'
+  select 'bets I created' as check, count(*) as rows
+    from public.bets where creator_id = auth.uid();
+
+  \echo '  (c) authorship is not participation'
+  -- A bet you created but never took a side on is still yours. This is the
+  -- case that separates the grid from the history list, so it is asserted
+  -- rather than assumed.
+  insert into public.bets
+    (id, group_id, creator_id, title, option_a_label, option_b_label, total_pot_agorot)
+  values ('66666666-0000-4000-8000-000000000001',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'Posted but never joined', 'Yes', 'No', 500);
+
+  select 'mine without a position' as check, count(*) as rows
+    from public.bets b
+   where b.creator_id = auth.uid()
+     and not exists (
+       select 1 from public.bet_positions p
+        where p.bet_id = b.id and p.user_id = auth.uid());
+
+  \echo '  (d) somebody else''s bets are not yours'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select 'that bet counted as mine' as check, count(*) as rows
+    from public.bets
+   where id = '66666666-0000-4000-8000-000000000001'
+     and creator_id = auth.uid();
+rollback;

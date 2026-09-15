@@ -6,8 +6,9 @@ import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarPicker } from '@/components/avatar-picker';
+import { BetGrid } from '@/components/bet-grid';
 import { DemoBadge } from '@/components/demo-entry';
-import { ChevronRightIcon, LogOutIcon, TrophyIcon } from '@/components/icons';
+import { ChevronRightIcon, LogOutIcon, TicketIcon, TrophyIcon } from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
 import { ProfileSkeleton } from '@/components/skeletons';
 import {
@@ -39,6 +40,7 @@ import { clearPushToken } from '@/lib/notifications';
 import { cancelDeadlineReminders } from '@/lib/reminders';
 import {
   fetchBlockedUsers,
+  fetchMyBets,
   fetchMyGroups,
   fetchMyHistory,
   fetchMyPersonBalances,
@@ -78,6 +80,7 @@ export default function ProfileScreen() {
   const groups = useAsync(fetchMyGroups, [userId]);
   const owed = useAsync(() => fetchMyPersonBalances(userId), [userId]);
   const blocked = useAsync(fetchBlockedUsers, [userId]);
+  const mine = useAsync(() => fetchMyBets(userId), [userId]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +98,7 @@ export default function ProfileScreen() {
   const { reload: reloadHistory } = history;
   const { reload: reloadOwed } = owed;
   const { reload: reloadBlocked } = blocked;
+  const { reload: reloadMine } = mine;
 
   /**
    * Unblocking is not confirmed.
@@ -117,7 +121,8 @@ export default function ProfileScreen() {
     void reloadStats({ silent: true });
     void reloadHistory({ silent: true });
     void reloadOwed({ silent: true });
-  }, [reloadStats, reloadHistory, reloadOwed]);
+    void reloadMine({ silent: true });
+  }, [reloadStats, reloadHistory, reloadOwed, reloadMine]);
 
   // `undefined` rather than a boolean means the project has not had the
   // notification-prefs migration applied yet.
@@ -328,6 +333,29 @@ export default function ProfileScreen() {
               loading={owed.loading}
               entering={entering(90)}
             />
+
+            {/* Authorship, not participation. "Bet history" below answers what
+                you have been *in*; this answers what you have put *up*, which
+                is the question a profile grid is actually asking — and it is
+                the only screen where a bet you created but never joined is
+                yours. Placed directly under the record, the way a profile
+                leads with its content and keeps settings underneath. */}
+            <View className="mb-7">
+              <SectionTitle>Bets you started</SectionTitle>
+              {mine.loading ? (
+                <Loading label="Loading your bets…" />
+              ) : (mine.data ?? []).length === 0 ? (
+                <View className="rounded-3xl border border-hairline bg-surface">
+                  <EmptyState
+                    icon={<TicketIcon size={26} color={colors.textSecondary} />}
+                    title="You haven't started one yet"
+                    body="Post a bet in any of your groups and it shows up here."
+                  />
+                </View>
+              ) : (
+                <BetGrid bets={mine.data ?? []} />
+              )}
+            </View>
 
             <View className="mb-7">
               <SectionTitle>Appearance</SectionTitle>

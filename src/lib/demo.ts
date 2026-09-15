@@ -571,6 +571,16 @@ export const demo = {
     return clone(group);
   },
 
+  async fetchMyBets(userId: string, limit: number): Promise<BetWithPositions[]> {
+    return clone(
+      state.bets
+        .filter((b) => b.creator_id === userId)
+        .sort(byNewest)
+        .slice(0, limit)
+        .map((b) => withPositions(b))
+    );
+  },
+
   async fetchGroupBets(groupId: string): Promise<BetWithPositions[]> {
     return clone(
       state.bets
