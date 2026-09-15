@@ -14,15 +14,15 @@ Reviewed at `dc94dd6` plus the changes in this branch. Last updated 2026-09-14.
 | # | Severity | Finding | Fix order |
 | --- | --- | --- | --- |
 | 1 | ~~**CRITICAL**~~ **FIXED** | Every group member could read every other member's **email, phone and Expo push token** | ✅ `…_user_column_privileges.sql` |
-| 2 | **HIGH** | No rate limiting of any kind on application writes | 2nd |
-| 3 | **HIGH** | No blocking, reporting or moderation — also an App Store blocker (§1.2) | 3rd |
-| 4 | **MEDIUM** | No account deletion — also an App Store blocker (§5.1.1(v)) | 4th |
-| 5 | **MEDIUM** | Uploads are not validated server-side: type, size and magic bytes are all client-asserted | 5th |
+| 2 | ~~**HIGH**~~ **FIXED** | No rate limiting of any kind on application writes | ✅ `…_abuse_limits.sql` |
+| 3 | ~~**HIGH**~~ **MOSTLY FIXED** | No blocking, reporting or moderation | ✅ `…_moderation.sql` — the human review queue is still outstanding |
+| 4 | ~~**MEDIUM**~~ **FIXED** | No account deletion — also an App Store blocker (§5.1.1(v)) | ✅ `…_account_deletion.sql` |
+| 5 | **MEDIUM** (halved) | Uploads are not validated server-side: type, size and magic bytes are all client-asserted | Path-vs-group now constrained; **bucket limits are still a dashboard change** |
 | 6 | **MEDIUM** | EXIF (incl. GPS) is not stripped from uploaded photos | 6th |
-| 7 | **LOW** | `group_invites` tokens are `select`-able by every group member | 7th |
+| 7 | **LOW** | `group_invites` tokens are `select`-able by every group member | **Won't fix as written** — see §4 |
 | 8 | **LOW** | Signed media URLs are bearer tokens with a 1-hour life and no revocation | 8th |
 | 9 | **INFO** | Realtime subscribes unfiltered to `bet_positions` — a metadata side channel | 9th |
-| 10 | **INFO** | Comment/bet/group text has no length-abuse or unicode normalisation | 10th |
+| 10 | ~~**INFO**~~ **FIXED** | Comment/bet/group text has no length-abuse or unicode normalisation | ✅ `content-rules.ts` + `…_abuse_limits.sql` |
 
 **What is already right** is genuinely more than what is wrong; see §2.
 
@@ -254,8 +254,21 @@ inserted, so opening the same link twice does not burn a use.
 **Finding #7 (LOW):** every group member can `select` from `group_invites`, so
 any member can read the active token and re-share it after an admin thought
 they had stopped sharing. The revocation still works — this is a leak of the
-token, not a bypass. Fix by restricting the SELECT policy to
-`is_group_admin(group_id)`.
+token, not a bypass.
+
+**The proposed fix does not work against this product, and was not applied.**
+`create_group_invite` requires only `is_group_member`, so any member can mint a
+fresh, working link whenever they like. Restricting SELECT to
+`is_group_admin(group_id)` removes no capability a member does not already
+have — it only breaks the group screen's live-link display for non-admins. The
+invite migration says as much where it grants minting to members: making links
+admin-only "would be a different, stricter product than the one that already
+shipped".
+
+The coherent options are to leave both open (today's product) or to make
+minting **and** reading admin-only. That is a product decision, not a patch.
+Doing only the SELECT half is the worst of the three, because it looks like a
+fix and changes nothing an attacker can do.
 
 **No open-redirect exists.** `inviteUrl` builds `${origin}${INVITE_PATH}${token}`
 where `origin` comes from `window.location.origin` on web or the configured
@@ -529,19 +542,29 @@ belongs only in Edge Function environment variables.
 
 ### Automatable in the existing SQL harness (`supabase/test/run.sh`)
 
-The harness already drives 22 sections as the `authenticated` role with a JWT
-subject. Add:
+The harness drives 36 sections as the `authenticated` role with a JWT
+subject.
 
-| # | Test | Asserts |
-| --- | --- | --- |
-| 23 | Select `email`, `phone`, `expo_push_token` from a groupmate | permission denied — **after finding #1 is fixed** |
-| 24 | Non-member selects `group_invites` for a group they are not in | zero rows |
-| 25 | Ordinary member selects `group_invites` | zero rows, after #7 is fixed |
-| 26 | 21st comment in an hour | raises `53400`, after rate limits land |
-| 27 | Insert `bet_comments` with a 501-character body | rejected by a `check` |
-| 28 | Insert a `bet_media` row whose `storage_path` starts with another group's id | refused |
-| 29 | Non-invitee selects a private bet's `bet_comments` | zero rows (regression guard on `can_see_bet`) |
-| 30 | `update public.users set id = <other>` | refused |
+| # | Test | Asserts | Status |
+| --- | --- | --- | --- |
+| 23 | Select `email`, `phone`, `expo_push_token` from a groupmate | permission denied | ✅ §25 |
+| 24 | Non-member selects `group_invites` for a group they are not in | zero rows | ✅ §35(a) |
+| 25 | Ordinary member selects `group_invites` | zero rows, after #7 is fixed | **dropped** — #7 is won't-fix, see §4 |
+| 26 | 31st comment in an hour | raises `53400` | ✅ §33(b) |
+| 27 | Insert `bet_comments` with a 501-character body | rejected by a `check` | ✅ §34(a) |
+| 28 | Insert a `bet_media` row whose `storage_path` starts with another group's id | refused | ✅ §34(b) |
+| 29 | Non-invitee selects a private bet's `bet_comments` | zero rows (regression guard on `can_see_bet`) | ✅ §36(b) |
+| 30 | `update public.users set id = <other>` | refused | ✅ §35(b) |
+
+Added beyond the original plan, because each guards something the fixes above
+introduced: §29 (a deletion leaves every other balance unchanged and the group
+still nets to zero), §30 (nobody can delete or tombstone another profile), §31
+(terms acceptance is recorded, never invented, unforgeable — and a new signup
+still gets a handle), §32 (the display-name clamp ran and the constraint
+holds), §33(e) (a path with no `auth.uid()` is deliberately **not** throttled,
+so seeding and the push fan-out keep working).
+
+The harness is at **55 asserted refusals**, exit 0.
 
 ### Needs a real project (cannot run in the harness)
 

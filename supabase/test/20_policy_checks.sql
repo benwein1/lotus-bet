@@ -1351,3 +1351,178 @@ begin;
   select 'own acceptance readable' as check, terms_version is null as still_null
     from public.users where id = auth.uid();
 rollback;
+
+\echo '--- 32. The display-name clamp ran, and the constraint holds ---'
+-- The pre-fixture planted an over-long name and an all-whitespace one before
+-- `…_abuse_limits.sql`, so the backfill had real work rather than passing on
+-- an empty table.
+begin;
+  \echo '  (a) the long name was clamped to 40, not rejected'
+  select 'clamped length' as check, char_length(display_name) as len
+    from public.users where id = '44444444-0000-4000-8000-000000000001';
+
+  \echo '  (b) the blank one was given a placeholder rather than left invalid'
+  select 'blank replaced' as check, display_name
+    from public.users where id = '44444444-0000-4000-8000-000000000002';
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '44444444-0000-4000-8000-000000000001';
+
+  savepoint n1;
+  \echo '  (c) a client cannot store a 41-character name (must fail)'
+  update public.users set display_name = repeat('x', 41) where id = auth.uid();
+  rollback to n1;
+
+  savepoint n2;
+  \echo '  (d) nor an empty one (must fail)'
+  update public.users set display_name = '   ' where id = auth.uid();
+  rollback to n2;
+
+  \echo '  (e) forty still fits'
+  update public.users set display_name = repeat('x', 40) where id = auth.uid();
+  select 'forty accepted' as check, char_length(display_name) as len
+    from public.users where id = auth.uid();
+rollback;
+
+\echo '--- 33. Rate limits (SECURITY.md finding #2) ---'
+-- Every vector finding #2 lists is an authenticated user making *ordinary,
+-- policy-compliant* requests as fast as they like. RLS has nothing to say
+-- about it — each insert is allowed. Rate is a different axis, and this is it.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000002';
+
+  \echo '  (a) thirty comments in an hour are fine — an argument is not abuse'
+  insert into public.bet_comments (bet_id, user_id, body)
+  select 'cccccccc-0000-4000-8000-000000000000',
+         '00000000-0000-4000-8000-000000000002',
+         'comment ' || g
+    from generate_series(1, 30) g;
+  select 'comments accepted' as check, count(*) as rows
+    from public.bet_comments
+   where user_id = '00000000-0000-4000-8000-000000000002';
+
+  savepoint rl1;
+  \echo '  (b) the thirty-first is refused (must fail)'
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          '00000000-0000-4000-8000-000000000002', 'one too many');
+  rollback to rl1;
+rollback;
+
+begin;
+  \echo '  (c) groups are capped per day'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000003';
+  select public.create_group('Group ' || g, null) from generate_series(1, 5) g;
+
+  savepoint rl2;
+  \echo '  (d) the sixth group in a day is refused (must fail)'
+  select public.create_group('One too many', null);
+  rollback to rl2;
+rollback;
+
+begin;
+  -- The escape hatch, proven rather than assumed. Seeding, migrations and the
+  -- push fan-out all run with no JWT, so `auth.uid()` is null and there is
+  -- nothing to count by — throttling them would break deployment to solve a
+  -- problem they do not have. Driven here as the owner with the subject
+  -- cleared, which is exactly how `supabase/seed/test_members.sql` runs.
+  \echo '  (e) a path with no auth.uid() is not throttled — seeding and the'
+  \echo '      push fan-out must never be rate-limited'
+  set local request.jwt.claim.sub = '';
+  select 'auth.uid() on this path' as check, auth.uid() is null as is_null;
+
+  insert into public.bet_comments (bet_id, user_id, body)
+  select 'cccccccc-0000-4000-8000-000000000000',
+         '00000000-0000-4000-8000-000000000002',
+         'unthrottled ' || g
+    from generate_series(1, 40) g;
+  select 'wrote forty past the limit of thirty' as check, count(*) as rows
+    from public.bet_comments
+   where body like 'unthrottled %';
+rollback;
+
+\echo '--- 34. Length and path constraints the client was trusted for ---'
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  savepoint c1;
+  \echo '  (a) a 501-character comment is refused by the check (must fail)'
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000', repeat('x', 501));
+  rollback to c1;
+
+  savepoint c2;
+  \echo '  (b) a media row whose path is under another group is refused (must fail)'
+  insert into public.bet_media
+    (bet_id, group_id, uploaded_by, kind, storage_path, purpose)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'image',
+          '99999999-0000-4000-8000-000000000000/cccccccc/stolen.jpg',
+          'attachment');
+  rollback to c2;
+
+  \echo '  (c) the correctly-prefixed path still works'
+  insert into public.bet_media
+    (bet_id, group_id, uploaded_by, kind, storage_path, purpose)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'image',
+          'bbbbbbbb-0000-4000-8000-000000000000/cccccccc/ok.jpg',
+          'attachment');
+  select 'own-group path accepted' as check, count(*) as rows
+    from public.bet_media where storage_path like '%ok.jpg';
+rollback;
+
+\echo '--- 35. Invite tokens, and an id that cannot be reassigned ---'
+begin;
+  set local role authenticated;
+  \echo '  (a) a non-member reads no invites for a group they are not in'
+  set local request.jwt.claim.sub = '11111111-1111-4000-8000-000000000002';
+  select 'invites visible to a non-member' as check, count(*) as rows
+    from public.group_invites
+   where group_id = 'bbbbbbbb-0000-4000-8000-000000000000';
+
+  savepoint i1;
+  \echo '  (b) a client cannot reassign its own row to another id (must fail)'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  update public.users set id = '00000000-0000-4000-8000-000000000002'
+   where id = auth.uid();
+  rollback to i1;
+rollback;
+
+\echo '--- 36. A private bet''s comments stay private (regression guard) ---'
+-- `can_see_bet` is the single gate for everything hanging off a bet. This is
+-- the comment half of it, re-asserted because the blocking work in
+-- `…_moderation.sql` rewrote that exact policy.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  insert into public.bets
+    (id, group_id, creator_id, title, option_a_label, option_b_label,
+     total_pot_agorot, visibility)
+  values ('88888888-0000-4000-8000-000000000001',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'Private, with talk', 'Yes', 'No', 100, 'private');
+
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('88888888-0000-4000-8000-000000000001',
+          'aaaaaaaa-0000-4000-8000-000000000000', 'Only invitees should read this');
+
+  \echo '  (a) the creator reads it'
+  select 'creator sees the comment' as check, count(*) as rows
+    from public.bet_comments where bet_id = '88888888-0000-4000-8000-000000000001';
+
+  \echo '  (b) a groupmate who is not an invitee does not'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select 'non-invitee sees the comment' as check, count(*) as rows
+    from public.bet_comments where bet_id = '88888888-0000-4000-8000-000000000001';
+rollback;
