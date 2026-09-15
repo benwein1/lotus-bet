@@ -59,7 +59,7 @@ type NotifyKey =
   | 'notify_deadlines';
 
 export default function ProfileScreen() {
-  const { session, profile, updateProfile, signOut, demo } = useAuth();
+  const { session, profile, updateProfile, signOut } = useAuth();
   const colors = useColors();
   const reduced = useReducedMotion();
   const tabInset = useTabBarInset();
@@ -430,8 +430,12 @@ export default function ProfileScreen() {
                 accident next to the one you meant. The screen it opens is where
                 the consequences are explained — there is too much to say for a
                 dialog, because what a deletion *keeps* here is unusual. */}
-            {!demo && (
-              <Link href="/delete-account" asChild>
+            {/* Shown in demo too. The demo's `deleteAccount` is a no-op, but its
+                sign-out genuinely throws away every byte of in-memory state —
+                so the screen's promise holds there as well, and hiding it would
+                only mean the one flow Apple checks hardest is the one nobody
+                can walk without a real account. */}
+            <Link href="/delete-account" asChild>
                 <PressableScale
                   scaleTo={0.99}
                   accessibilityRole="button"
@@ -440,8 +444,7 @@ export default function ProfileScreen() {
                 >
                   <Text className="text-subhead text-tertiary">Delete account</Text>
                 </PressableScale>
-              </Link>
-            )}
+            </Link>
 
             <Text className="mt-7 text-center text-xs leading-4 text-tertiary">
               Lotus Bet is a tracker. It holds no money, processes no payments, and sells no

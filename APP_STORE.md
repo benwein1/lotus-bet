@@ -263,6 +263,79 @@ violation. **P0** to answer; the outcome is what it is.
 and the settle-up screen. Do **not** lead with the odds bar and a large ₪
 figure — out of context it is the most gambling-looking screen you have.
 
+**The icon is done.** `scripts/build-icons.mjs` now writes `icon.png` at
+1024×1024 with **no alpha channel** — it previously composited onto an opaque
+ground but still emitted a 4-channel PNG (verified `hasAlpha: true`), which App
+Store Connect refuses at upload, after a full build. The script prints the
+alpha state of every file it writes, because that is the property that gets
+rejected and looking is the only way to notice. It is full-bleed and not
+pre-rounded: Apple applies its own mask, and rounding it here shows as a dark
+halo inside that mask.
+
+### 3.1 Draft copy
+
+Written to be used, not as a template. Everything below assumes the name is
+still "Lotus Bet"; if it is renamed (§2.1), swap it through and nothing else
+changes.
+
+**Subtitle** (30 char limit)
+
+```
+Who owes who, settled
+```
+`21 chars.` Alternatives that also fit: `Keep score with your friends` (28),
+`Settle it with your friends` (27).
+
+**Description**
+
+The first two sentences are doing the compliance work. A reviewer deciding
+whether this is a gambling app reads the top of the description and the
+screenshots, and nothing else.
+
+```
+Lotus Bet is where friends settle arguments.
+
+It does not handle money. There is no wallet, no payments and nothing to
+buy — Lotus Bet writes down who said what and who ended up owing whom, and
+you settle up with each other however you already do.
+
+Start a group with the people you actually argue with. Post the question —
+will he be on time, will it rain before Friday, does the landlord fix the
+boiler this month — and give it two to eight answers. Everyone picks a side
+before the deadline. When you know the result, whoever posted it calls it,
+and the app works out where everybody stands.
+
+• Groups, or a one-on-one challenge by username
+• Two to eight outcomes per question, not just yes and no
+• A photo or clip on the question, and proof of the result afterwards
+• Comments, so the arguing happens in the app instead of six chat threads
+• A running total per person, netted across every group
+• Settle-up that tells you the fewest payments that square everyone
+• Private questions inside a group, when it is not everyone's business
+
+Nothing is public. Everything lives inside a group you were invited to, and
+people are found by exact username — there is no directory to browse.
+
+Lotus Bet is a ledger, not a bookmaker. No money moves through the app.
+```
+
+**Keywords** (100 char limit, comma-separated, no spaces after commas)
+
+Deliberately free of casino, gambling, betting, odds, sportsbook, wager and
+stake — §2.1 explains why those terms are the risk.
+
+```
+friends,group,challenge,dare,settle,scoreboard,keep score,who owes,prediction,argue,tally,friendly
+```
+`98 chars.`
+
+**Promotional text** (170 chars, editable without review)
+
+```
+Comments now open in a sheet over the feed, so reading the argument no longer
+costs you your place in it.
+```
+
 ---
 
 ## 4. Build and release configuration
