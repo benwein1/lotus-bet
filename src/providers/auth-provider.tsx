@@ -13,6 +13,12 @@ import { TERMS_VERSION } from '@/lib/legal';
 import { isUnknownWriteColumn } from '@/lib/postgrest';
 import { USER_COLUMNS } from '@/lib/queries';
 import { isRecoveryRedirect, recoveryTokens } from '@/lib/auth-links';
+import { signInWithProvider as startProviderSignIn } from '@/lib/oauth';
+import {
+  friendlyOAuthError,
+  needsTermsAcceptance,
+  type OAuthProvider,
+} from '@/lib/oauth-rules';
 import { isSupabaseConfigured, openedWithUrl, setSessionLostHandler, supabase } from '@/lib/supabase';
 
 export interface SignUpResult {
@@ -29,6 +35,13 @@ interface AuthContextValue {
   needsProfileSetup: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<SignUpResult>;
+  /**
+   * Sign in with Apple or Google.
+   *
+   * Resolves to false when the person backed out of the sheet, which is not an
+   * error and must not be shown as one.
+   */
+  signInWithProvider: (provider: OAuthProvider) => Promise<boolean>;
   sendPasswordReset: (email: string) => Promise<void>;
   /**
    * True between clicking a reset link and setting a new password.
@@ -242,6 +255,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { needsEmailConfirmation: data.session === null };
       },
 
+      async signInWithProvider(provider: OAuthProvider) {
+        let result;
+        try {
+          result = await startProviderSignIn(provider);
+        } catch (err) {
+          const message = friendlyOAuthError(
+            provider,
+            err instanceof Error ? err.message : String(err)
+          );
+          // An empty string is the rules module's way of saying "they
+          // cancelled" — a normal outcome with nothing to report.
+          if (!message) return false;
+          throw new Error(message);
+        }
+
+        if (!result.completed) return false;
+
+        // On the web the page is already navigating away and there is no
+        // session here to follow up on. Everything below happens after the
+        // redirect instead, on the next load.
+        const { data } = await supabase.auth.getUser();
+        const user = data.user;
+        if (!user) return true;
+
+        // Apple gives the name on the FIRST authorisation and never again, so
+        // this is the only moment it can be written. It goes in before the
+        // terms call because losing it is permanent and losing the ordering is
+        // not.
+        if (result.displayName) {
+          try {
+            await supabase
+              .from('users')
+              .update({ display_name: result.displayName, profile_completed: true })
+              .eq('id', user.id);
+          } catch {
+            // A name that fails to stick sends them to profile setup, which is
+            // a working screen. Failing the whole sign-in over it would not be.
+          }
+        }
+
+        // The agreement moment for a social signup. The email flow carries the
+        // version in signup metadata; `signInWithIdToken` takes none, so it is
+        // recorded here — after the button whose label says what tapping it
+        // agrees to.
+        await acceptTermsIfNeeded(user.id);
+        await loadProfile(user.id);
+        return true;
+      },
+
       async sendPasswordReset(email: string) {
         // Without `redirectTo`, Supabase sends people to the project's Site URL
         // — which lands them on the app's root with a recovery token in the
@@ -344,6 +406,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+/**
+ * Record a terms acceptance for an account that does not have one for the
+ * current version.
+ *
+ * Only social sign-ins reach this: an email signup carries the version in its
+ * own metadata, so the account and its acceptance are one insert with no
+ * window between them. There is no equivalent for `signInWithIdToken`, which
+ * takes no metadata at all — the account is created by GoTrue from the
+ * provider's claims before the app can say anything.
+ *
+ * It reads first so a returning user is not writing a fresh timestamp on every
+ * sign-in, which would make `terms_accepted_at` a record of their last login
+ * rather than of their agreement. The same comparison is what will ask again
+ * when the wording changes, since the column holds a version and not a flag.
+ *
+ * Failures are swallowed on purpose. The person is signed in, the button they
+ * tapped said what it agreed to, and bouncing them back out because one write
+ * failed would be worse for them and no better for the record — the next sign
+ * -in tries again.
+ */
+async function acceptTermsIfNeeded(userId: string): Promise<void> {
+  try {
+    const { data } = await supabase
+      .from('users')
+      .select('terms_version')
+      .eq('id', userId)
+      .maybeSingle<{ terms_version: string | null }>();
+
+    if (!needsTermsAcceptance(data?.terms_version, TERMS_VERSION)) return;
+
+    await supabase.rpc('accept_terms', { p_version: TERMS_VERSION });
+  } catch {
+    // See above.
+  }
 }
 
 /**

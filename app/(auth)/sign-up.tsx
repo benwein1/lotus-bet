@@ -5,16 +5,18 @@ import Animated, { FadeIn } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AuthShell, AuthSwitch } from '@/components/auth-shell';
+import { AuthDivider, SocialAuthButtons } from '@/components/social-auth';
 import { EyeIcon, MailIcon } from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
 import { Button, ErrorNotice, FieldGroup, PressableScale, TextField } from '@/components/ui';
 import { CheckIcon } from '@/components/icons';
 import { isValidEmail, passwordProblem } from '@/lib/format';
+import type { OAuthProvider } from '@/lib/oauth-rules';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
 
 export default function SignUpScreen() {
-  const { signUp } = useAuth();
+  const { signUp, signInWithProvider } = useAuth();
   const router = useRouter();
   const colors = useColors();
 
@@ -29,6 +31,7 @@ export default function SignUpScreen() {
   const [busy, setBusy] = useState(false);
   const [confirmationSent, setConfirmationSent] = useState(false);
   const [agreed, setAgreed] = useState(false);
+  const [social, setSocial] = useState<OAuthProvider | null>(null);
 
   const trimmedName = name.trim();
   const problem = passwordProblem(password);
@@ -57,8 +60,23 @@ export default function SignUpScreen() {
     }
   }
 
+  async function continueWith(provider: OAuthProvider) {
+    setError(null);
+    setSocial(provider);
+    try {
+      await signInWithProvider(provider);
+      // Same destination as a finished email signup: the root navigator sees a
+      // session and routes on. A provider that gave us a name skips profile
+      // setup; one that did not lands there, which is the screen for it.
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not sign you up.');
+    } finally {
+      setSocial(null);
+    }
+  }
+
   if (confirmationSent) {
-    return (
+  return (
       <Screen>
         <SafeAreaView className="flex-1 justify-center px-gutter">
           <ContentWidth className="items-center">
@@ -102,6 +120,14 @@ export default function SignUpScreen() {
         </AuthSwitch>
       }
     >
+      {/* A social sign-in creates the account too, so it belongs on this
+          screen as much as on sign-in — and it is the faster of the two paths,
+          so it goes first. The agreement travels with the buttons: it is their
+          own label that carries it, since there is no form here to tick. */}
+      <SocialAuthButtons onPress={(p) => void continueWith(p)} busy={social} disabled={busy} />
+
+      <AuthDivider label="or sign up with email" />
+
       <FieldGroup>
         <TextField
           label="Name"

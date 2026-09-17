@@ -54,7 +54,7 @@ npm start                 # Expo dev server; press "i" for iOS simulator
 npm run web               # fastest loop for design work — no Xcode needed
 npm run ios / android
 
-npm test                  # jest — 187 tests, pure logic + a theme drift check
+npm test                  # jest — 374 tests, pure logic + a theme drift check
 npm run typecheck         # tsc --noEmit
 npm run lint
 npm run theme             # regenerate global.css from theme-colors.json
@@ -122,6 +122,7 @@ src/
                             rises over the feed, and the composer both share
   components/double-tap-like.tsx  double-tap a photo to like it
   components/auth-shell.tsx   the frame every pre-sign-in screen sits in
+  components/social-auth.tsx  Continue with Apple / Google, and the divider
   components/bet-grid.tsx     the bets you started, as a grid on Profile
   components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
   components/payment-sheet.tsx amount entry for a part payment
@@ -129,6 +130,8 @@ src/
   components/lotus-mark.tsx  the app mark, wherever the app shows its own face
   components/animated-splash.tsx  the hand-off out of the native splash
   lib/auth-links.ts         pure: reading a GoTrue recovery redirect
+  lib/oauth-rules.ts        pure: provider names, redirect tokens, terms state
+  lib/oauth.ts              …and the device half — Apple's sheet, Google's browser
   lib/coalesce.ts           pure: collapsing a burst of refetches into one
   lib/invite-links.ts       pure: invite URL, share message, expiry wording
   lib/invites.ts            …and the device half — share sheet, pending token
@@ -166,7 +169,8 @@ supabase/
                             privileges · moderation · account deletion · terms ·
                             abuse limits · position group_id · media limits ·
                             user devices · moderation review · media retention ·
-                            bets by creator (23)
+                            bets by creator · anon RPC lockdown ·
+                            social sign-in (25)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
   functions/sweep-media/    scheduled retention for cancelled bets' media
@@ -174,7 +178,7 @@ supabase/seed/              test_members.sql · review_account.sql (the App
                             Review account; exercised by run.sh §37)
 supabase/admin/             review_queue.sql — the moderation queue as things
                             to paste; guideline 1.2's 24 hours in practice
-__tests__/                  payout · settlement · format · theme · odds ·
+__tests__/                  payout · settlement · format · theme · odds · oauth-rules ·
                             postgrest · reminders · invite-links · media-split ·
                             auth-links · coalesce · content-rules · errors ·
                             suggestions · legal
@@ -609,7 +613,51 @@ make a change pass, stop and reconsider.
 
 ### Auth
 
-**Email + password.**
+**Email + password, plus Sign in with Apple and Google.**
+
+### Social sign-in
+
+**Both providers or neither.** Guideline 4.8 requires an app offering a
+third-party login to also offer one that limits data collection to name and
+email and does not track — Sign in with Apple is what satisfies that. Google
+alone is a rejection, so `SocialAuthButtons` renders one list and has no prop
+to show only Google.
+
+**Two genuinely different mechanisms, deliberately not abstracted together.**
+Apple on iOS is a native sheet returning a signed identity token that goes
+straight to `signInWithIdToken` — no browser, no redirect. Google has no native
+equivalent that avoids a config plugin and a native build, so it opens the
+provider in `WebBrowser.openAuthSessionAsync` and the tokens come back on the
+redirect URL, which `oauthTokens` lifts off using the same fragment-first
+parser the password-reset link uses.
+
+Three things that bite:
+
+- **Apple's nonce is two values, not one.** Apple signs the SHA256 *hash* into
+  its token; Supabase verifies against the *raw* string. Sending the same one
+  to both fails verification.
+- **Apple gives the name exactly once**, on the first authorisation ever, and
+  `fullName: null` every time after — including after a reinstall. It is
+  written to the profile immediately in `signInWithProvider`, because there is
+  no way to ask again.
+- **Apple's button is iOS-only.** `isAvailableAsync` gates it; Apple's *web*
+  OAuth flow needs a service ID and key this project does not have, so it is
+  hidden rather than shown and failing. The design loop on web therefore cannot
+  see that button — it has to be checked on a device.
+
+**The terms are agreed by the button, not by a checkbox.** The email form has a
+checkbox because it has a form; a social sign-in is one tap that creates the
+account and lands on the feed, with nowhere to put a control. So the sentence
+under the buttons is the agreement, and `accept_terms(version)` records it
+immediately afterwards — an RPC because `terms_accepted_at` and `terms_version`
+are absent from the client's UPDATE grant. The same comparison re-asks when the
+wording changes, which is why the column is a version and not a boolean.
+
+**The signup trigger reads three name keys**, in order: `display_name` (the
+app's own, already through `prepareContent`), then `full_name`, then `name`,
+which is where Google and Apple put it. Without that every social account
+arrives as "Player 3f2a" and is sent to profile setup to type a name the
+provider already gave.
 
 **Password reset needs four halves, and only the first existed.** Sending
 the link was there and looked fine; what was missing was `redirectTo` (so the

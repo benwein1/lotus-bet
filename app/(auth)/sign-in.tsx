@@ -6,14 +6,16 @@ import { Text } from 'react-native';
 
 import { AuthNotice, AuthShell, AuthSwitch } from '@/components/auth-shell';
 import { EyeIcon } from '@/components/icons';
+import { AuthDivider, SocialAuthButtons } from '@/components/social-auth';
 import { Button, ErrorNotice, FieldGroup, PressableScale, TextField } from '@/components/ui';
 import { DEMO_AVAILABLE } from '@/lib/demo';
 import { isValidEmail } from '@/lib/format';
+import type { OAuthProvider } from '@/lib/oauth-rules';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
 
 export default function SignInScreen() {
-  const { signIn, sendPasswordReset } = useAuth();
+  const { signIn, sendPasswordReset, signInWithProvider } = useAuth();
   const colors = useColors();
   const passwordRef = useRef<TextInput>(null);
 
@@ -23,8 +25,25 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [social, setSocial] = useState<OAuthProvider | null>(null);
 
   const ready = isValidEmail(email) && password.length > 0;
+
+  async function continueWith(provider: OAuthProvider) {
+    setError(null);
+    setNotice(null);
+    setSocial(provider);
+    try {
+      await signInWithProvider(provider);
+      // The root navigator takes it from here, exactly as for a password
+      // sign-in. A cancelled sheet resolves false and leaves the screen alone,
+      // which is the right amount of feedback for "I changed my mind".
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not sign you in.');
+    } finally {
+      setSocial(null);
+    }
+  }
 
   async function submit() {
     if (!ready) return;
@@ -91,6 +110,12 @@ export default function SignInScreen() {
         </View>
       }
     >
+      {/* Above the form, because one tap beats two fields and a password —
+          and because on iOS the Apple button is the one Apple looks for. */}
+      <SocialAuthButtons onPress={(p) => void continueWith(p)} busy={social} disabled={busy} />
+
+      <AuthDivider />
+
       <FieldGroup>
         <TextField
           label="Email"
