@@ -197,6 +197,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!session?.user.id || isDemoMode()) return;
     void loadProfile(session.user.id);
+    // Terms acceptance is recorded *here*, on any session that arrives without
+    // one, rather than inside the sign-in button's handler.
+    //
+    // The web OAuth flow is why. `signInWithOAuth` navigates the page away, so
+    // everything after the await in that handler belongs to a document that no
+    // longer exists — the session is created on the *next* load, by
+    // `detectSessionInUrl`, with no handler left to follow it up. A social
+    // signup on the web would have agreed to the terms on screen and had
+    // nothing written down, which is precisely the record Guideline 1.2 asks
+    // for.
+    //
+    // Putting it next to the profile load covers every path that can produce a
+    // session — native sheet, web redirect, and an account that predates the
+    // current wording — for the cost of one indexed read per sign-in.
+    void acceptTermsIfNeeded(session.user.id);
     // Refreshes the token for somebody who has *already* granted permission,
     // and does nothing at all otherwise. It deliberately cannot trigger the
     // system dialog any more: `NotificationPrimer` on the feed owns that, so
@@ -280,26 +295,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!user) return true;
 
         // Apple gives the name on the FIRST authorisation and never again, so
-        // this is the only moment it can be written. It goes in before the
-        // terms call because losing it is permanent and losing the ordering is
-        // not.
+        // this is the only moment it can be written.
+        //
+        // It goes through `prepareContent` like every other display name in
+        // the app. Apple's sheet lets somebody *edit* the name before handing
+        // it over, so this string is user input wearing a provider's clothes —
+        // and a display name is the one piece of text that follows you onto
+        // every screen anybody sees. Skipping the filter here would have been
+        // a way to put anything on a name that the profile screen refuses.
+        //
+        // A name that fails the check is dropped rather than rejected: the
+        // account is already created and signed in, and the profile-setup
+        // screen will ask for one properly. Refusing the sign-in over it would
+        // strand them with no way forward.
         if (result.displayName) {
-          try {
-            await supabase
-              .from('users')
-              .update({ display_name: result.displayName, profile_completed: true })
-              .eq('id', user.id);
-          } catch {
-            // A name that fails to stick sends them to profile setup, which is
-            // a working screen. Failing the whole sign-in over it would not be.
+          const checked = prepareContent(result.displayName, { strict: true });
+          if (checked.ok) {
+            try {
+              await supabase
+                .from('users')
+                .update({ display_name: checked.text, profile_completed: true })
+                .eq('id', user.id);
+            } catch {
+              // Falls through to profile setup, which is a working screen.
+            }
           }
         }
 
-        // The agreement moment for a social signup. The email flow carries the
-        // version in signup metadata; `signInWithIdToken` takes none, so it is
-        // recorded here — after the button whose label says what tapping it
-        // agrees to.
-        await acceptTermsIfNeeded(user.id);
+        // Terms acceptance is not called here — the effect beside `loadProfile`
+        // owns it, because the web flow has no live handler left by the time a
+        // session exists. See the comment there.
         await loadProfile(user.id);
         return true;
       },

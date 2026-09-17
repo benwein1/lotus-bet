@@ -32,14 +32,30 @@ WebBrowser.maybeCompleteAuthSession();
 /**
  * Where a provider sends somebody back to.
  *
- * The same origin resolution the invite links use, so there is one answer to
- * "what is this app's address" rather than two that drift. Unlike an invite,
- * the custom scheme is a perfectly good fallback here: anybody completing a
- * sign-in already has the app open.
+ * **The platform decides this, not configuration**, and that is the opposite of
+ * how invite links and password resets work — both of those prefer
+ * `EXPO_PUBLIC_WEB_ORIGIN` when it is set, because both are opened from
+ * somewhere else (a chat, an inbox) and have to land on something a browser can
+ * show.
+ *
+ * An OAuth redirect is the reverse: it has to come back *into the process that
+ * started it*. On a device that process is the app, and
+ * `openAuthSessionAsync(url, returnUrl)` only hands control back when the
+ * browser reaches a URL matching `returnUrl` — so a redirect pointing at the
+ * website would leave the sheet sitting on a web page it has no reason to
+ * close, and the sign-in would simply never return.
+ *
+ * Reusing `linkTargets()` here was a bug waiting for the domain to be
+ * configured: the moment `EXPO_PUBLIC_WEB_ORIGIN` is set, every native Google
+ * sign-in would have started hanging, with nothing on screen to explain why.
+ * Only the web branch may use an http origin, because there the "process" is
+ * the page itself.
  */
 function redirectTo(): string {
-  const { webOrigin, scheme } = linkTargets();
-  return webOrigin ? `${webOrigin}/` : `${scheme}://`;
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    return `${window.location.origin}/`;
+  }
+  return `${linkTargets().scheme}://`;
 }
 
 /** Whether the native Apple sheet can be shown at all. iOS 13+, iOS only. */
@@ -156,7 +172,63 @@ export async function signInWithGoogle(): Promise<OAuthResult> {
 }
 
 export async function signInWithProvider(provider: OAuthProvider): Promise<OAuthResult> {
+  // Ask before leaving. See `providerEnabled` for why this is worth a round
+  // trip: without it, a provider that is not switched on throws the person out
+  // of the app and onto a page of raw JSON on the Supabase domain.
+  if ((await providerEnabled(provider)) === false) {
+    throw new Error(`Unsupported provider: provider is not enabled`);
+  }
+
   return provider === 'apple' ? signInWithApple() : signInWithGoogle();
+}
+
+/**
+ * Whether a provider is actually switched on for this project.
+ *
+ * **Why this exists.** `signInWithOAuth` does not talk to the server — it
+ * builds the authorize URL on the client and then goes there. So a provider
+ * that is not enabled fails *at the destination*, and the shape of that
+ * failure is genuinely bad:
+ *
+ *   - on the web the page has already navigated, so the person is looking at
+ *     `{"code":400,"error_code":"validation_failed","msg":"Unsupported
+ *     provider: provider is not enabled"}` on `supabase.co`, outside the app,
+ *     with the back button as their only way home. Nothing in the app ever
+ *     sees an error to report, because the document that called it is gone.
+ *   - on a device the browser sheet opens onto that same JSON, and dismissing
+ *     it looks identical to changing your mind — the button silently does
+ *     nothing.
+ *
+ * Only `signInWithIdToken`, which Apple uses, returns the failure to the
+ * caller properly. So this closes the gap for the path that cannot.
+ *
+ * **It fails open, deliberately.** GoTrue's `/settings` is unauthenticated and
+ * returns an `external` map of provider flags, but that shape could not be
+ * verified from the environment this was written in — the egress proxy refuses
+ * that host. So anything other than an explicit `false` — a network failure, a
+ * non-200, a body that does not look the way it is expected to — returns null
+ * and the sign-in proceeds exactly as it would have. A check that cannot be
+ * confirmed must not be able to block a working sign-in; the worst case here
+ * is that it changes nothing and the old behaviour stands.
+ */
+async function providerEnabled(provider: OAuthProvider): Promise<boolean | null> {
+  const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  const key = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return null;
+
+  try {
+    const response = await fetch(`${url}/auth/v1/settings`, { headers: { apikey: key } });
+    if (!response.ok) return null;
+
+    const body: unknown = await response.json();
+    const external = (body as { external?: Record<string, unknown> } | null)?.external;
+    if (!external || typeof external !== 'object') return null;
+
+    const flag = external[provider];
+    return typeof flag === 'boolean' ? flag : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

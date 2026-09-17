@@ -645,11 +645,33 @@ Three things that bite:
   hidden rather than shown and failing. The design loop on web therefore cannot
   see that button — it has to be checked on a device.
 
+**The OAuth redirect is decided by the platform, not by configuration.** Invite
+links and password resets both prefer `EXPO_PUBLIC_WEB_ORIGIN` when it is set,
+because both are opened from somewhere else and have to land on something a
+browser can show. An OAuth redirect is the opposite: it has to come back into
+the process that started it. `openAuthSessionAsync(url, returnUrl)` only hands
+control back when the browser reaches `returnUrl`, so on a device it must be
+`lotusbet://` — reusing `linkTargets()` here was a bug waiting for the domain to
+be configured, and every native Google sign-in would have started hanging the
+day `EXPO_PUBLIC_WEB_ORIGIN` was set, with nothing on screen to say why.
+
+**A provider that is not enabled fails at the destination, not in the call.**
+`signInWithOAuth` builds the authorize URL on the client and goes there without
+talking to the server, so on the web the page has already navigated and the
+person is looking at raw JSON on `supabase.co` with the back button as their
+only way home — and nothing in the app ever sees an error, because the document
+that called it is gone. `providerEnabled()` asks GoTrue's `/settings` first and
+**fails open**: anything but an explicit `false` proceeds exactly as before,
+because that endpoint's shape could not be verified from the environment the
+check was written in.
+
 **The terms are agreed by the button, not by a checkbox.** The email form has a
 checkbox because it has a form; a social sign-in is one tap that creates the
 account and lands on the feed, with nowhere to put a control. So the sentence
 under the buttons is the agreement, and `accept_terms(version)` records it
-immediately afterwards — an RPC because `terms_accepted_at` and `terms_version`
+on the next profile load rather than in the button's own handler — the web
+flow navigates the page away, so there is no handler left alive by the time a
+session exists — an RPC because `terms_accepted_at` and `terms_version`
 are absent from the client's UPDATE grant. The same comparison re-asks when the
 wording changes, which is why the column is a version and not a boolean.
 
