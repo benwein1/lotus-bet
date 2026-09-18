@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { createCoalescer } from '@/lib/coalesce';
+import { classifyFailure, type FailureKind } from '@/lib/errors';
 
 export interface AsyncState<T> {
   data: T | null;
   error: string | null;
+  /**
+   * What kind of failure `error` describes, so a screen can offer the right
+   * thing — a retry when it is the network, nothing at all when the session
+   * has gone and the gate is already moving.
+   */
+  errorKind: FailureKind | null;
   loading: boolean;
   refreshing: boolean;
   /** Re-runs the loader. Pass `{ silent: true }` for realtime-driven refreshes. */
@@ -20,6 +27,7 @@ export interface AsyncState<T> {
 export function useAsync<T>(loader: () => Promise<T>, deps: React.DependencyList): AsyncState<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<FailureKind | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -48,9 +56,15 @@ export function useAsync<T>(loader: () => Promise<T>, deps: React.DependencyList
       if (!mounted.current) return;
       setData(next);
       setError(null);
+      setErrorKind(null);
     } catch (err) {
       if (!mounted.current) return;
-      setError(err instanceof Error ? err.message : 'Something went wrong');
+      // Classified rather than stringified. "Failed to fetch" reads the same
+      // whether somebody is in a lift or their session died — and App Review
+      // tests in Airplane Mode.
+      const failure = classifyFailure(err);
+      setError(failure.message);
+      setErrorKind(failure.kind);
     } finally {
       if (mounted.current) {
         setRefreshing(false);
@@ -84,5 +98,5 @@ export function useAsync<T>(loader: () => Promise<T>, deps: React.DependencyList
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
-  return { data, error, loading, refreshing, reload, setData };
+  return { data, error, errorKind, loading, refreshing, reload, setData };
 }

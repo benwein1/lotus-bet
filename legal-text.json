@@ -1,0 +1,220 @@
+{
+  "version": "2026-09-14",
+  "documents": {
+    "terms": {
+      "title": "Terms of Service",
+      "summary": "{{app}} records friendly bets between people who already know each other. It never handles money. These terms explain what you agree to by using it.",
+      "sections": [
+        {
+          "heading": "What {{app}} is",
+          "body": [
+            "{{app}} is a private app for keeping score on friendly bets. You make a group with people you know, somebody poses a question with two or more outcomes, everyone picks a side, and when the result is in the app records who owes whom.",
+            "That is the whole of it. {{app}} is a scoreboard and a memory, nothing more."
+          ]
+        },
+        {
+          "heading": "{{app}} never handles money",
+          "body": [
+            "No money, and nothing of value, ever passes through {{app}}. There is no wallet, no balance you can top up, no in-app currency, nothing to buy, and no payment processor of any kind.",
+            "When a bet is settled the app writes down an amount. That number is a note between you and your friends. You settle up between yourselves, outside the app, however you already do — cash, a bank transfer, or buying the next round.",
+            "{{app}} is not a party to your bets. It does not hold stakes, does not guarantee that anybody pays, and cannot recover anything for you if they do not. A bet recorded here creates no obligation we can enforce and none we will try to."
+          ]
+        },
+        {
+          "heading": "Who can use it",
+          "body": [
+            "You must be at least 13 years old, and old enough to agree to these terms where you live. If you are under 18, you should have a parent or guardian's permission.",
+            "You need an account, and the details on it should be true. Keep your password to yourself — anything done from your account is treated as done by you."
+          ]
+        },
+        {
+          "heading": "Content and conduct: no tolerance for abuse",
+          "body": [
+            "Everything you post — bet questions, option labels, descriptions, comments, your display name, your handle, and any photo or video you attach — is yours, and you are responsible for it.",
+            "There is no tolerance for objectionable content or abusive behaviour on {{app}}. Do not post anything that is:",
+            "• harassing, bullying, threatening, or aimed at intimidating somebody;\n• hateful towards a person or group because of race, ethnicity, national origin, religion, disability, sex, gender identity, sexual orientation, or age;\n• sexually explicit, or sexual content involving anybody under 18 in any form;\n• graphically violent, or an encouragement to violence or self-harm;\n• a bet that dares somebody into something dangerous, illegal, or humiliating;\n• illegal, or an attempt to organise something illegal;\n• somebody else's private information, or somebody else's work posted as yours;\n• spam, a scam, or an impersonation of another person.",
+            "We remove content that breaks these rules and we remove the accounts that post it. Reports are reviewed and acted on within 24 hours. An account removed for abuse is removed permanently, and we may remove it without warning where the content is severe.",
+            "These rules apply inside private groups exactly as they do anywhere else. A group being small and invited-only does not make abuse in it acceptable."
+          ]
+        },
+        {
+          "heading": "Reporting and blocking",
+          "body": [
+            "Press and hold a comment or a bet to report it. Reports reach us directly and we respond within 24 hours.",
+            "You can also block somebody. Blocking is mutual and it is quiet: their comments disappear for you, yours disappear for them, and they are not told that you blocked them. You can undo it from your profile.",
+            "Blocking somebody does not remove them from a group you share, and it does not change anything either of you already owes. A record of who owes whom belongs to everybody in the group, and one person cannot erase it by falling out with another."
+          ]
+        },
+        {
+          "heading": "What is private, and what is not",
+          "body": [
+            "There is no public feed and no global discovery in {{app}}. A bet is only ever visible inside the group it was posted to, and a bet marked private is visible only to the people invited to it.",
+            "People are found by exact handle only. There is no way to browse or search for users you do not already know the handle of.",
+            "Your friends in a group can see what you post there. Assume anything you write in a group is read by everybody in that group."
+          ]
+        },
+        {
+          "heading": "Your account, and deleting it",
+          "body": [
+            "You can delete your account from inside the app, at any time, from your profile. It is immediate and it cannot be undone.",
+            "Deleting your account removes your name, your handle, your email address, your photo, your comments, your likes, your uploads, your blocks, and your positions on bets that are still open. You will no longer be able to sign in.",
+            "One thing is deliberately kept: the balances on bets that have already been settled. Those are not only yours — they are what tells four other people what they owe each other, and erasing them would silently change somebody else's ledger in your favour. The entry stays; the person on it becomes an unnamed deleted user.",
+            "Bets you created and never called are cancelled when you leave, because nobody else can call them."
+          ]
+        },
+        {
+          "heading": "What we may do",
+          "body": [
+            "We may remove content or suspend an account that breaks these rules, or where we are required to by law.",
+            "We may change {{app}} — add things, remove things, or stop offering it altogether. If we stop, we will give you what notice we reasonably can.",
+            "We may update these terms. If a change matters, we will ask you to agree again rather than change them quietly. The date at the top tells you which version you are reading."
+          ]
+        },
+        {
+          "heading": "No warranty, and what we are liable for",
+          "body": [
+            "{{app}} is provided as it is. We do not promise it will always be available, always be correct, or always be free of faults.",
+            "To the fullest extent the law allows, we are not liable for what happens between you and the people you bet with. That includes a bet that was not paid, a result you disagree with, or a number in the app that somebody disputes. {{app}} records what people told it; it does not adjudicate.",
+            "Nothing here limits any liability that cannot be limited by law."
+          ]
+        },
+        {
+          "heading": "Contact",
+          "body": [
+            "Questions, complaints, or a report that needs a person: {{support}}."
+          ]
+        }
+      ]
+    },
+    "privacy": {
+      "title": "Privacy Policy",
+      "summary": "What {{app}} collects, why, who can see it, and how to get rid of it. The short version: the little we need to run the app, visible only to the friends you chose, and never sold, shared or used to track you.",
+      "sections": [
+        {
+          "heading": "What we collect",
+          "body": [
+            "Your email address, when you make an account. It is how you sign in and how we can reach you.",
+            "Your display name and handle, which the people in your groups see.",
+            "Your profile photo, if you set one.",
+            "What you post: bet questions and their options, descriptions, comments, likes, and any photo or video you attach to a bet.",
+            "Identifiers: an account id, and — only if you turn notifications on — a push token for the device you are using.",
+            "A phone number, for accounts created under an older version of the app that signed people in by SMS. Nothing collects one now, and an account that has one can have it removed by deleting the account.",
+            "We do not ask for, and have no way to accept, any payment details."
+          ]
+        },
+        {
+          "heading": "What we do not do",
+          "body": [
+            "We do not track you. There is no analytics service, no advertising network, and no third-party tracker anywhere in {{app}}. Nothing about you is used to build a profile, on this app or across others.",
+            "We do not sell your information, and we do not share it for anybody else's marketing.",
+            "We do not read your groups looking for things to sell you. There is nothing to sell you."
+          ]
+        },
+        {
+          "heading": "Why we hold each thing",
+          "body": [
+            "Your email address: to sign you in, to reset your password, and to reach you about your account.",
+            "Your name, handle and photo: so the people in your groups know who they are betting against.",
+            "What you post: because that is the app. A bet nobody can read is not a bet.",
+            "Your push token: to send the notification you asked for. Turn notifications off and it is deleted.",
+            "We do not hold anything because it might be useful one day."
+          ]
+        },
+        {
+          "heading": "Who can see it",
+          "body": [
+            "The people in your groups, and nobody else. There is no public feed, no global search, and no way to browse users. A bet marked private is visible only to the people invited to it.",
+            "Other people can find you by typing your exact handle, and only your exact handle — there is no prefix or partial search, deliberately, because one would let anybody walk the whole list of accounts.",
+            "Other members of your groups cannot see your email address, your phone number or your push token. The database refuses to hand those columns to anybody but you."
+          ]
+        },
+        {
+          "heading": "Where it is kept",
+          "body": [
+            "{{app}}'s database, file storage and sign-in are provided by Supabase, which hosts them on infrastructure in the region we chose when the project was created. Supabase processes this data on our instructions and does not use it for anything of its own.",
+            "Push notifications, when you turn them on, are delivered through Expo's push service. The notification carries only what it needs to: that a bet was posted, joined or called.",
+            "Photos and videos you attach are kept in private storage. Nothing in it is public — every image the app shows is fetched with a link that is generated for you, checked against the same rules as the bet itself, and expires within the hour."
+          ]
+        },
+        {
+          "heading": "How long we keep it",
+          "body": [
+            "For as long as your account exists. Delete your account and it goes, immediately, with one exception we are explicit about.",
+            "The balances on bets that have already been settled are kept. They are not only about you: they are what tells the other people in the group what they owe each other, and removing them would quietly change somebody else's ledger. The entry stays as an amount against an unnamed deleted user, with every personal detail scrubbed.",
+            "Reports of abusive content are kept after the reported account is gone, so a pattern is still visible to us."
+          ]
+        },
+        {
+          "heading": "Your rights",
+          "body": [
+            "You can see and correct most of what we hold from your profile screen, and you can delete your account from the same screen, without asking anybody.",
+            "Depending on where you live you may also have the right to a copy of your data, to object to how we use it, or to complain to a data protection authority. Write to {{support}} and we will help."
+          ]
+        },
+        {
+          "heading": "Children",
+          "body": [
+            "{{app}} is not for anybody under 13. We do not knowingly collect anything from a child under 13, and if we find out that we have, we delete the account."
+          ]
+        },
+        {
+          "heading": "Changes, and contact",
+          "body": [
+            "If this policy changes in a way that matters, we will tell you in the app rather than quietly editing the page. The date at the top tells you which version you are reading.",
+            "Questions, or a request about your data: {{support}}."
+          ]
+        }
+      ]
+    },
+    "support": {
+      "title": "Support",
+      "summary": "How to reach a person, and the answers to the things people ask most.",
+      "sections": [
+        {
+          "heading": "Contact us",
+          "body": [
+            "{{support}}",
+            "We answer within two working days, and within 24 hours for a report of abusive content."
+          ]
+        },
+        {
+          "heading": "Reporting something",
+          "body": [
+            "Press and hold a comment or a bet and choose Report. Tell us which of the reasons fits; you can block the person in the same step.",
+            "Reports are read by a person and acted on within 24 hours. Content that breaks the rules is removed and the account that posted it is removed with it.",
+            "If something needs attention faster than the app allows, write to {{support}} with the group and roughly when it was posted."
+          ]
+        },
+        {
+          "heading": "I did not get the password reset email",
+          "body": [
+            "Check the spam folder first — it is usually there.",
+            "The link is good for one hour and can only be used once. If it has expired, ask for another from the sign-in screen.",
+            "If nothing arrives at all, write to {{support}} from the address you signed up with."
+          ]
+        },
+        {
+          "heading": "Notifications are not arriving",
+          "body": [
+            "Check the switch on your profile screen first, then check {{app}} in your phone's own Settings under Notifications.",
+            "If you said no to the system prompt when it first appeared, the app cannot ask you again — the only way back is the Settings app.",
+            "Reminders about a bet's deadline stop as soon as you pick a side, which is intended."
+          ]
+        },
+        {
+          "heading": "Somebody has not paid me",
+          "body": [
+            "{{app}} cannot help with this, and it is not being unhelpful — no money passes through the app at any point. What it holds is a note of what was agreed. Settling up happens between you, outside the app.",
+            "You can record a payment, in full or in part, from the settle-up screen once the other person has paid you."
+          ]
+        },
+        {
+          "heading": "I want my account gone",
+          "body": [
+            "Profile, then Delete account. It is immediate and cannot be undone. The screen tells you exactly what is removed and what is kept before you confirm."
+          ]
+        }
+      ]
+    }
+  }
+}

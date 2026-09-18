@@ -7,6 +7,7 @@
  * helper the tables use. Nothing is public: reads are short-lived signed URLs.
  */
 import { File } from 'expo-file-system';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { Platform } from 'react-native';
 
@@ -51,7 +52,7 @@ const SIGNED_URL_TTL_SECONDS = 60 * 60;
  * screen focus, and re-signing the same twenty paths each time is a storage
  * round trip that buys nothing — the objects have not moved.
  */
-const SIGN_CACHE_MS = 45 * 60 * 1000;
+export const SIGN_CACHE_MS = 45 * 60 * 1000;
 
 const signCache = new Map<string, { url: string; expires: number }>();
 
@@ -123,9 +124,59 @@ const COMPRESSION = {
   proof: {
     quality: 0.6,
     videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
-    videoMaxDuration: 30,
+    // Fifteen seconds. Video is the overwhelming majority of this app's
+    // storage risk for a small slice of its value — SCALEABILITY.md §4 puts
+    // capping it first — and a receipt only has to be legible enough to end an
+    // argument. A bet's own illustration keeps its minute.
+    videoMaxDuration: 15,
   },
 } as const;
+
+/**
+ * Re-encodes a still so the file that leaves the phone carries no metadata.
+ *
+ * SECURITY.md finding #6. A photo taken to prove a bet in somebody's flat can
+ * carry GPS coordinates, and every member of the group can download the
+ * object. `expo-image-picker` re-encodes stills at the configured quality,
+ * which drops most metadata *in practice* — but "in practice" is not a
+ * property, and the whole finding is that nothing guaranteed it.
+ *
+ * A re-encode with no actions is the guarantee: the encoder writes a fresh
+ * file from decoded pixels, so there is no EXIF block to carry anything over.
+ * On the web the same call goes through a canvas, which drops metadata for the
+ * same reason.
+ *
+ * **Videos are not covered, and pretending otherwise would be worse than not
+ * trying.** This library does not touch them. Shortening proof clips to 15
+ * seconds is the mitigation that exists; stripping video metadata needs a
+ * transcoding step nothing here has.
+ */
+async function stripMetadata(picked: PickedMedia, quality: number): Promise<PickedMedia> {
+  if (picked.kind !== 'image') return picked;
+
+  // A failure is surfaced rather than swallowed. Falling back to the original
+  // would upload the coordinates anyway and say nothing, which is exactly the
+  // "not a guarantee" state this function exists to end.
+  const result = await ImageManipulator.manipulateAsync(picked.uri, [], {
+    compress: quality,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+
+  return {
+    ...picked,
+    uri: result.uri,
+    width: result.width || picked.width,
+    height: result.height || picked.height,
+    // The re-encode settles the format, whatever came in.
+    mimeType: 'image/jpeg',
+    fileName: picked.fileName?.replace(/\.[^.]+$/, '.jpg') ?? null,
+  };
+}
+
+/** Strips every still in a picked batch, leaving videos alone. */
+function stripBatch(picked: PickedMedia[], quality: number): Promise<PickedMedia[]> {
+  return Promise.all(picked.map((item) => stripMetadata(item, quality)));
+}
 
 /** Opens the system library. Returns [] when the user backs out. */
 export async function pickMedia(remaining: number): Promise<PickedMedia[]> {
@@ -137,7 +188,7 @@ export async function pickMedia(remaining: number): Promise<PickedMedia[]> {
   });
 
   if (result.canceled) return [];
-  return result.assets.slice(0, remaining).map(toPicked);
+  return stripBatch(result.assets.slice(0, remaining).map(toPicked), COMPRESSION.attachment.quality);
 }
 
 /**
@@ -157,7 +208,7 @@ export async function pickProofMedia(remaining: number): Promise<PickedMedia[]> 
   });
 
   if (result.canceled) return [];
-  return result.assets.slice(0, remaining).map(toPicked);
+  return stripBatch(result.assets.slice(0, remaining).map(toPicked), COMPRESSION.proof.quality);
 }
 
 /** Shoot proof there and then. The camera is the common case for a receipt. */
@@ -172,7 +223,7 @@ export async function captureProofMedia(): Promise<PickedMedia | null> {
 
   if (result.canceled) return null;
   const asset = result.assets[0];
-  return asset ? toPicked(asset) : null;
+  return asset ? stripMetadata(toPicked(asset), COMPRESSION.proof.quality) : null;
 }
 
 /** Opens the camera. Returns null when the user backs out or declines access. */
@@ -187,7 +238,7 @@ export async function captureMedia(): Promise<PickedMedia | null> {
 
   if (result.canceled) return null;
   const asset = result.assets[0];
-  return asset ? toPicked(asset) : null;
+  return asset ? stripMetadata(toPicked(asset), COMPRESSION.attachment.quality) : null;
 }
 
 /**
@@ -243,6 +294,35 @@ export async function uploadBetMedia(
     height: media.height,
     durationMs: media.durationMs,
   };
+}
+
+/**
+ * Removes objects that were uploaded but never got a row.
+ *
+ * `createBet` and `addBetProof` upload first and insert the `bet_media` rows
+ * afterwards, because the bet's id is part of the storage path and so the row
+ * has to exist before there is anywhere to put the file. That ordering is
+ * correct and it leaves a window: if the third upload of four fails, or the
+ * insert is refused, the objects already in the bucket have nothing pointing
+ * at them and nothing will ever delete them.
+ *
+ * Orphaned bytes are the better half of that failure — the bet survives — but
+ * they are bytes the group pays for forever, and SCALEABILITY.md puts storage
+ * at the top of the cost list. So the caller sweeps up what it uploaded.
+ *
+ * Best-effort and silent by design: this runs while an error is already on its
+ * way to the user, and "could not post the bet, and also could not tidy up" is
+ * two failures reported where one is actionable.
+ */
+export async function discardUploads(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  try {
+    await supabase.storage.from(BUCKET).remove(paths);
+  } catch {
+    // Nothing to do and nobody to tell. The orphan is now a storage-sweep
+    // problem rather than a user-facing one.
+  }
+  for (const path of paths) signCache.delete(path);
 }
 
 /**

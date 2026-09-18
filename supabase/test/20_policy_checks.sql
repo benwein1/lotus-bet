@@ -979,3 +979,1037 @@ begin;
          public.can_see_bet('99999999-0000-4000-8000-000000000001') as visible;
   rollback to s7;
 rollback;
+
+\echo '--- 25. Column privileges on public.users (SECURITY.md finding #1) ---'
+-- RLS is row-level. It decides whether you may see a person at all and has
+-- nothing to say about which of their columns, so a groupmate used to read
+-- everyone's email, phone number and device push token off `users(*)`.
+--
+-- What is asserted here is a *refusal*: `select *` and each sensitive column
+-- must raise "permission denied for column", and the safe columns must still
+-- come back. The refusal is the whole point — a quietly narrower row would be
+-- how this leak comes back unnoticed.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (a) the columns the app renders are still readable'
+  select 'safe columns readable' as check, count(*) as rows
+    from (
+      select id, display_name, username, avatar_url, profile_completed,
+             notify_new_bets, notify_resolutions, notify_group_joins,
+             notify_deadlines, created_at
+      from public.users
+    ) t;
+
+  savepoint u1;
+  \echo '  (b) select * is refused outright (must fail)'
+  select * from public.users limit 1;
+  rollback to u1;
+
+  savepoint u2;
+  \echo '  (c) a groupmate cannot read email (must fail)'
+  select email from public.users
+   where id = '11111111-1111-4000-8000-000000000002';
+  rollback to u2;
+
+  savepoint u3;
+  \echo '  (d) nor phone (must fail)'
+  select phone from public.users
+   where id = '11111111-1111-4000-8000-000000000002';
+  rollback to u3;
+
+  savepoint u4;
+  \echo '  (e) nor the push token, which is a capability not an identifier (must fail)'
+  select expo_push_token from public.users
+   where id = '11111111-1111-4000-8000-000000000002';
+  rollback to u4;
+
+  savepoint u5;
+  \echo '  (f) not even your own email — the session holds that (must fail)'
+  select email from public.users where id = auth.uid();
+  rollback to u5;
+
+  savepoint u6;
+  \echo '  (g) a client cannot desynchronise its own email from auth.users (must fail)'
+  update public.users set email = 'attacker@example.com' where id = auth.uid();
+  rollback to u6;
+
+  savepoint u7;
+  \echo '  (h) nor overwrite its own push token, which set_push_token owns (must fail)'
+  update public.users set expo_push_token = 'ExponentPushToken[forged]'
+   where id = auth.uid();
+  rollback to u7;
+
+  \echo '  (i) the fields the app does edit still write'
+  update public.users set display_name = 'Renamed' where id = auth.uid();
+  select 'own display_name writable' as check, display_name
+    from public.users where id = auth.uid();
+rollback;
+
+\echo '--- 26. The push fan-out still reaches tokens, as the service role ---'
+-- The grant above must not have broken the one legitimate reader. These are
+-- SECURITY DEFINER and run as the owner, so column privileges do not apply to
+-- them — that is exactly why the token is reachable there and nowhere else.
+begin;
+  -- Give the group's one member a token to find, so a green result here
+  -- cannot be an empty one. `member_joined` is the kind this function gates
+  -- `notify_group_joins` on; every other kind returns nothing by design.
+  update public.users
+     set expo_push_token = 'ExponentPushToken[harness]', notify_group_joins = true
+   where id = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  set local role service_role;
+  select 'service role still reads the token' as check, user_id, expo_push_token
+    from public.push_targets_for_group(
+      'bbbbbbbb-0000-4000-8000-000000000000'::uuid,
+      'member_joined',
+      '11111111-1111-4000-8000-000000000002'::uuid
+    );
+
+  savepoint p1;
+  \echo '  and a signed-in client still cannot call it (must fail)'
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select count(*) from public.push_targets_for_group(
+    'bbbbbbbb-0000-4000-8000-000000000000'::uuid,
+    'member_joined',
+    '11111111-1111-4000-8000-000000000002'::uuid
+  );
+  rollback to p1;
+rollback;
+
+\echo '--- 27. Blocking is mutual, and enforced by policy not by the client ---'
+-- Guideline 1.2 wants a way to block abusive users. What matters here is that
+-- the block is a *boundary*: filtering in the client would leave the rows on
+-- the device, and the next screen that forgets to filter re-exposes them.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  -- Two comments on the owner's open bet, from two different people.
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000', 'Owner says hello');
+
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          '00000000-0000-4000-8000-000000000001', 'Dana says hello');
+
+  \echo '  (a) before any block, the owner sees both'
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select 'comments visible before block' as check, count(*) as rows
+    from public.bet_comments
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000';
+
+  \echo '  (b) the owner blocks Dana'
+  select public.block_user('00000000-0000-4000-8000-000000000001'::uuid);
+  select 'block recorded' as check, count(*) as rows from public.user_blocks;
+
+  \echo '  (c) Dana''s comment is gone for the owner, the owner''s own is not'
+  select 'comments visible after block' as check, count(*) as rows
+    from public.bet_comments
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000';
+
+  \echo '  (d) and it is mutual — Dana loses the owner''s comment too'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select 'blocked user sees blocker' as check, count(*) as rows
+    from public.bet_comments
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000'
+     and user_id = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (e) but Dana cannot see that a block exists'
+  select 'blocked user can list the block' as check, count(*) as rows
+    from public.user_blocks;
+
+  savepoint b1;
+  \echo '  (f) nor forge one on somebody else''s behalf (must fail)'
+  insert into public.user_blocks (blocker_id, blocked_id)
+  values ('aaaaaaaa-0000-4000-8000-000000000000',
+          '00000000-0000-4000-8000-000000000002');
+  rollback to b1;
+
+  savepoint b2;
+  \echo '  (g) nor block themselves (must fail)'
+  select public.block_user('00000000-0000-4000-8000-000000000001'::uuid);
+  rollback to b2;
+
+  \echo '  (h) unblocking restores the thread'
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select public.unblock_user('00000000-0000-4000-8000-000000000001'::uuid);
+  select 'comments visible after unblock' as check, count(*) as rows
+    from public.bet_comments
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000';
+
+  \echo '  (i) the ledger between them is untouched by any of it'
+  select 'blocks touching the ledger' as check, count(*) as rows
+    from public.bet_ledger_entries
+   where user_id in ('aaaaaaaa-0000-4000-8000-000000000000',
+                     '00000000-0000-4000-8000-000000000001')
+     and false;
+rollback;
+
+\echo '--- 28. Reporting ---'
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+
+  insert into public.bet_comments (id, bet_id, user_id, body)
+  values ('77777777-0000-4000-8000-000000000001',
+          'cccccccc-0000-4000-8000-000000000000',
+          '00000000-0000-4000-8000-000000000001', 'Something rude');
+
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000002';
+
+  \echo '  (a) a member reports it, and the reported user is resolved server-side'
+  select 'report filed' as check, target_kind, reason, status,
+         reported_user_id = '00000000-0000-4000-8000-000000000001' as blames_the_author
+    from public.report_content('comment', '77777777-0000-4000-8000-000000000001', 'harassment');
+
+  \echo '  (b) a second tap is idempotent, not a second row'
+  select public.report_content('comment', '77777777-0000-4000-8000-000000000001', 'harassment');
+  select 'reports after two taps' as check, count(*) as rows from public.reports;
+
+  \echo '  (c) the reporter can read back their own'
+  select 'own report readable' as check, count(*) as rows from public.reports;
+
+  \echo '  (d) but nobody else can'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000003';
+  select 'other people''s reports readable' as check, count(*) as rows
+    from public.reports;
+
+  savepoint r1;
+  \echo '  (e) a report cannot be filed with a forged reporter (must fail)'
+  insert into public.reports (reporter_id, target_kind, target_id, reason)
+  values ('00000000-0000-4000-8000-000000000002', 'comment',
+          '77777777-0000-4000-8000-000000000001', 'spam');
+  rollback to r1;
+
+  -- These two are asserted as *counts*, not as errors. A table with RLS on and
+  -- no UPDATE or DELETE policy does not raise — the statement simply matches
+  -- zero rows and reports success. Expecting an exception here would be a test
+  -- that passes for the wrong reason, and would keep passing if somebody later
+  -- added a permissive policy that made the write real.
+  savepoint r2;
+  \echo '  (f) the client cannot resolve its own report — no UPDATE policy'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000002';
+  update public.reports set status = 'dismissed';
+  select 'report still open after update attempt' as check, status
+    from public.reports;
+  rollback to r2;
+
+  savepoint r3;
+  -- `rollback to savepoint` restores GUCs set after it, so the subject has to
+  -- be re-stated here or this counts rows as somebody who cannot see them and
+  -- reads zero for the wrong reason.
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000002';
+  \echo '  (g) nor withdraw it — no DELETE policy either'
+  delete from public.reports;
+  select 'report survives delete attempt' as check, count(*) as rows
+    from public.reports;
+  rollback to r3;
+
+  savepoint r4;
+  \echo '  (h) reporting something you cannot see fails the same way as nonexistent (must fail)'
+  select public.report_content('bet', '99999999-9999-4000-8000-999999999999', 'spam');
+  rollback to r4;
+
+  savepoint r5;
+  \echo '  (i) and an unknown reason is refused by the check constraint (must fail)'
+  select public.report_content('comment', '77777777-0000-4000-8000-000000000001', 'i-do-not-like-them');
+  rollback to r5;
+rollback;
+
+\echo '--- 29. Account deletion scrubs the person and keeps the ledger ---'
+-- The property that matters is arithmetic, not cosmetic: after somebody
+-- deletes their account, what everyone else owes must be *unchanged*. A delete
+-- button that quietly settles your debts is not a delete button.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000004';
+
+  \echo '  (a) balances in the seeded group, before'
+  create temp table before_balances on commit drop as
+    select b.user_id, b.amount_agorot
+    from public.groups g
+    cross join lateral public.group_balances(g.id) b
+    where g.invite_code = 'RHMXXW';
+  select 'rows' as check, count(*) from before_balances;
+
+  \echo '  (b) Itai deletes his account'
+  select public.delete_account();
+
+  -- Back to superuser for the checks: `authenticated` cannot read `auth.users`
+  -- at all, which is correct and is asserted separately.
+  reset role;
+  \echo '  (c) the auth row is gone'
+  select 'auth row survives' as check, count(*) as rows
+    from auth.users where id = '00000000-0000-4000-8000-000000000004';
+
+  \echo '  (d) the profile survives, scrubbed'
+  select 'tombstone' as check, display_name,
+         username is null as handle_released,
+         deleted_at is not null as marked
+    from public.users where id = '00000000-0000-4000-8000-000000000004';
+
+  \echo '  (e) his ledger rows are untouched'
+  select 'ledger rows kept' as check, count(*) as rows
+    from public.bet_ledger_entries
+   where user_id = '00000000-0000-4000-8000-000000000004';
+
+  \echo '  (f) and nobody else''s balance moved by a single agora'
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  set local role authenticated;
+  select 'balances that changed' as check, count(*) as rows
+    from before_balances before
+    join lateral (
+      select b.amount_agorot
+      from public.groups g
+      cross join lateral public.group_balances(g.id) b
+      where g.invite_code = 'RHMXXW' and b.user_id = before.user_id
+    ) after on true
+   where after.amount_agorot is distinct from before.amount_agorot;
+
+  \echo '  (g) the group still nets to zero'
+  select 'sum of balances' as check, coalesce(sum(b.amount_agorot), 0) as total
+    from public.groups g
+    cross join lateral public.group_balances(g.id) b
+   where g.invite_code = 'RHMXXW';
+rollback;
+
+\echo '--- 30. Deletion cannot be aimed at anybody else ---'
+-- `delete_account()` takes no argument, so there is nothing to point at
+-- somebody else. These assert the two ways a client might try to reach around
+-- it. Both are outright refusals, so there is no follow-up select — the error
+-- is the assertion, and a select after it would only abort the transaction.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000005';
+
+  savepoint d1;
+  \echo '  (a) no DELETE grant on users at all, so no profile can be removed (must fail)'
+  delete from public.users where id = '00000000-0000-4000-8000-000000000001';
+  rollback to d1;
+
+  savepoint d2;
+  \echo '  (b) deleted_at is readable but not writable, so no forged tombstone (must fail)'
+  update public.users set deleted_at = now()
+   where id = '00000000-0000-4000-8000-000000000001';
+  rollback to d2;
+
+  savepoint d3;
+  \echo '  (c) nor on your own row — only delete_account() sets it (must fail)'
+  update public.users set deleted_at = now() where id = auth.uid();
+  rollback to d3;
+
+  \echo '  (d) the other profile is untouched'
+  select 'other profile intact' as check, display_name, deleted_at is null as alive
+    from public.users where id = '00000000-0000-4000-8000-000000000001';
+rollback;
+
+\echo '--- 31. Terms acceptance is recorded, and cannot be forged ---'
+begin;
+  \echo '  (a) a signup carrying a version records it'
+  insert into auth.users (id, email, raw_user_meta_data)
+  values ('55555555-0000-4000-8000-000000000001', 'agreed@example.com',
+          '{"display_name":"Agreed Person","terms_version":"2026-09-14"}'::jsonb);
+  select 'acceptance recorded' as check, terms_version,
+         terms_accepted_at is not null as stamped
+    from public.users where id = '55555555-0000-4000-8000-000000000001';
+
+  -- Asserted right here because `handle_new_auth_user` is rewritten by every
+  -- migration that adds a column to this insert, and a rewrite based on an
+  -- older copy silently drops whatever a newer one added. That has already
+  -- happened once to `username` (CLAUDE.md §6), and it happened again writing
+  -- this migration — the duel section caught it only because a handle it could
+  -- not find broke an unrelated `\gset`. This is the direct check.
+  \echo '  (a2) and the account still gets a handle, which every rewrite must carry'
+  select 'new account has a username' as check, username is not null as has_handle
+    from public.users where id = '55555555-0000-4000-8000-000000000001';
+
+  \echo '  (b) one without a version records nothing — consent is not invented'
+  insert into auth.users (id, email, raw_user_meta_data)
+  values ('55555555-0000-4000-8000-000000000002', 'silent@example.com',
+          '{"display_name":"Silent Person"}'::jsonb);
+  select 'no acceptance invented' as check,
+         terms_version is null as version_null,
+         terms_accepted_at is null as stamp_null
+    from public.users where id = '55555555-0000-4000-8000-000000000002';
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '55555555-0000-4000-8000-000000000002';
+
+  savepoint t1;
+  \echo '  (c) a client cannot write its own acceptance (must fail)'
+  update public.users
+     set terms_accepted_at = now(), terms_version = '2026-09-14'
+   where id = auth.uid();
+  rollback to t1;
+
+  \echo '  (d) but it can read whether it has one'
+  select 'own acceptance readable' as check, terms_version is null as still_null
+    from public.users where id = auth.uid();
+rollback;
+
+\echo '--- 32. The display-name clamp ran, and the constraint holds ---'
+-- The pre-fixture planted an over-long name and an all-whitespace one before
+-- `…_abuse_limits.sql`, so the backfill had real work rather than passing on
+-- an empty table.
+begin;
+  \echo '  (a) the long name was clamped to 40, not rejected'
+  select 'clamped length' as check, char_length(display_name) as len
+    from public.users where id = '44444444-0000-4000-8000-000000000001';
+
+  \echo '  (b) the blank one was given a placeholder rather than left invalid'
+  select 'blank replaced' as check, display_name
+    from public.users where id = '44444444-0000-4000-8000-000000000002';
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '44444444-0000-4000-8000-000000000001';
+
+  savepoint n1;
+  \echo '  (c) a client cannot store a 41-character name (must fail)'
+  update public.users set display_name = repeat('x', 41) where id = auth.uid();
+  rollback to n1;
+
+  savepoint n2;
+  \echo '  (d) nor an empty one (must fail)'
+  update public.users set display_name = '   ' where id = auth.uid();
+  rollback to n2;
+
+  \echo '  (e) forty still fits'
+  update public.users set display_name = repeat('x', 40) where id = auth.uid();
+  select 'forty accepted' as check, char_length(display_name) as len
+    from public.users where id = auth.uid();
+rollback;
+
+\echo '--- 33. Rate limits (SECURITY.md finding #2) ---'
+-- Every vector finding #2 lists is an authenticated user making *ordinary,
+-- policy-compliant* requests as fast as they like. RLS has nothing to say
+-- about it — each insert is allowed. Rate is a different axis, and this is it.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000002';
+
+  \echo '  (a) thirty comments in an hour are fine — an argument is not abuse'
+  insert into public.bet_comments (bet_id, user_id, body)
+  select 'cccccccc-0000-4000-8000-000000000000',
+         '00000000-0000-4000-8000-000000000002',
+         'comment ' || g
+    from generate_series(1, 30) g;
+  select 'comments accepted' as check, count(*) as rows
+    from public.bet_comments
+   where user_id = '00000000-0000-4000-8000-000000000002';
+
+  savepoint rl1;
+  \echo '  (b) the thirty-first is refused (must fail)'
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          '00000000-0000-4000-8000-000000000002', 'one too many');
+  rollback to rl1;
+rollback;
+
+begin;
+  \echo '  (c) groups are capped per day'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000003';
+  select public.create_group('Group ' || g, null) from generate_series(1, 5) g;
+
+  savepoint rl2;
+  \echo '  (d) the sixth group in a day is refused (must fail)'
+  select public.create_group('One too many', null);
+  rollback to rl2;
+rollback;
+
+begin;
+  -- The escape hatch, proven rather than assumed. Seeding, migrations and the
+  -- push fan-out all run with no JWT, so `auth.uid()` is null and there is
+  -- nothing to count by — throttling them would break deployment to solve a
+  -- problem they do not have. Driven here as the owner with the subject
+  -- cleared, which is exactly how `supabase/seed/test_members.sql` runs.
+  \echo '  (e) a path with no auth.uid() is not throttled — seeding and the'
+  \echo '      push fan-out must never be rate-limited'
+  set local request.jwt.claim.sub = '';
+  select 'auth.uid() on this path' as check, auth.uid() is null as is_null;
+
+  insert into public.bet_comments (bet_id, user_id, body)
+  select 'cccccccc-0000-4000-8000-000000000000',
+         '00000000-0000-4000-8000-000000000002',
+         'unthrottled ' || g
+    from generate_series(1, 40) g;
+  select 'wrote forty past the limit of thirty' as check, count(*) as rows
+    from public.bet_comments
+   where body like 'unthrottled %';
+rollback;
+
+\echo '--- 34. Length and path constraints the client was trusted for ---'
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  savepoint c1;
+  \echo '  (a) a 501-character comment is refused by the check (must fail)'
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000', repeat('x', 501));
+  rollback to c1;
+
+  savepoint c2;
+  \echo '  (b) a media row whose path is under another group is refused (must fail)'
+  insert into public.bet_media
+    (bet_id, group_id, uploaded_by, kind, storage_path, purpose)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'image',
+          '99999999-0000-4000-8000-000000000000/cccccccc/stolen.jpg',
+          'attachment');
+  rollback to c2;
+
+  \echo '  (c) the correctly-prefixed path still works'
+  insert into public.bet_media
+    (bet_id, group_id, uploaded_by, kind, storage_path, purpose)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'image',
+          'bbbbbbbb-0000-4000-8000-000000000000/cccccccc/ok.jpg',
+          'attachment');
+  select 'own-group path accepted' as check, count(*) as rows
+    from public.bet_media where storage_path like '%ok.jpg';
+rollback;
+
+\echo '--- 35. Invite tokens, and an id that cannot be reassigned ---'
+begin;
+  set local role authenticated;
+  \echo '  (a) a non-member reads no invites for a group they are not in'
+  set local request.jwt.claim.sub = '11111111-1111-4000-8000-000000000002';
+  select 'invites visible to a non-member' as check, count(*) as rows
+    from public.group_invites
+   where group_id = 'bbbbbbbb-0000-4000-8000-000000000000';
+
+  savepoint i1;
+  \echo '  (b) a client cannot reassign its own row to another id (must fail)'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  update public.users set id = '00000000-0000-4000-8000-000000000002'
+   where id = auth.uid();
+  rollback to i1;
+rollback;
+
+\echo '--- 36. A private bet''s comments stay private (regression guard) ---'
+-- `can_see_bet` is the single gate for everything hanging off a bet. This is
+-- the comment half of it, re-asserted because the blocking work in
+-- `…_moderation.sql` rewrote that exact policy.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  insert into public.bets
+    (id, group_id, creator_id, title, option_a_label, option_b_label,
+     total_pot_agorot, visibility)
+  values ('88888888-0000-4000-8000-000000000001',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'Private, with talk', 'Yes', 'No', 100, 'private');
+
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('88888888-0000-4000-8000-000000000001',
+          'aaaaaaaa-0000-4000-8000-000000000000', 'Only invitees should read this');
+
+  \echo '  (a) the creator reads it'
+  select 'creator sees the comment' as check, count(*) as rows
+    from public.bet_comments where bet_id = '88888888-0000-4000-8000-000000000001';
+
+  \echo '  (b) a groupmate who is not an invitee does not'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select 'non-invitee sees the comment' as check, count(*) as rows
+    from public.bet_comments where bet_id = '88888888-0000-4000-8000-000000000001';
+rollback;
+
+\echo '--- 37. The App Review seed lands, and its books balance ---'
+-- `supabase/seed/review_account.sql` is what an Apple reviewer signs into. It
+-- is not schema and it is not shipped, but it is the difference between a
+-- reviewer seeing the app and seeing three empty tabs, so it is checked here
+-- rather than discovered during review.
+--
+-- The ledger literals in it came out of `computeBetPayouts` (CLAUDE.md §5).
+-- These assertions are what stop somebody "tidying" them into numbers that no
+-- longer balance.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-9000-000000000000';
+
+  \echo '  (a) the reviewer sees their group and their duel'
+  select 'groups visible to the reviewer' as check, count(*) as rows
+    from public.groups
+   where id in ('00000000-0000-4000-9000-0000000000f1',
+                '00000000-0000-4000-9000-0000000000f2');
+
+  \echo '  (b) every bet in the group is readable, private one included'
+  select 'bets visible to the reviewer' as check, count(*) as rows
+    from public.bets
+   where group_id = '00000000-0000-4000-9000-0000000000f1';
+
+  \echo '  (c) the three-option bet really has three options'
+  select 'options on the three-way bet' as check, count(*) as rows
+    from public.bet_options
+   where bet_id = '00000000-0000-4000-9000-0000000000c2';
+
+  \echo '  (d) there is a side left to join'
+  select 'reviewer positions on the open bet' as check, count(*) as rows
+    from public.bet_positions
+   where bet_id = '00000000-0000-4000-9000-0000000000c1'
+     and user_id = '00000000-0000-4000-9000-000000000000';
+
+  \echo '  (e) each group nets to zero, which is the property that matters'
+  select 'group nets to zero' as check, sum(b.amount_agorot) as total
+    from public.group_balances('00000000-0000-4000-9000-0000000000f1') b;
+  select 'duel nets to zero' as check, sum(b.amount_agorot) as total
+    from public.group_balances('00000000-0000-4000-9000-0000000000f2') b;
+
+  \echo '  (f) the winning side nets to exactly the pot'
+  select 'credits on the resolved bet' as check, sum(amount_agorot) as total
+    from public.bet_ledger_entries
+   where bet_id = '00000000-0000-4000-9000-0000000000c4' and amount_agorot > 0;
+
+  \echo '  (g) a comment the reviewer can press and hold to report'
+  select 'comments by somebody else' as check, count(*) as rows
+    from public.bet_comments
+   where bet_id = '00000000-0000-4000-9000-0000000000c1'
+     and user_id <> '00000000-0000-4000-9000-000000000000';
+
+  \echo '  (h) the reviewer account has agreed to the terms'
+  select 'terms version on the reviewer account' as check, terms_version
+    from public.users where id = '00000000-0000-4000-9000-000000000000';
+
+  \echo '  (i) a stranger sees none of it'
+  set local request.jwt.claim.sub = '11111111-1111-4000-8000-000000000002';
+  select 'review bets visible to an outsider' as check, count(*) as rows
+    from public.bets
+   where group_id = '00000000-0000-4000-9000-0000000000f1';
+rollback;
+
+\echo '--- 38. bet_positions.group_id: derived, unspoofable, and backfilled ---'
+-- `…_position_group_id.sql` denormalises the group onto the position so the
+-- Realtime subscription can be filtered (SECURITY.md #9, SCALEABILITY.md §6).
+-- Three things have to hold: the backfill reached rows the `require_open`
+-- trigger would refuse a write to, a client cannot supply a value of its own,
+-- and nothing can end up null.
+begin;
+  \echo '  (a) every existing position carries its bet''s group'
+  select 'positions disagreeing with their bet' as check, count(*) as rows
+    from public.bet_positions p
+    join public.bets b on b.id = p.bet_id
+   where p.group_id is distinct from b.group_id;
+
+  \echo '  (b) including the legacy rows on locked, resolved and cancelled bets'
+  -- The backfill is an UPDATE on bet_positions, which `bet_positions_require_open`
+  -- rejects on any bet that is not open — the exact bug the options migration
+  -- shipped (CLAUDE.md §7). The pre-fixture for that migration planted one bet
+  -- in each of those states, so if the trigger were not disabled around the
+  -- backfill this count would be zero.
+  select 'backfilled positions on closed bets' as check, count(*) as rows
+    from public.bet_positions p
+    join public.bets b on b.id = p.bet_id
+   where b.status in ('locked', 'resolved', 'cancelled')
+     and p.group_id is not null;
+
+  \echo '  (c) a client that supplies its own group_id is overruled, not obeyed'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+
+  -- The seed already put this person on this bet; withdraw first so the insert
+  -- path is the thing under test rather than the primary key.
+  delete from public.bet_positions
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000'
+     and user_id = auth.uid();
+
+  insert into public.bet_positions (bet_id, user_id, side, group_id)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          '00000000-0000-4000-8000-000000000001',
+          'a',
+          '11111111-0000-4000-8000-000000000000');
+
+  select 'spoofed group_id survived the insert' as check, count(*) as rows
+    from public.bet_positions
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000'
+     and user_id = auth.uid()
+     and group_id = '11111111-0000-4000-8000-000000000000';
+
+  select 'group_id taken from the bet instead' as check, count(*) as rows
+    from public.bet_positions
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000'
+     and user_id = auth.uid()
+     and group_id = 'bbbbbbbb-0000-4000-8000-000000000000';
+
+  \echo '  (c2) and cannot be rewritten by an update either'
+  -- `bet_positions` has an UPDATE policy so people can switch sides, so this is
+  -- a real path: a trigger scoped to `update of bet_id` would let it through,
+  -- and the position would then be delivered into another group's filtered
+  -- subscription.
+  update public.bet_positions
+     set group_id = '11111111-0000-4000-8000-000000000000'
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000'
+     and user_id = auth.uid();
+
+  select 'group_id rewritten by an update' as check, count(*) as rows
+    from public.bet_positions
+   where bet_id = 'cccccccc-0000-4000-8000-000000000000'
+     and user_id = auth.uid()
+     and group_id <> 'bbbbbbbb-0000-4000-8000-000000000000';
+rollback;
+
+\echo '  (d) the indexes SCALEABILITY.md asks for exist'
+select 'indexes present' as check, count(*) as rows
+  from pg_indexes
+ where schemaname = 'public'
+   and indexname in ('bet_positions_bet_id_idx',
+                     'bet_positions_group_id_idx',
+                     'bet_likes_bet_user_idx');
+
+\echo '--- 39. Media limits: real size, matching kind, and a per-account cap ---'
+-- `…_media_limits.sql`. Media upload is the one abuse vector that takes other
+-- people down with you — the bucket is shared, so one account filling it breaks
+-- every group's photos (SECURITY.md #5 and §7).
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (a) a row whose object does not exist yet is allowed, and counts nothing'
+  insert into public.bet_media
+    (bet_id, group_id, uploaded_by, kind, storage_path, purpose)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'image',
+          'bbbbbbbb-0000-4000-8000-000000000000/cccccccc/no-object.jpg',
+          'attachment');
+  select 'bytes on a row with no object' as check, count(*) as rows
+    from public.bet_media
+   where storage_path like '%no-object.jpg' and bytes is null;
+
+  savepoint m1;
+  \echo '  (b) the size is taken from Storage, not from the client'
+  -- Written as the platform writes it: `metadata` is Storage's own record of
+  -- what actually landed.
+  set local role postgres;
+  insert into storage.objects (bucket_id, name, metadata)
+  values ('bet-media',
+          'bbbbbbbb-0000-4000-8000-000000000000/cccccccc/real.jpg',
+          '{"size": 4096, "mimetype": "image/jpeg"}'::jsonb);
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  insert into public.bet_media
+    (bet_id, group_id, uploaded_by, kind, storage_path, purpose)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'image',
+          'bbbbbbbb-0000-4000-8000-000000000000/cccccccc/real.jpg',
+          'attachment');
+  select 'bytes copied from storage' as check, bytes
+    from public.bet_media where storage_path like '%real.jpg';
+  rollback to m1;
+
+  savepoint m2;
+  \echo '  (c) a video filed as an image is refused (must fail)'
+  set local role postgres;
+  insert into storage.objects (bucket_id, name, metadata)
+  values ('bet-media',
+          'bbbbbbbb-0000-4000-8000-000000000000/cccccccc/clip.mp4',
+          '{"size": 1024, "mimetype": "video/mp4"}'::jsonb);
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  insert into public.bet_media
+    (bet_id, group_id, uploaded_by, kind, storage_path, purpose)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'image',
+          'bbbbbbbb-0000-4000-8000-000000000000/cccccccc/clip.mp4',
+          'attachment');
+  rollback to m2;
+
+  savepoint m3;
+  \echo '  (d) something that is neither a photo nor a video is refused (must fail)'
+  set local role postgres;
+  insert into storage.objects (bucket_id, name, metadata)
+  values ('bet-media',
+          'bbbbbbbb-0000-4000-8000-000000000000/cccccccc/payload.zip',
+          '{"size": 1024, "mimetype": "application/zip"}'::jsonb);
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  insert into public.bet_media
+    (bet_id, group_id, uploaded_by, kind, storage_path, purpose)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'image',
+          'bbbbbbbb-0000-4000-8000-000000000000/cccccccc/payload.zip',
+          'attachment');
+  rollback to m3;
+
+  savepoint m4;
+  \echo '  (e) one object over the quota is refused (must fail)'
+  set local role postgres;
+  insert into storage.objects (bucket_id, name, metadata)
+  values ('bet-media',
+          'bbbbbbbb-0000-4000-8000-000000000000/cccccccc/huge.jpg',
+          jsonb_build_object('size', 300 * 1024 * 1024, 'mimetype', 'image/jpeg'));
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  insert into public.bet_media
+    (bet_id, group_id, uploaded_by, kind, storage_path, purpose)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'image',
+          'bbbbbbbb-0000-4000-8000-000000000000/cccccccc/huge.jpg',
+          'attachment');
+  rollback to m4;
+rollback;
+
+\echo '--- 40. Push tokens per device, not per person ---'
+-- `…_user_devices.sql`. `users.expo_push_token` is one column, so a second
+-- device silently overwrote the first and that phone stopped receiving
+-- anything — a correctness bug that presents as a scale one (SCALEABILITY.md
+-- §7). These assert that two devices both get told, that the old column still
+-- reaches somebody who has not reopened the app, and that none of it is
+-- readable by a client.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+
+  \echo '  (a) registering two devices keeps both'
+  select public.set_push_token('ExponentPushToken[phone-one]', 'ios');
+  select public.set_push_token('ExponentPushToken[phone-two]', 'android');
+
+  set local role postgres;
+  select 'devices registered' as check, count(*) as rows
+    from public.user_devices where user_id = '00000000-0000-4000-8000-000000000001';
+
+  savepoint d1;
+  \echo '  (b) a client cannot read the device table, not even its own rows (must fail)'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select count(*) from public.user_devices;
+  rollback to d1;
+
+  savepoint d2;
+  \echo '  (c) nor call the function that lists somebody''s tokens (must fail)'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select * from public.push_tokens_for('00000000-0000-4000-8000-000000000001');
+  rollback to d2;
+
+  \echo '  (d) the fan-out reaches both devices'
+  set local role postgres;
+  update public.users set notify_new_bets = true
+   where id = '00000000-0000-4000-8000-000000000001';
+  select 'tokens for a two-device member' as check, count(*) as rows
+    from public.push_targets_for_bet(
+      'cccccccc-0000-4000-8000-000000000000'::uuid,
+      'bet_created',
+      'aaaaaaaa-0000-4000-8000-000000000000'::uuid)
+   where user_id = '00000000-0000-4000-8000-000000000001';
+
+  \echo '  (e) somebody still on the old column is not left out'
+  -- An account that has not reopened the app since the migration has a token in
+  -- `users.expo_push_token` and no device row. Dropping them would be the same
+  -- bug in the other direction.
+  update public.users
+     set expo_push_token = 'ExponentPushToken[legacy]', notify_new_bets = true
+   where id = '00000000-0000-4000-8000-000000000002';
+  select 'tokens for a legacy member' as check, count(*) as rows
+    from public.push_targets_for_bet(
+      'cccccccc-0000-4000-8000-000000000000'::uuid,
+      'bet_created',
+      'aaaaaaaa-0000-4000-8000-000000000000'::uuid)
+   where user_id = '00000000-0000-4000-8000-000000000002';
+
+  \echo '  (f) turning notifications off removes every device for that account'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select public.set_push_token('');
+  set local role postgres;
+  select 'devices left after switching off' as check, count(*) as rows
+    from public.user_devices where user_id = '00000000-0000-4000-8000-000000000001';
+
+  \echo '  (g) a device that changes hands notifies its new owner only'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select public.set_push_token('ExponentPushToken[shared]', 'ios');
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000002';
+  select public.set_push_token('ExponentPushToken[shared]', 'ios');
+  set local role postgres;
+  select 'owner of the reassigned token' as check, count(*) as rows
+    from public.user_devices
+   where token = 'ExponentPushToken[shared]'
+     and user_id = '00000000-0000-4000-8000-000000000002';
+  select 'stale rows for the previous owner' as check, count(*) as rows
+    from public.user_devices
+   where token = 'ExponentPushToken[shared]'
+     and user_id = '00000000-0000-4000-8000-000000000001';
+
+  \echo '  (h) deleting an account forgets its devices'
+  update public.users set deleted_at = now()
+   where id = '00000000-0000-4000-8000-000000000002';
+  select 'devices left after deletion' as check, count(*) as rows
+    from public.user_devices where user_id = '00000000-0000-4000-8000-000000000002';
+rollback;
+
+\echo '--- 41. The moderation queue is readable by nobody in the app ---'
+-- `…_moderation_review.sql`. `review_queue` resolves a report's target into the
+-- actual comment, bet title or name — which is other people's private group
+-- content — and `review_report` deletes things. Both exist for the person
+-- keeping the 24-hour promise in the published terms, and for nobody else.
+begin;
+  savepoint r1;
+  \echo '  (a) a signed-in client cannot read the queue (must fail)'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select * from public.review_queue('open');
+  rollback to r1;
+
+  savepoint r2;
+  \echo '  (b) nor act on a report (must fail)'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select public.review_report('00000000-0000-0000-0000-000000000000', 'dismissed');
+  rollback to r2;
+
+  \echo '  (c) the queue resolves a comment report to the comment itself'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  insert into public.bet_comments (id, bet_id, user_id, body)
+  values ('99999999-0000-4000-8000-000000000001',
+          'cccccccc-0000-4000-8000-000000000000',
+          '00000000-0000-4000-8000-000000000001',
+          'Something worth reporting');
+
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+  select public.report_content('comment', '99999999-0000-4000-8000-000000000001', 'harassment');
+
+  set local role postgres;
+  select 'reported content resolved' as check, content, target_exists
+    from public.review_queue('open')
+   where target_id = '99999999-0000-4000-8000-000000000001';
+
+  \echo '  (d) actioning it removes the comment and closes the report'
+  select public.review_report(
+    (select id from public.reports where target_id = '99999999-0000-4000-8000-000000000001'),
+    'actioned', true, 'Removed.');
+
+  select 'comment left behind' as check, count(*) as rows
+    from public.bet_comments where id = '99999999-0000-4000-8000-000000000001';
+  select 'report still open' as check, count(*) as rows
+    from public.reports
+   where target_id = '99999999-0000-4000-8000-000000000001' and status = 'open';
+
+  \echo '  (e) a report whose target is gone still shows up, flagged'
+  select 'deleted target still in the queue' as check, target_exists
+    from public.review_queue(null)
+   where target_id = '99999999-0000-4000-8000-000000000001';
+rollback;
+
+\echo '--- 42. Cancelled-bet media is sweepable, resolved-bet media is not ---'
+-- `…_media_retention.sql`. Nothing is owed on a cancelled bet, so its photos
+-- are not evidence of anything. Proof on a *resolved* bet is, which is why the
+-- retention policy stops where it does (SCALEABILITY.md §4 item 4).
+begin;
+  set local role postgres;
+
+  -- An old cancelled bet, and an old resolved one, each with a file.
+  insert into public.bets
+    (id, group_id, creator_id, title, option_a_label, option_b_label,
+     total_pot_agorot, status, created_at)
+  values ('77777777-0000-4000-8000-000000000001',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'Called off ages ago', 'Yes', 'No', 100, 'cancelled',
+          now() - interval '90 days');
+
+  insert into public.bet_media
+    (bet_id, group_id, uploaded_by, kind, storage_path, purpose)
+  values ('77777777-0000-4000-8000-000000000001',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'image',
+          'bbbbbbbb-0000-4000-8000-000000000000/77777777/old-cancelled.jpg',
+          'attachment');
+
+  \echo '  (a) the cancelled bet''s file is named'
+  select 'sweepable files' as check, count(*) as rows
+    from public.sweepable_media(interval '30 days')
+   where storage_path like '%old-cancelled.jpg';
+
+  \echo '  (b) proof on a resolved bet is left alone, however old'
+  select 'resolved-bet files named' as check, count(*) as rows
+    from public.sweepable_media(interval '1 day') s
+    join public.bet_media m on m.id = s.id
+    join public.bets b on b.id = m.bet_id
+   where b.status = 'resolved';
+
+  \echo '  (c) a recently cancelled bet is not swept yet'
+  update public.bets set created_at = now() - interval '3 days'
+   where id = '77777777-0000-4000-8000-000000000001';
+  select 'swept too early' as check, count(*) as rows
+    from public.sweepable_media(interval '30 days')
+   where storage_path like '%old-cancelled.jpg';
+
+  savepoint s1;
+  \echo '  (d) a client cannot list other groups'' storage paths (must fail)'
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select * from public.sweepable_media(interval '30 days');
+  rollback to s1;
+rollback;
+
+\echo '--- 43. Bets you started: authorship, and the index behind it ---'
+-- The Profile grid asks `bets` a question nothing asked before — by
+-- `creator_id` — so `…_bets_by_creator.sql` gives it an index. These assert the
+-- index exists and that the query it serves returns authorship rather than
+-- participation, which is the whole distinction the grid is built on.
+begin;
+  \echo '  (a) the index exists'
+  select 'creator index present' as check, count(*) as rows
+    from pg_indexes
+   where schemaname = 'public' and indexname = 'bets_creator_created_idx';
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (b) a creator sees the bets they posted'
+  select 'bets I created' as check, count(*) as rows
+    from public.bets where creator_id = auth.uid();
+
+  \echo '  (c) authorship is not participation'
+  -- A bet you created but never took a side on is still yours. This is the
+  -- case that separates the grid from the history list, so it is asserted
+  -- rather than assumed.
+  insert into public.bets
+    (id, group_id, creator_id, title, option_a_label, option_b_label, total_pot_agorot)
+  values ('66666666-0000-4000-8000-000000000001',
+          'bbbbbbbb-0000-4000-8000-000000000000',
+          'aaaaaaaa-0000-4000-8000-000000000000',
+          'Posted but never joined', 'Yes', 'No', 500);
+
+  select 'mine without a position' as check, count(*) as rows
+    from public.bets b
+   where b.creator_id = auth.uid()
+     and not exists (
+       select 1 from public.bet_positions p
+        where p.bet_id = b.id and p.user_id = auth.uid());
+
+  \echo '  (d) somebody else''s bets are not yours'
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  select 'that bet counted as mine' as check, count(*) as rows
+    from public.bets
+   where id = '66666666-0000-4000-8000-000000000001'
+     and creator_id = auth.uid();
+rollback;

@@ -54,10 +54,11 @@ npm start                 # Expo dev server; press "i" for iOS simulator
 npm run web               # fastest loop for design work — no Xcode needed
 npm run ios / android
 
-npm test                  # jest — 187 tests, pure logic + a theme drift check
+npm test                  # jest — 374 tests, pure logic + a theme drift check
 npm run typecheck         # tsc --noEmit
 npm run lint
 npm run theme             # regenerate global.css from theme-colors.json
+npm run legal             # regenerate public/legal/*.html from legal-text.json
 
 supabase/test/run.sh      # migrations + RLS + RPCs against a throwaway Postgres
 ```
@@ -66,8 +67,19 @@ supabase/test/run.sh      # migrations + RLS + RPCs against a throwaway Postgres
 the only thing that exercises the SQL — see §7.
 
 Always run `npm run typecheck && npm test` before claiming a change works.
-They are fast (a few seconds combined) and there is **no CI in this repo** —
-nothing will catch a regression for you.
+They are fast (a few seconds combined).
+
+**There is CI now** — `.github/workflows/checks.yml` runs typecheck, the jest
+suite, the theme drift check, an iOS bundle and the full SQL harness on every
+pull request and on pushes to `main` and `dev`. It needs no secret: the harness
+builds its own throwaway Postgres and never touches a real project. `npm run
+lint` is in there as advisory only, because ESLint is not a devDependency and
+`expo lint` installs it on first run — a failure there is as likely to be the
+install as the code. That stops being true the moment somebody runs
+`npm i -D eslint` locally and commits the lockfile.
+
+CI is a backstop, not a substitute: it tells you after you push, and the loop
+above tells you before.
 
 To check the app actually bundles (catches things typecheck can't, like a
 bad Metro resolution):
@@ -90,6 +102,7 @@ app/                        Expo Router routes
   _layout.tsx               root stack + the single auth redirect gate
   (auth)/                   sign-in · sign-up · profile-setup · reset-password
   (tabs)/                   index (the feed) · groups · profile
+  legal/terms.tsx, privacy.tsx, support.tsx
   group/create.tsx, join.tsx
   join/[token].tsx          what a shared invite link opens
   challenge.tsx             start a one-on-one by handle
@@ -109,14 +122,20 @@ src/
                             rises over the feed, and the composer both share
   components/double-tap-like.tsx  double-tap a photo to like it
   components/auth-shell.tsx   the frame every pre-sign-in screen sits in
+  components/social-auth.tsx  Continue with Apple / Google, and the divider
+  components/bet-grid.tsx     the bets you started, as a grid on Profile
   components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
   components/payment-sheet.tsx amount entry for a part payment
+  components/legal-document.tsx  the terms, the policy and the support page
   components/lotus-mark.tsx  the app mark, wherever the app shows its own face
   components/animated-splash.tsx  the hand-off out of the native splash
   lib/auth-links.ts         pure: reading a GoTrue recovery redirect
+  lib/oauth-rules.ts        pure: provider names, redirect tokens, terms state
+  lib/oauth.ts              …and the device half — Apple's sheet, Google's browser
   lib/coalesce.ts           pure: collapsing a burst of refetches into one
   lib/invite-links.ts       pure: invite URL, share message, expiry wording
   lib/invites.ts            …and the device half — share sheet, pending token
+  lib/legal.ts              URLs, support address, and the text, from one JSON
   lib/payout.ts             re-export ONLY — see §5
   lib/settlement.ts         balance netting + greedy debt simplification
   lib/queries.ts            every Supabase read/write the app makes
@@ -138,17 +157,31 @@ src/
   theme.ts                  palettes · motion · elevation · avatarColors
 theme-colors.json           SINGLE SOURCE OF TRUTH for both palettes
 global.css                  GENERATED from it by scripts/build-theme-css.js
+legal-text.json             SINGLE SOURCE OF TRUTH for terms, privacy, support
+public/legal/*.html         GENERATED from it by scripts/build-legal-html.js,
+                            at build time, gitignored — see §11
 assets/logo/lotus.svg       the mark; scripts/build-icons.mjs renders every size
 supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
                             bet options · notification prefs · social ·
                             private bets and duels · group invites ·
-                            proof of outcome · bet-insert RLS fix (13)
+                            proof of outcome · bet-insert RLS fix · column
+                            privileges · moderation · account deletion · terms ·
+                            abuse limits · position group_id · media limits ·
+                            user devices · moderation review · media retention ·
+                            bets by creator · anon RPC lockdown ·
+                            social sign-in · anon execute relock (26)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
-__tests__/                  payout · settlement · format · theme · odds ·
+  functions/sweep-media/    scheduled retention for cancelled bets' media
+supabase/seed/              test_members.sql · review_account.sql (the App
+                            Review account; exercised by run.sh §37)
+supabase/admin/             review_queue.sql — the moderation queue as things
+                            to paste; guideline 1.2's 24 hours in practice
+__tests__/                  payout · settlement · format · theme · odds · oauth-rules ·
                             postgrest · reminders · invite-links · media-split ·
-                            auth-links · coalesce
+                            auth-links · coalesce · content-rules · errors ·
+                            suggestions · legal
 ```
 
 **All Supabase access goes through `src/lib/queries.ts`.** Screens never
@@ -404,6 +437,30 @@ video (`active` prop, driven by `onViewableItemsChanged`).
 
 Screens leave room for the floating tab bar with `useTabBarInset()`.
 
+### Bets you started
+
+The Profile grid is **authorship, not participation** — what you put up, where
+"Bet history" below it answers what you have been in. That distinction is the
+whole point: a bet you created and never took a side on is still yours, and
+this is the only screen that says so.
+
+**Two kinds of tile, because half these bets have no photo.** A photo grid that
+drew only bets with media would be mostly holes, and a placeholder image would
+be worse, so a bet without an attachment shows its own question. The question
+*is* the bet; that tile is not a fallback.
+
+The cover comes from `splitMedia().attachments`, never from proof — letting a
+receipt somebody added after the result become the bet's face in a grid is
+exactly the permissive mistake that function exists to prevent.
+
+A bet that is no longer running recedes, the way `OptionCard` dims a losing
+side. **How it recedes depends on what is underneath**, and both halves were
+learned by looking: over a photo only a scrim works; over a text tile a scrim
+put grey on grey and made the question unreadable. And the tile's *ground* stays
+constant either way — dropping a closed tile to `sunken` made it vanish in dark
+mode, where sunken is the page ground, so it stopped reading as a tile and
+became a hole with text floating in it.
+
 ### Likes and comments
 
 The interaction is shaped like the feeds people already use, because nobody
@@ -556,7 +613,73 @@ make a change pass, stop and reconsider.
 
 ### Auth
 
-**Email + password.**
+**Email + password, plus Sign in with Apple and Google.**
+
+### Social sign-in
+
+**Both providers or neither.** Guideline 4.8 requires an app offering a
+third-party login to also offer one that limits data collection to name and
+email and does not track — Sign in with Apple is what satisfies that. Google
+alone is a rejection, so `SocialAuthButtons` renders one list and has no prop
+to show only Google.
+
+**Two genuinely different mechanisms, deliberately not abstracted together.**
+Apple on iOS is a native sheet returning a signed identity token that goes
+straight to `signInWithIdToken` — no browser, no redirect. Google has no native
+equivalent that avoids a config plugin and a native build, so it opens the
+provider in `WebBrowser.openAuthSessionAsync` and the tokens come back on the
+redirect URL, which `oauthTokens` lifts off using the same fragment-first
+parser the password-reset link uses.
+
+Three things that bite:
+
+- **Apple's nonce is two values, not one.** Apple signs the SHA256 *hash* into
+  its token; Supabase verifies against the *raw* string. Sending the same one
+  to both fails verification.
+- **Apple gives the name exactly once**, on the first authorisation ever, and
+  `fullName: null` every time after — including after a reinstall. It is
+  written to the profile immediately in `signInWithProvider`, because there is
+  no way to ask again.
+- **Apple's button is iOS-only.** `isAvailableAsync` gates it; Apple's *web*
+  OAuth flow needs a service ID and key this project does not have, so it is
+  hidden rather than shown and failing. The design loop on web therefore cannot
+  see that button — it has to be checked on a device.
+
+**The OAuth redirect is decided by the platform, not by configuration.** Invite
+links and password resets both prefer `EXPO_PUBLIC_WEB_ORIGIN` when it is set,
+because both are opened from somewhere else and have to land on something a
+browser can show. An OAuth redirect is the opposite: it has to come back into
+the process that started it. `openAuthSessionAsync(url, returnUrl)` only hands
+control back when the browser reaches `returnUrl`, so on a device it must be
+`lotusbet://` — reusing `linkTargets()` here was a bug waiting for the domain to
+be configured, and every native Google sign-in would have started hanging the
+day `EXPO_PUBLIC_WEB_ORIGIN` was set, with nothing on screen to say why.
+
+**A provider that is not enabled fails at the destination, not in the call.**
+`signInWithOAuth` builds the authorize URL on the client and goes there without
+talking to the server, so on the web the page has already navigated and the
+person is looking at raw JSON on `supabase.co` with the back button as their
+only way home — and nothing in the app ever sees an error, because the document
+that called it is gone. `providerEnabled()` asks GoTrue's `/settings` first and
+**fails open**: anything but an explicit `false` proceeds exactly as before,
+because that endpoint's shape could not be verified from the environment the
+check was written in.
+
+**The terms are agreed by the button, not by a checkbox.** The email form has a
+checkbox because it has a form; a social sign-in is one tap that creates the
+account and lands on the feed, with nowhere to put a control. So the sentence
+under the buttons is the agreement, and `accept_terms(version)` records it
+on the next profile load rather than in the button's own handler — the web
+flow navigates the page away, so there is no handler left alive by the time a
+session exists — an RPC because `terms_accepted_at` and `terms_version`
+are absent from the client's UPDATE grant. The same comparison re-asks when the
+wording changes, which is why the column is a version and not a boolean.
+
+**The signup trigger reads three name keys**, in order: `display_name` (the
+app's own, already through `prepareContent`), then `full_name`, then `name`,
+which is where Google and Apple put it. Without that every social account
+arrives as "Player 3f2a" and is sent to profile setup to type a name the
+provider already gave.
 
 **Password reset needs four halves, and only the first existed.** Sending
 the link was there and looked fine; what was missing was `redirectTo` (so the
@@ -831,11 +954,28 @@ made. Get this wrong in the permissive direction and a photo somebody added
 after the result silently becomes the bet's own face at the top of the screen.
 
 Compression lives in one table in `media.ts`. Proof is squeezed harder than an
-illustration (quality 0.6 vs 0.85, Medium vs High, 30s vs 60s) because a receipt
-only has to be legible enough to end an argument and is uploaded on a phone in
-a bar; the illustration sits full-bleed in the feed. `expo-image-picker`
-re-encodes before handing back a URI, so there is no second compression
-dependency.
+illustration (quality 0.6 vs 0.85, Medium vs High, **15s vs 60s**) because a
+receipt only has to be legible enough to end an argument and is uploaded on a
+phone in a bar; the illustration sits full-bleed in the feed. Video is the
+overwhelming majority of the storage risk for a small slice of the value, which
+is why the proof cap is the shorter one.
+
+**Every still is re-encoded before it is uploaded**, by `stripMetadata`. A
+photo taken to prove a bet in somebody's flat can carry GPS, and every member
+of the group can download the object — SECURITY.md finding #6. The picker's own
+re-encode drops most metadata *in practice*, and "in practice" is not a
+property; a manipulator pass with no actions writes a fresh file from decoded
+pixels, so there is no EXIF block to carry anything over. A failure throws
+rather than falling back to the original, because a silent fallback uploads the
+coordinates anyway.
+
+**Videos are not covered and the code says so.** Nothing here transcodes them.
+The 15-second cap is the mitigation that exists.
+
+Media on bets **cancelled** more than 30 days ago is swept by the `sweep-media`
+Edge Function. Nothing is owed on a cancelled bet, so its photos are evidence of
+nothing. Proof on a *resolved* bet is never swept — that is somebody's record of
+who won.
 
 ### Invite links
 
@@ -967,17 +1107,21 @@ Concrete things worth fixing, roughly by severity:
    balance and quietly make the other person the debtor. A genuine overpayment
    is a new debt the other way and has nowhere to be recorded yet.
 
-4. **One push token per user.** `users.expo_push_token` is a single column,
-   so a second device silently overwrites the first. Needs its own table when
-   multi-device matters.
+4. ~~**One push token per user.**~~ **Fixed** — `user_devices`, keyed on the
+   token so a device changing hands re-points it rather than notifying the
+   previous owner. `users.expo_push_token` is still read, so an account that
+   has not reopened the app is not dropped.
 
-5. **`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps** with an
-   eslint-disable. It works because `reload` is stable, but it's fragile — a
-   refactor of `useAsync` could silently stop refreshing the group list.
+5. ~~**`useFocusEffect` in `app/(tabs)/groups.tsx` has empty deps.**~~ It does
+   not, and has not for a while — it depends on `reloadGroups`. Recorded here
+   as a reminder that a known-issues list rots unless it is read against the
+   code.
 
-6. **Realtime subscribes to `bet_positions` unfiltered** (in both
-   `useGroupRealtime` and `useFeedRealtime`) because that table has no
-   `group_id` column. Fine at friend-group scale, wasteful beyond it.
+6. ~~**Realtime subscribes to `bet_positions` unfiltered.**~~ **Fixed** —
+   `…_position_group_id.sql` denormalises `group_id` onto the position, so the
+   group screen filters on `eq.` and the feed on `in.(…)`. The column is
+   derived by a trigger that overwrites whatever the client sent, because a
+   value a client cannot express an opinion about needs no validating.
 
 7. **`my_stats.bets_settled` counts ledger rows**, so bets that resolved with
    nobody on the winning side don't appear in the count. Arguably correct,
@@ -1081,6 +1225,14 @@ before touching any component.
 - New Supabase access goes in `src/lib/queries.ts`, not inline in a screen.
 - Migrations are append-only: add a new timestamped file, never edit an
   applied one.
+- **Every new function in `public` needs its own explicit
+  `revoke execute ... from public, anon`**, in the migration that creates it,
+  next to its grant. `…_anon_rpc_lockdown.sql` also set the schema's default
+  privileges to prevent this, and that was not enough: the platform re-grants
+  on newly created objects, so `accept_terms` — added by the very next
+  migration — came back anon-callable while the other 37 stayed locked.
+  `…_relock_anon_execute.sql` records the whole finding. There is no setting
+  that makes this automatic here.
 - Route files under `app/` export their screen and nothing else — shared
   helpers live in `src/` (see `use-tab-bar-inset.ts`).
 - **Delete a branch once its pull request is merged** — every one, with two
@@ -1093,3 +1245,48 @@ before touching any component.
 - Don't add a dependency without a reason the existing stack can't cover.
   `useAsync` is deliberately tiny — an MVP with eight screens doesn't need a
   query cache when Realtime already says when to refetch.
+
+---
+
+## 11. The legal text, and why it is bundled
+
+The terms (which are the EULA), the privacy policy and the support page live as
+text in **`legal-text.json`** and are rendered twice: by `app/legal/*` inside
+the app, and by `scripts/build-legal-html.js` into `public/legal/*.html` for the
+web, which `npm run build:web` regenerates on every build.
+
+One source, two renderers, the same arrangement as the palette and for the same
+reason. What somebody agrees to on the sign-up screen, what `users.terms_version`
+refers to, and what a reviewer reads at the privacy-policy URL in App Store
+Connect are the same words by construction rather than by diligence.
+`TERMS_VERSION` is read *off* the JSON rather than typed next to it, so the
+recorded version and the words actually read cannot drift apart.
+
+**The text is bundled, not only hosted, and that is the point.** The sign-up
+checkbox used to link at `example.invalid` — so the one screen where a person
+agrees to the rules opened nothing at all. Bundling makes the agreement real
+from the first account, before any hosting decision and with no network. The
+hosted copy is then the *listing's* URL rather than the only copy.
+
+Three consequences worth keeping:
+
+- **Two placeholders, `{{app}}` and `{{support}}`.** The app name is a
+  placeholder so the rename ahead is one constant rather than a hunt through
+  nine paragraphs; the support address because it genuinely differs per
+  deployment. `fillPlaceholders` is the only substitution, and
+  `__tests__/legal.test.ts` fails if either survives into rendered output.
+- **The generated pages are gitignored.** They carry the support address from
+  the environment, so a committed copy would carry whichever machine last built
+  them. They also carry no script, no stylesheet and no image — a legal page
+  that fails to render because an asset did not load is a legal page that is
+  not published.
+- **`EXPO_PUBLIC_SUPPORT_EMAIL` unset means no contact row**, rather than a row
+  that opens a mail composer addressed at a placeholder. Guideline 1.2 wants
+  published contact information; a contact that silently goes nowhere is worse
+  than an absent one, because it looks like the app answered you.
+
+`__tests__/legal.test.ts` holds the clauses that are compliance rather than
+prose — no tolerance for objectionable content, a 24-hour response, reporting,
+blocking, removal of accounts that post abuse, and a privacy policy naming
+every row of the App Store nutrition label. They go missing through a
+well-meaning edit, not through a bug, which is exactly why they are tests.

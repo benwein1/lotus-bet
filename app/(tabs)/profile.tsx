@@ -1,11 +1,14 @@
+import Constants from 'expo-constants';
+import { Link, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import { Linking, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarPicker } from '@/components/avatar-picker';
+import { BetGrid } from '@/components/bet-grid';
 import { DemoBadge } from '@/components/demo-entry';
-import { LogOutIcon, TrophyIcon } from '@/components/icons';
+import { ChevronRightIcon, LogOutIcon, TicketIcon, TrophyIcon } from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
 import { ProfileSkeleton } from '@/components/skeletons';
 import {
@@ -15,6 +18,7 @@ import {
   ErrorNotice,
   ListGroup,
   Loading,
+  PressableScale,
   Money,
   Row,
   SectionTitle,
@@ -27,13 +31,21 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import type { PersonBalance } from '@/lib/database.types';
 import { formatAgorot, formatShortDate } from '@/lib/format';
+import {
+  SUPPORT_CONTACT_PUBLISHED,
+  SUPPORT_EMAIL,
+  SUPPORT_MAILTO,
+} from '@/lib/legal';
 import { clearPushToken } from '@/lib/notifications';
 import { cancelDeadlineReminders } from '@/lib/reminders';
 import {
+  fetchBlockedUsers,
+  fetchMyBets,
   fetchMyGroups,
   fetchMyHistory,
   fetchMyPersonBalances,
   fetchMyStats,
+  unblockUser,
   type HistoryEntry,
 } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
@@ -57,6 +69,7 @@ type NotifyKey =
 export default function ProfileScreen() {
   const { session, profile, updateProfile, signOut } = useAuth();
   const colors = useColors();
+  const router = useRouter();
   const reduced = useReducedMotion();
   const tabInset = useTabBarInset();
   const { preference, setPreference } = useAppearance();
@@ -66,20 +79,50 @@ export default function ProfileScreen() {
   const history = useAsync(() => fetchMyHistory(userId), [userId]);
   const groups = useAsync(fetchMyGroups, [userId]);
   const owed = useAsync(() => fetchMyPersonBalances(userId), [userId]);
+  const blocked = useAsync(fetchBlockedUsers, [userId]);
+  const mine = useAsync(() => fetchMyBets(userId), [userId]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { ask, dialog } = useConfirm();
 
+  // Spelled as a sentence rather than "1.0.0 · 12". A support request that
+  // quotes the build is worth a great deal and this is the only place anybody
+  // can read it, so it has to be legible rather than terse. The build number
+  // is absent on the web and in Expo Go, where there is no native build.
+  const build = Constants.nativeBuildVersion;
+  const version = Constants.expoConfig?.version ?? '—';
+  const versionLabel = build ? `Version ${version} (build ${build})` : `Version ${version}`;
+
   const { reload: reloadStats } = stats;
   const { reload: reloadHistory } = history;
   const { reload: reloadOwed } = owed;
+  const { reload: reloadBlocked } = blocked;
+  const { reload: reloadMine } = mine;
+
+  /**
+   * Unblocking is not confirmed.
+   *
+   * Blocking is the destructive direction and asks first; undoing it puts
+   * things back the way they were and costs one more tap to redo. A dialog
+   * here would only make the reversible half feel as heavy as the other one.
+   */
+  async function undoBlock(id: string) {
+    setError(null);
+    try {
+      await unblockUser(id);
+      await reloadBlocked({ silent: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not unblock them.');
+    }
+  }
 
   const refresh = useCallback(() => {
     void reloadStats({ silent: true });
     void reloadHistory({ silent: true });
     void reloadOwed({ silent: true });
-  }, [reloadStats, reloadHistory, reloadOwed]);
+    void reloadMine({ silent: true });
+  }, [reloadStats, reloadHistory, reloadOwed, reloadMine]);
 
   // `undefined` rather than a boolean means the project has not had the
   // notification-prefs migration applied yet.
@@ -217,8 +260,12 @@ export default function ProfileScreen() {
                     @{profile.username}
                   </Text>
                 ) : null}
+                {/* Read off the session, not off `public.users`. That column
+                    is revoked from clients now, and the GoTrue session holds
+                    the authoritative copy anyway — `users.email` was only ever
+                    a mirror of it. */}
                 <Text numberOfLines={1} className="mt-0.5 text-subhead text-secondary">
-                  {profile.email ?? profile.phone ?? ''}
+                  {session?.user.email ?? ''}
                 </Text>
 
                 <View className="mt-6 items-center">
@@ -287,6 +334,29 @@ export default function ProfileScreen() {
               entering={entering(90)}
             />
 
+            {/* Authorship, not participation. "Bet history" below answers what
+                you have been *in*; this answers what you have put *up*, which
+                is the question a profile grid is actually asking — and it is
+                the only screen where a bet you created but never joined is
+                yours. Placed directly under the record, the way a profile
+                leads with its content and keeps settings underneath. */}
+            <View className="mb-7">
+              <SectionTitle>Bets you started</SectionTitle>
+              {mine.loading ? (
+                <Loading label="Loading your bets…" />
+              ) : (mine.data ?? []).length === 0 ? (
+                <View className="rounded-3xl border border-hairline bg-surface">
+                  <EmptyState
+                    icon={<TicketIcon size={26} color={colors.textSecondary} />}
+                    title="You haven't started one yet"
+                    body="Post a bet in any of your groups and it shows up here."
+                  />
+                </View>
+              ) : (
+                <BetGrid bets={mine.data ?? []} />
+              )}
+            </View>
+
             <View className="mb-7">
               <SectionTitle>Appearance</SectionTitle>
               <View className="rounded-2xl border border-hairline bg-surface p-3">
@@ -319,6 +389,51 @@ export default function ProfileScreen() {
               </ListGroup>
             </View>
 
+            {/* Only rendered once there is something to undo. A permanently
+                empty "Blocked people" heading on everyone's Profile would be
+                the app advertising a problem most groups do not have. */}
+            {(blocked.data ?? []).length > 0 && (
+              <View className="mb-7">
+                <SectionTitle>Blocked</SectionTitle>
+                <ListGroup>
+                  {(blocked.data ?? []).map((person, i, all) => (
+                    <View
+                      key={person.id}
+                      className={`flex-row items-center gap-3 px-4 py-3 ${
+                        i < all.length - 1 ? 'border-b border-hairline' : ''
+                      }`}
+                    >
+                      <Avatar
+                        id={person.id}
+                        name={person.display_name}
+                        uri={person.avatar_url}
+                        size={32}
+                      />
+                      <View className="flex-1">
+                        <Text numberOfLines={1} className="text-subhead font-semibold text-primary">
+                          {person.display_name}
+                        </Text>
+                        {person.username ? (
+                          <Text numberOfLines={1} className="text-2xs text-tertiary">
+                            @{person.username}
+                          </Text>
+                        ) : null}
+                      </View>
+                      <Button
+                        title="Unblock"
+                        variant="tinted"
+                        size="sm"
+                        onPress={() => void undoBlock(person.id)}
+                      />
+                    </View>
+                  ))}
+                </ListGroup>
+                <Text className="mt-2 px-1 text-sm text-secondary">
+                  Unblocking brings their comments back. It never changed who owes who.
+                </Text>
+              </View>
+            )}
+
             <View className="mb-7">
               <SectionTitle>Bet history</SectionTitle>
               {history.loading ? (
@@ -345,12 +460,78 @@ export default function ProfileScreen() {
               )}
             </View>
 
+            {/* Guideline 1.2 asks a user-generated-content app to publish its
+                rules and a way to reach a person, and 5.1.1 asks for the
+                privacy policy to be reachable from inside the app. Sign-up is
+                where somebody agrees; this is where they can go back and read
+                what they agreed to, which is not the same screen and not a
+                place anybody returns to.
+
+                The two documents are screens rather than links out: the text
+                ships with the build, so they open with no network and before
+                any domain exists. */}
+            <View className="mb-7">
+              <SectionTitle>About</SectionTitle>
+              <ListGroup>
+                <Row
+                  label="Terms of Service"
+                  trailing={<ChevronRightIcon size={18} color={colors.textTertiary} />}
+                  onPress={() => router.push('/legal/terms')}
+                />
+                <Row
+                  label="Privacy Policy"
+                  trailing={<ChevronRightIcon size={18} color={colors.textTertiary} />}
+                  onPress={() => router.push('/legal/privacy')}
+                />
+                <Row
+                  label="Support"
+                  trailing={<ChevronRightIcon size={18} color={colors.textTertiary} />}
+                  onPress={() => router.push('/legal/support')}
+                  last={!SUPPORT_CONTACT_PUBLISHED}
+                />
+                {/* Only when there is an address to write to. A contact row
+                    that opens a mail composer addressed at a placeholder is
+                    worse than no row: it looks like the app answered you. */}
+                {SUPPORT_CONTACT_PUBLISHED && (
+                  <Row
+                    label="Contact us"
+                    value={SUPPORT_EMAIL}
+                    onPress={() => void Linking.openURL(SUPPORT_MAILTO)}
+                    last
+                  />
+                )}
+              </ListGroup>
+              <Text className="mt-2.5 px-1 text-sm text-tertiary">{versionLabel}</Text>
+            </View>
+
             <Button
               title="Sign out"
               variant="destructive"
               icon={<LogOutIcon size={16} color={colors.negative} />}
               onPress={confirmSignOut}
             />
+
+            {/* Guideline 5.1.1(v) requires deletion to be reachable in the app.
+                It sits under Sign out, as a plain link rather than a fourth
+                button: it has to be findable without being a thing you hit by
+                accident next to the one you meant. The screen it opens is where
+                the consequences are explained — there is too much to say for a
+                dialog, because what a deletion *keeps* here is unusual. */}
+            {/* Shown in demo too. The demo's `deleteAccount` is a no-op, but its
+                sign-out genuinely throws away every byte of in-memory state —
+                so the screen's promise holds there as well, and hiding it would
+                only mean the one flow Apple checks hardest is the one nobody
+                can walk without a real account. */}
+            <Link href="/delete-account" asChild>
+                <PressableScale
+                  scaleTo={0.99}
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete your account"
+                  className="mt-5 items-center py-2"
+                >
+                  <Text className="text-subhead text-tertiary">Delete account</Text>
+                </PressableScale>
+            </Link>
 
             <Text className="mt-7 text-center text-xs leading-4 text-tertiary">
               Lotus Bet is a tracker. It holds no money, processes no payments, and sells no

@@ -78,6 +78,12 @@ function RootNavigator() {
     // `segments` is a typed tuple under typedRoutes; compare it as plain strings.
     const path = segments as readonly string[];
     const inAuthGroup = path[0] === '(auth)';
+    // The terms and the privacy policy are linked from the sign-up screen, so
+    // they have to be readable by somebody who does not have an account yet —
+    // which is everybody the checkbox is asking. Without this exemption the
+    // gate bounces them straight back to sign-in and the agreement links at
+    // nothing, which is the state this whole file used to be in.
+    const inLegalGroup = path[0] === 'legal';
 
     // A recovery session is a real session, so every branch below would happily
     // wave it through to the tabs — and the whole point of the link was to set
@@ -88,7 +94,7 @@ function RootNavigator() {
       return;
     }
 
-    if (!session && !inAuthGroup) {
+    if (!session && !inAuthGroup && !inLegalGroup) {
       router.replace('/(auth)/sign-in');
     } else if (session && needsProfileSetup && path[1] !== 'profile-setup') {
       router.replace('/(auth)/profile-setup');
@@ -141,6 +147,16 @@ function RootNavigator() {
       <Stack.Screen name="group/[id]/new-bet" options={modalOptions('New bet')} />
       <Stack.Screen name="group/[id]/settle" options={{ title: 'Settle up' }} />
       <Stack.Screen name="bet/[id]" options={{ title: '' }} />
+      {/* Pushed rather than presented as a sheet: it is a decision with a lot
+          to read, and a sheet invites dismissing it by reflex. */}
+      <Stack.Screen name="delete-account" options={{ title: 'Delete account' }} />
+      {/* Guideline 1.2 wants the rules and a contact published, and 5.1.1 wants
+          the privacy policy reachable from inside the app. These render text
+          bundled with the build, so they work before any domain exists and
+          before there is a network. */}
+      <Stack.Screen name="legal/terms" options={{ title: 'Terms of Service' }} />
+      <Stack.Screen name="legal/privacy" options={{ title: 'Privacy Policy' }} />
+      <Stack.Screen name="legal/support" options={{ title: 'Support' }} />
     </Stack>
   );
 }

@@ -1,0 +1,82 @@
+# The checks that used to exist only in a sentence in CLAUDE.md: "there is no
+# CI in this repo — nothing will catch a regression for you."
+#
+# Now something does. Everything here is a command a contributor already runs
+# locally; none of it is new, and none of it needs a secret — the SQL harness
+# builds its own throwaway Postgres and never touches a real project.
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+# A second push supersedes the first. Nobody needs the results of a commit
+# that has already been replaced.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: typecheck, tests, bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: global.css matches theme-colors.json
+        run: npm run theme:check
+
+      # `expo export` catches what typecheck cannot — a bad Metro resolution,
+      # a native module that does not build, a route that imports something
+      # only the dev server had. CLAUDE.md names this as the bundle check.
+      - name: iOS bundle
+        run: npx expo export --platform ios --output-dir /tmp/export-check
+
+      # Advisory, and honestly so. `eslint.config.js` exists and encodes the
+      # four NativeWind traps CLAUDE.md records as having already bitten, but
+      # ESLint itself is not a devDependency — `expo lint` installs it on
+      # first run. Until somebody runs `npm i -D eslint` locally and commits
+      # the lockfile, a failure here is as likely to be the install as the
+      # code, and a check that cries wolf gets ignored. Findings still print.
+      - name: Lint (advisory)
+        run: npm run lint
+        continue-on-error: true
+
+  sql:
+    name: migrations, RLS and RPCs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The harness runs `initdb` itself rather than using a service
+      # container, because it needs a cluster it can throw away between runs
+      # and full control of the roles. It only needs the binaries.
+      - name: Ensure PostgreSQL 16
+        run: |
+          if [ ! -x /usr/lib/postgresql/16/bin/initdb ]; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-16
+          fi
+          /usr/lib/postgresql/16/bin/initdb --version
+
+      - name: Policy checks
+        env:
+          PGBIN: /usr/lib/postgresql/16/bin
+        # Applies every migration in order with its pre-fixtures, both seed
+        # scripts, and 42 sections of policy checks — the only thing in the
+        # repo that exercises the SQL at all.
+        run: supabase/test/run.sh

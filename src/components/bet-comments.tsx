@@ -60,6 +60,14 @@ interface Commenter {
 }
 
 /**
+ * Opens the report/block sheet for somebody else's comment.
+ *
+ * Passed down rather than owned here so one sheet serves the whole screen —
+ * the same reason the feed mounts one comments sheet rather than one per card.
+ */
+type ReportComment = (comment: BetComment) => void;
+
+/**
  * The comment thread under a bet, inline on the bet screen.
  *
  * Shaped like the threads people already know — avatar, name and body on one
@@ -77,7 +85,8 @@ export function BetComments({
   currentUserId,
   currentUserName,
   currentUserAvatar,
-}: { betId: string } & Commenter) {
+  onReportComment,
+}: { betId: string; onReportComment?: ReportComment } & Commenter) {
   const colors = useColors();
   const reduced = useReducedMotion();
   const { ask, dialog } = useConfirm();
@@ -151,6 +160,7 @@ export function BetComments({
                 mine={comment.user_id === currentUserId}
                 reduced={reduced}
                 onDelete={() => askDelete(ask, () => void thread.remove(comment.id))}
+                onReport={onReportComment ? () => onReportComment(comment) : undefined}
               />
             ))}
           </View>
@@ -207,6 +217,7 @@ export function BetCommentsSheet({
   betId,
   onClose,
   onTotalChange,
+  onReportComment,
   currentUserId,
   currentUserName,
   currentUserAvatar,
@@ -219,6 +230,7 @@ export function BetCommentsSheet({
    * can patch its own line rather than the feed re-reading every bet.
    */
   onTotalChange?: (betId: string, total: number) => void;
+  onReportComment?: ReportComment;
 } & Commenter) {
   return (
     <Modal
@@ -237,6 +249,7 @@ export function BetCommentsSheet({
           betId={betId}
           onClose={onClose}
           onTotalChange={onTotalChange}
+          onReportComment={onReportComment}
           currentUserId={currentUserId}
           currentUserName={currentUserName}
           currentUserAvatar={currentUserAvatar}
@@ -250,6 +263,7 @@ function SheetBody({
   betId,
   onClose,
   onTotalChange,
+  onReportComment,
   currentUserId,
   currentUserName,
   currentUserAvatar,
@@ -257,6 +271,7 @@ function SheetBody({
   betId: string;
   onClose: () => void;
   onTotalChange?: (betId: string, total: number) => void;
+  onReportComment?: ReportComment;
 } & Commenter) {
   const colors = useColors();
   const reduced = useReducedMotion();
@@ -398,6 +413,7 @@ function SheetBody({
                   mine={comment.user_id === currentUserId}
                   reduced={reduced}
                   onDelete={() => askDelete(ask, () => void thread.remove(comment.id))}
+                  onReport={onReportComment ? () => onReportComment(comment) : undefined}
                 />
               ))
             )}
@@ -521,11 +537,14 @@ function CommentRow({
   mine,
   reduced,
   onDelete,
+  onReport,
 }: {
   comment: BetComment;
   mine: boolean;
   reduced: boolean;
   onDelete: () => void;
+  /** Long-press on somebody else's comment. Absent on a screen without a sheet. */
+  onReport?: () => void;
 }) {
   const name = comment.author?.display_name ?? 'Someone';
   const age = formatRelativeShort(comment.created_at);
@@ -537,15 +556,28 @@ function CommentRow({
       layout={reduced ? undefined : Layout.springify().damping(20)}
       className={pendingWrite ? 'opacity-55' : ''}
     >
+      {/* One gesture, two meanings, because they are the same intention from
+          opposite sides: long-press your own comment to take it back, long-press
+          somebody else's to report it. Guideline 1.2 asks for a way to report
+          content, and a menu nobody can find does not count — this is where a
+          hand already goes. */}
       <PressableScale
-        scaleTo={mine ? 0.99 : 1}
-        disabled={!mine || pendingWrite}
-        onLongPress={onDelete}
-        accessibilityRole={mine ? 'button' : 'text'}
+        scaleTo={mine || onReport ? 0.99 : 1}
+        disabled={pendingWrite || (!mine && !onReport)}
+        onLongPress={mine ? onDelete : onReport}
+        accessibilityRole={mine || onReport ? 'button' : 'text'}
         // The whole comment reads as one sentence to a screen reader, because
         // that is what it is — the name is not a separate element to land on.
         accessibilityLabel={`${name}: ${comment.body}. ${age}`}
-        accessibilityHint={mine && !pendingWrite ? 'Press and hold to delete' : undefined}
+        accessibilityHint={
+          pendingWrite
+            ? undefined
+            : mine
+              ? 'Press and hold to delete'
+              : onReport
+                ? 'Press and hold to report or block'
+                : undefined
+        }
         className="flex-row gap-3"
       >
         <Avatar

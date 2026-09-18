@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lotus Bet",
     "slug": "lotus-bet",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "lotusbet",
@@ -13,7 +13,8 @@
       "bundleIdentifier": "com.lotusbet.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "usesAppleSignIn": true
     },
     "android": {
       "package": "com.lotusbet.app",
@@ -32,6 +33,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-apple-authentication",
       [
         "expo-splash-screen",
         {

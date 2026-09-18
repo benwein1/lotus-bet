@@ -149,28 +149,24 @@ bet_ledger_entries (group_id, user_id)
 group_members (user_id)
 ```
 
-**The gap: there is no index on `bet_positions (bet_id)`.** Every embed of
-`positions:bet_positions(...)` — which is every bet read in the app — filters by
-`bet_id`, and only `user_id` is indexed. Postgres will sequential-scan
-`bet_positions` for these. It is invisible at a few thousand rows and will not
-stay that way.
-
-```sql
-create index if not exists bet_positions_bet_id_idx on public.bet_positions (bet_id);
-```
-
-**That one line is the highest-value database change in this document.** Add it
-when you next touch migrations.
-
-Also worth adding eventually: `bet_likes (bet_id, user_id)` as a covering index,
-since the feed reads exactly that pair.
+~~**The gap: there is no index on `bet_positions (bet_id)`.**~~ **Added** in
+`…_position_group_id.sql`, along with `bet_positions (group_id)` and the
+`bet_likes (bet_id, user_id)` covering index the feed reads to decide whether
+the heart is filled. Section 38 of the policy checks asserts all three exist,
+because an index is the kind of thing that goes missing in a rebuild and says
+nothing when it does.
 
 ### Which query degrades first
 
-**`fetchGroupBets` has no `limit`.** The feed caps at 100; the group screen does
-not. A group two years old with 800 bets will fetch all 800 with every embed,
-every time that screen opens. This is the first query that will feel slow, and
-the fix is pagination, not an index.
+~~**`fetchGroupBets` has no `limit`.**~~ **Fixed**, and not by adding a `limit`.
+
+The screen splits into "Live bets" and "Settled and cancelled", so a limit over
+the combined list ordered by `created_at` would silently drop an old bet that is
+still running — the one row on that screen somebody might need to act on. The
+split moved into the query instead: live bets are fetched in full, because they
+are bounded by nature (a friend group does not have eighty bets running), and
+history pages 25 at a time behind a "Load older bets" button. Both requests go
+out together and their media is signed in one batch.
 
 `my_group_balances()` is second: it aggregates the full ledger of every group
 you belong to, with no time bound. Someone in fifteen groups with years of
@@ -241,17 +237,21 @@ egress.
 
 ### What to do about it, in order
 
-1. **Cap video, or drop it.** It is 90% of the storage risk for a small
-   fraction of the value. Shortening proof video to 15s would roughly halve the
-   worst case.
+1. ~~**Cap video, or drop it.**~~ **Done** — proof clips are capped at 15s
+   (`COMPRESSION.proof.videoMaxDuration`), which roughly halves the worst case.
+   A bet's own illustration keeps its minute: it is the thing people actually
+   look at.
 2. **Use Supabase image transformations** to serve a feed-sized rendition rather
    than the original. Serving a 400 KB rendition instead of a 2 MB original cuts
    egress ~5×. This is a Pro feature and is the best egress-per-shekel available.
 3. **Keep the signing cache** added on this branch.
-4. **Build a retention policy** before you need one: delete media for bets
-   cancelled more than 30 days ago, and archive attachments on bets resolved
-   more than a year ago. Needs a product decision — proof of outcome is evidence
-   somebody may want to keep.
+4. ~~**Build a retention policy** before you need one~~ — **half done, and the
+   half that is not is deliberate.** Media on bets cancelled more than 30 days
+   ago is swept by the `sweep-media` Edge Function off `sweepable_media`;
+   nothing is owed on a cancelled bet, so its photos are evidence of nothing.
+   Archiving attachments on bets *resolved* over a year ago is left alone —
+   proof of outcome is evidence somebody may want to keep, and a year is not
+   obviously long enough to stop caring who won.
 5. **Build an orphan sweep** for the `createBet` failure mode.
 6. **Per-user storage quota** (see SECURITY.md finding #2) — this is a security
    control and a cost control at the same time.
@@ -332,15 +332,21 @@ message ceiling (100/s) may bite sooner during a busy evening.
 
 ### The mitigation, in stages
 
-**Stage 1 — stop the stampede (do this first, it is cheap).** This branch
-already added request coalescing to `useAsync`, so a burst of Realtime events
-collapses into at most two fetches instead of N. That is most of problem 2
-solved for a one-line-per-screen change. Next, debounce the handler itself by
-~500ms.
+**Stage 1 — ~~stop the stampede~~. Done.** Request coalescing in `useAsync`
+collapses a burst of Realtime events into at most two fetches instead of N, and
+the channel handler itself is now leading-edge with a 500ms window
+(`BURST_MS` in `use-group-realtime.ts`): the first event fires immediately,
+because reacting is the whole point, and the tail is what gets suppressed.
+Resolving a bet writes a ledger row per participant, so five people on one bet
+used to mean five identical refetches in the same instant.
 
-**Stage 2 — add `group_id` to `bet_positions`.** It is denormalisation, and it
-is the correct trade: it makes the subscription filterable, which is the only
-way to stop the fan-out. Backfill from `bets`, maintain with a trigger, then:
+**Stage 2 — ~~add~~ `group_id` on `bet_positions`. Done**
+(`…_position_group_id.sql`). It is denormalisation, and it is the correct trade:
+it makes the subscription filterable, which is the only way to stop the
+fan-out. Backfilled from `bets` and maintained by a trigger that *overwrites*
+rather than validates, so a client cannot express an opinion about it. The group
+screen now filters on `group_id=eq.`, and the feed on `group_id=in.(…)` over the
+groups its loaded bets belong to:
 
 ```ts
 .on('postgres_changes',
@@ -348,10 +354,11 @@ way to stop the fan-out. Backfill from `bets`, maintain with a trigger, then:
     handle)
 ```
 
-**Stage 3 — stop refetching, start patching.** The feed already patches likes
-locally as of this branch instead of refetching. Extend that to positions: the
-Realtime payload contains the changed row, so the card can be updated from it
-without a round trip.
+**Stage 3 — ~~stop refetching, start patching~~. Done.** The feed patched likes
+locally already; positions now come from the Realtime payload too. The handler
+returns whether it recognised the bet, and anything it did not — a bet posted
+since the last fetch, a payload without the option — falls back to the refetch.
+Being unable to patch is never being wrong.
 
 **Stage 4 — move off `postgres_changes` to Broadcast.** `postgres_changes`
 re-checks RLS per subscriber per change and is the expensive primitive.
@@ -372,10 +379,20 @@ notifications, with no error anywhere.
 
 That is a **correctness** bug that presents as a scale bug: it does not degrade
 gradually, it just quietly halves your notification reach as soon as people own
-two devices. Fix with a `user_devices` table (`user_id`, `token`, `platform`,
-`last_seen_at`, unique on token) and have `push_targets_for_*` return the set.
-Do it when multi-device matters — but know that it is already wrong, not
-merely unscalable.
+two devices.
+
+**Fixed** in `…_user_devices.sql`. `user_devices` keys on the token itself, so a
+device changing hands re-points it at the new owner rather than leaving a row
+that notifies the wrong person, and `push_targets_for_*` return one row per
+device through a `push_tokens_for` helper. The old column is still read, so an
+account that has not reopened the app since is not dropped; `set_push_token`
+writes both.
+
+The first version of that migration kept a one-argument overload alongside the
+new two-argument one, "for compatibility". Postgres could then not choose
+between them and *every* call failed — compatibility that broke the thing it was
+protecting. It is one function with a default now, and section 40 of the policy
+checks covers it.
 
 Also relevant: the `notify` Edge Function counts against **500,000 invocations
 per month** on Free. Not a concern.
@@ -453,22 +470,25 @@ Ordered by **value ÷ effort**, not by severity.
 
 | # | Do it | When | Effort |
 | --- | --- | --- | --- |
-| 1 | `bet_positions (bet_id)` index | **now** | one line |
-| 2 | Bucket `file_size_limit` + `allowed_mime_types` | **now** | dashboard |
-| 3 | Custom SMTP | **before launch** | 30 min |
-| 4 | Pro plan (stop project pausing) | **at launch** | $25 |
-| 5 | Debounce the Realtime handler | ~100 users | one hook |
-| 6 | `limit` + pagination on `fetchGroupBets` | ~100 users / old groups | small |
-| 7 | Rate-limit triggers on comments/bets/media | ~200 users | half a day |
-| 8 | `group_id` on `bet_positions` + filtered subscriptions | ~500 users | migration + trigger |
-| 9 | Patch from Realtime payloads instead of refetching | ~1,000 users | medium |
+| 1 | ~~`bet_positions (bet_id)` index~~ | ✅ `…_position_group_id.sql` | done |
+| 2 | Bucket `file_size_limit` + `allowed_mime_types` | **now** | dashboard — still yours |
+| 3 | Custom SMTP | **before launch** | 30 min — still yours |
+| 4 | Pro plan (stop project pausing) | **at launch** | $25 — still yours |
+| 5 | ~~Debounce the Realtime handler~~ | ✅ `BURST_MS`, leading-edge | done |
+| 6 | ~~`limit` + pagination on `fetchGroupBets`~~ | ✅ split live from history | done |
+| 7 | ~~Rate-limit triggers on comments/bets/media~~ | ✅ `…_abuse_limits.sql` | done |
+| 8 | ~~`group_id` on `bet_positions` + filtered subscriptions~~ | ✅ `…_position_group_id.sql` | done |
+| 9 | ~~Patch from Realtime payloads instead of refetching~~ | ✅ feed positions | done |
 | 10 | Image transformations for feed renditions | when egress costs money | small, Pro only |
-| 11 | Media retention + orphan sweep | when storage costs money | needs a product call |
-| 12 | `user_devices` table | when anyone reports missing notifications | small |
+| 11 | ~~Media retention~~ | ✅ cancelled bets, `sweep-media` | done; resolved-bet archiving left open on purpose |
+| 11b | ~~Orphan sweep~~ | ✅ `discardUploads` | done |
+| 12 | ~~`user_devices` table~~ | ✅ `…_user_devices.sql` | done |
+| 12b | ~~Per-uploader storage quota~~ | ✅ `…_media_limits.sql`, 250 MB | done |
 | 13 | Broadcast instead of `postgres_changes` | ~5,000 users | large |
 | 14 | Materialised balances, read replicas, partitioning | ~50,000 users | large |
 
-**Items 1–4 are worth doing this month. Items 13–14 are worth actively
+**What is left of items 1–4 is items 2–4, and none of them is code**: a bucket
+setting, an SMTP provider and a $25 plan. **Items 13–14 are worth actively
 resisting until the numbers force them** — the current architecture is
 appropriate for its stage, and the biggest scaling risk to an MVP is spending
 the runway on capacity nobody is using yet.
