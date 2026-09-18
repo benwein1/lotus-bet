@@ -170,7 +170,7 @@ supabase/
                             abuse limits · position group_id · media limits ·
                             user devices · moderation review · media retention ·
                             bets by creator · anon RPC lockdown ·
-                            social sign-in (25)
+                            social sign-in · anon execute relock (26)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
   functions/sweep-media/    scheduled retention for cancelled bets' media
@@ -1225,6 +1225,14 @@ before touching any component.
 - New Supabase access goes in `src/lib/queries.ts`, not inline in a screen.
 - Migrations are append-only: add a new timestamped file, never edit an
   applied one.
+- **Every new function in `public` needs its own explicit
+  `revoke execute ... from public, anon`**, in the migration that creates it,
+  next to its grant. `…_anon_rpc_lockdown.sql` also set the schema's default
+  privileges to prevent this, and that was not enough: the platform re-grants
+  on newly created objects, so `accept_terms` — added by the very next
+  migration — came back anon-callable while the other 37 stayed locked.
+  `…_relock_anon_execute.sql` records the whole finding. There is no setting
+  that makes this automatic here.
 - Route files under `app/` export their screen and nothing else — shared
   helpers live in `src/` (see `use-tab-bar-inset.ts`).
 - **Delete a branch once its pull request is merged** — every one, with two
