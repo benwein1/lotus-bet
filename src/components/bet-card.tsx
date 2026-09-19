@@ -5,12 +5,14 @@ import { Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 
 import { BetActions, betSocial } from '@/components/bet-actions';
+import { BetCoverView } from '@/components/bet-cover';
 import { BetMediaView } from '@/components/bet-media';
 import { GroupGlyph } from '@/components/group-glyph';
 import { ClockIcon, LockIcon } from '@/components/icons';
 import { OddsBar, type OddsSlice } from '@/components/odds-bar';
 import { Badge, LiveDot, Money, PressableScale, tap } from '@/components/ui';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { shareBet } from '@/lib/invites';
 import type { BetSide, BetStatus, BetWithPositions } from '@/lib/database.types';
 import { formatCountdown } from '@/lib/format';
 import { useColors, useScheme } from '@/providers/theme-provider';
@@ -102,6 +104,10 @@ function FeedCardImpl({
   const countdown = bet.status === 'open' ? formatCountdown(bet.close_at) : null;
   const media = bet.media ?? [];
   const hasMedia = media.length > 0;
+  // Every card has a background now — a photo when there is one, a generated
+  // cover when there is not. One layout instead of two, which is what makes the
+  // column read as a single stream rather than alternating photographs and
+  // pages of type. See `bet-cover.tsx`.
   const joinable = bet.status === 'open' && Boolean(onPickOption);
 
   // A sheet when the feed offers one, the bet screen otherwise. Reading three
@@ -114,17 +120,22 @@ function FeedCardImpl({
 
   // Over an image the palette has to stop following the colour scheme: white
   // on a scrim is legible over anything, a semantic label colour is not.
-  const titleClass = hasMedia ? 'text-on-media' : 'text-primary';
-  const metaClass = hasMedia ? 'text-on-media-soft' : 'text-secondary';
+  // Both a photo and a generated cover are coloured grounds under a scrim, so
+  // the palette stops following the colour scheme either way: white on a scrim
+  // is legible over anything, a semantic label colour is not.
+  const titleClass = 'text-on-media';
+  const metaClass = 'text-on-media-soft';
 
   return (
     <View
-      style={[{ height }, hasMedia ? elevation.card : null]}
-      className={`overflow-hidden rounded-4xl ${
-        hasMedia ? 'bg-black' : 'border border-hairline bg-surface'
-      }`}
+      style={{ height }}
+      // No border, no radius, no shadow. The card used to be a bordered object
+      // floating on the page; the feed reads as one continuous stream when the
+      // screen edge is the only frame and the gap between posts is the only
+      // separator. Instagram's shape, and the reason it scrolls the way it does.
+      className="overflow-hidden bg-black"
     >
-      {hasMedia && (
+      {hasMedia ? (
         <>
           <BetMediaView media={media} active={active} className="absolute inset-0" />
           {/* Explicit rgba, never eight-digit hex: a stop that does not truly
@@ -137,6 +148,24 @@ function FeedCardImpl({
               'rgba(0,0,0,0.86)',
             ]}
             locations={[0, 0.32, 0.6, 1]}
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+            pointerEvents="none"
+          />
+        </>
+      ) : (
+        <>
+          <BetCoverView betId={bet.id} className="absolute inset-0" />
+          {/* The same scrim shape as over a photo, a little lighter because a
+              cover is already a controlled ground rather than somebody's
+              snapshot of a dark room. */}
+          <LinearGradient
+            colors={[
+              'rgba(0,0,0,0.42)',
+              'rgba(0,0,0,0.06)',
+              'rgba(0,0,0,0.28)',
+              'rgba(0,0,0,0.78)',
+            ]}
+            locations={[0, 0.34, 0.62, 1]}
             style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
             pointerEvents="none"
           />
@@ -171,9 +200,28 @@ function FeedCardImpl({
                       size={26}
                       radius={9}
                     />
-                    <Text numberOfLines={1} className={`flex-1 text-sm ${metaClass}`}>
-                      {bet.group.name}
-                    </Text>
+                    {/*
+                      Group over creator, stacked rather than on one line. A
+                      middle dot between them would be the meta string CLAUDE.md
+                      §4 rules out, and at this width the two would collide on a
+                      small iPhone long before a long group name ran out.
+
+                      The creator is a line of type rather than a second avatar:
+                      the glyph already carries the group, and two round things
+                      in a corner is the crowding the card cannot afford.
+                    */}
+                    <View className="flex-1">
+                      <Text numberOfLines={1} className={`text-sm ${metaClass}`}>
+                        {bet.group.name}
+                      </Text>
+                      {bet.creator && (
+                        <Text numberOfLines={1} className="text-2xs text-on-media-faint">
+                          {bet.creator.username
+                            ? `@${bet.creator.username}`
+                            : bet.creator.display_name}
+                        </Text>
+                      )}
+                    </View>
                   </>
                 )}
               </View>
@@ -193,35 +241,39 @@ function FeedCardImpl({
               )}
             </View>
 
-            {/* Without a photo the question *is* the content, so it takes the
-                space the media would have had rather than leaving a void at the
-                top of the card. */}
-            {!hasMedia && (
-              <View className="flex-1 justify-center py-6">
-                <Text numberOfLines={6} className="text-4xl font-bold text-primary">
-                  {bet.title}
-                </Text>
-                {bet.description && (
-                  <Text numberOfLines={3} className="mt-3 text-callout leading-5 text-secondary">
-                    {bet.description}
-                  </Text>
-                )}
-              </View>
-            )}
+            {/* A spacer, not a container. The title used to live up here at
+                Large Title inside a fixed-height centred box when there was no
+                photo, and a long question simply ran past the bottom and lost
+                its last lines with nothing on screen to say so. There is one
+                title now, in the row below, where the layout sizes to the text
+                instead of the text being cut to the layout. */}
+            <View className="flex-1" />
 
             <View>
-              {hasMedia && (
-                <Text numberOfLines={3} className={`text-2xl font-bold ${titleClass}`}>
-                  {bet.title}
+              <Text
+                // Long questions get more room rather than an ellipsis: without
+                // a photo to look at, the question is the whole post. Six lines
+                // at this size is about 180 characters, past which a feed card
+                // is the wrong place to read it and the bet screen is the right
+                // one.
+                numberOfLines={hasMedia ? 3 : 6}
+                className={`text-2xl font-bold ${titleClass}`}
+              >
+                {bet.title}
+              </Text>
+
+              {!hasMedia && bet.description && (
+                <Text numberOfLines={2} className={`mt-2 text-callout leading-5 ${metaClass}`}>
+                  {bet.description}
                 </Text>
               )}
 
-              <View className={`${hasMedia ? 'mt-3' : ''} flex-row items-center gap-4`}>
+              <View className="mt-3 flex-row items-center gap-4">
                 <View className="flex-row items-baseline gap-1.5">
                   <Money
                     agorot={bet.total_pot_agorot}
                     size="md"
-                    tone={hasMedia ? 'onMedia' : 'accent'}
+                    tone="onMedia"
                   />
                   <Text className={`text-sm ${metaClass}`}>pot</Text>
                 </View>
@@ -230,7 +282,7 @@ function FeedCardImpl({
                   <View className="flex-row items-center gap-1.5">
                     <ClockIcon
                       size={14}
-                      color={hasMedia ? colors.onMediaSoft : colors.textSecondary}
+                      color={colors.onMediaSoft}
                     />
                     <Text style={tabular} className={`text-sm ${metaClass}`}>
                       {countdown.replace('Closes in ', '')}
@@ -242,7 +294,7 @@ function FeedCardImpl({
                   <View className="flex-row items-center gap-1.5">
                     <LockIcon
                       size={14}
-                      color={hasMedia ? colors.onMediaSoft : colors.textSecondary}
+                      color={colors.onMediaSoft}
                     />
                     <Text className={`text-sm ${metaClass}`}>Locked</Text>
                   </View>
@@ -250,7 +302,7 @@ function FeedCardImpl({
               </View>
 
               <View className="mt-5">
-                <OddsBar slices={slices} onMedia={hasMedia} />
+                <OddsBar slices={slices} onMedia />
               </View>
             </View>
           </PressableScale>
@@ -268,7 +320,7 @@ function FeedCardImpl({
                 index={index}
                 count={slices.length}
                 selected={picked === slice.id}
-                onMedia={hasMedia}
+                onMedia
                 busy={busyOptionId === slice.id}
                 onPress={() => {
                   tap();
@@ -290,7 +342,14 @@ function FeedCardImpl({
               commentCount={social.commentCount}
               onToggleLike={onToggleLike}
               onPressComments={openThread}
-              onMedia={hasMedia}
+              onPressShare={() => {
+                tap();
+                // Swallowed on purpose: a share sheet the user dismissed, or a
+                // browser with neither `navigator.share` nor a clipboard, is
+                // not an error worth interrupting the feed for.
+                void shareBet(bet.id, bet.title, bet.group?.name).catch(() => {});
+              }}
+              onMedia
               showCommentCount={false}
             />
 

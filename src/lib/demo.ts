@@ -436,8 +436,30 @@ function withPositions(bet: BetRow, includeGroup = false): BetWithPositions {
       .filter((l) => l.bet_id === bet.id)
       .map((l) => ({ user_id: l.user_id })),
     comments: [{ count: state.comments.filter((c) => c.bet_id === bet.id).length }],
+    // The creator, so the demo exercises the same card path real data does.
+    // Without it the credit line under the group name simply never renders
+    // here and the one surface the design loop can actually look at is the one
+    // surface that cannot show the feature.
+    creator: (() => {
+      const u: UserRow | undefined = USERS[bet.creator_id];
+      return u
+        ? {
+            id: u.id,
+            display_name: u.display_name,
+            username: u.username ?? null,
+            avatar_url: u.avatar_url,
+          }
+        : null;
+    })(),
     ...(includeGroup && group
-      ? { group: { id: group.id, name: group.name, emoji: group.emoji } }
+      ? {
+          group: {
+            id: group.id,
+            name: group.name,
+            emoji: group.emoji,
+            currency: group.currency ?? 'USD',
+          },
+        }
       : {}),
   };
 }
