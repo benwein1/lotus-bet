@@ -160,7 +160,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // The native half of a reset link.
   //
   // `detectSessionInUrl` is a web-only mechanism, so on a device the tokens
-  // arrive in a `lotusbet://reset-password#…` deep link that nothing consumes.
+  // arrive in a `betta://reset-password#…` deep link that nothing consumes.
   // Lift them out and hand them to `setSession` by hand — and latch *first*,
   // because `setSession` announces itself as an ordinary SIGNED_IN and the
   // redirect gate would otherwise get a frame in which it drops you on the

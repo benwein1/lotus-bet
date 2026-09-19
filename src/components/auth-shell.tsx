@@ -14,6 +14,7 @@ import { LotusMark } from '@/components/lotus-mark';
 import { ContentWidth, Screen } from '@/components/screen';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { motion } from '@/theme';
+import { APP_NAME } from '@/lib/legal';
 
 /**
  * The frame every screen before sign-in sits in.
@@ -126,7 +127,7 @@ export function AuthShell({
 
                 {/* Load-bearing. See the note at the top of this file. */}
                 <Text className="max-w-[300px] text-center text-xs leading-4 text-tertiary">
-                  Lotus Bet never handles money. It only keeps track of who owes whom.
+                  {APP_NAME} never handles money. It only keeps track of who owes whom.
                 </Text>
 
                 {showDemoEntry && <DemoEntry />}

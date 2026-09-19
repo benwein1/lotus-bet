@@ -99,10 +99,10 @@ function user(id: string, name: string, email: string): UserRow {
 }
 
 const USERS: Record<string, UserRow> = {
-  [DEMO_USER_ID]: user(DEMO_USER_ID, 'You', 'you@lotusbet.demo'),
-  [DOR]: user(DOR, 'Dor Levi', 'dor@lotusbet.demo'),
-  [NOA]: user(NOA, 'Noa Bar', 'noa@lotusbet.demo'),
-  [YOSSI]: user(YOSSI, 'Yossi Cohen', 'yossi@lotusbet.demo'),
+  [DEMO_USER_ID]: user(DEMO_USER_ID, 'You', 'you@betta.demo'),
+  [DOR]: user(DOR, 'Dor Levi', 'dor@betta.demo'),
+  [NOA]: user(NOA, 'Noa Bar', 'noa@betta.demo'),
+  [YOSSI]: user(YOSSI, 'Yossi Cohen', 'yossi@betta.demo'),
 };
 
 export const demoProfile: UserRow = USERS[DEMO_USER_ID]!;

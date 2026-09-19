@@ -371,7 +371,7 @@ export default function FeedScreen() {
                     />
 
                     <Text className="mt-8 text-center text-xs leading-4 text-tertiary">
-                      Lotus Bet tracks obligations only. Settle up with your friends however you
+                      Betta tracks obligations only. Settle up with your friends however you
                       normally do.
                     </Text>
                   </ContentWidth>

@@ -1,4 +1,4 @@
-# APP_STORE.md — shipping Lotus Bet to the App Store
+# APP_STORE.md — shipping Betta to the App Store
 
 A launch checklist for *this* app, built from reading the repository and the
 current App Store Review Guidelines. Every item is classified:
@@ -26,28 +26,28 @@ closed, so it describes the repository as it stands rather than as it was.
    1.2 exist: a content filter, reporting, blocking, and published rules and
    contact. See §2.4.
 3. ~~**No EULA**~~ — written, bundled, agreed to at sign-up, version recorded.
+4. ~~**The name**~~ — renamed to **Betta** on 2026-09-19. See §2.1 for what it
+   collided with and why that mattered.
+5. ~~**The migrations have not been run**~~ — all 27 are applied to the live
+   project, plus the reviewer seed.
 
 ### Still open, in the order they will bite
 
-1. **The name (P0, your call).** "Lotus Bet" is also a live online casino and
-   sportsbook, alongside Lotus365 and lotusbet365 — a cluster of real-money
-   gambling brands. A reviewer decides what your app *is* in about ninety
-   seconds and the first thing they have is the name. Everything downstream —
-   bundle id, icon, listing, screenshots — depends on it. See §2.1.
-2. **Nothing is hosted (P0).** App Store Connect requires a live privacy policy
+1. **Nothing is hosted (P0).** App Store Connect requires a live privacy policy
    URL and a live support URL. The pages are written and generated
    (`npm run build:web` emits them into the export), but they have to be
    *deployed*, and `EXPO_PUBLIC_SUPPORT_EMAIL` has to be a real address. Until
    both are true the listing cannot be completed.
-3. **The migrations have not been run (P0).** Seven of them, listed in §8.
-   Until the second one is applied a bet cannot be posted at all.
-4. **Custom SMTP (P0).** Supabase's built-in sender is heavily rate-limited and
+2. **Sign in with Apple (P0).** Adding Google sign-in made guideline 4.8 apply,
+   so this went from "not required" to a blocker — see §2.2. It is written and
+   waiting on a Services ID and key from the developer account.
+3. **Custom SMTP (P0).** Supabase's built-in sender is heavily rate-limited and
    in practice only reaches the project owner, so password reset does not work
    for a real user — including a reviewer who signs out.
-5. **Demo mode must not ship (P0).** See §7. It has reached a deployable build
+4. **Demo mode must not ship (P0).** See §7. It has reached a deployable build
    once already, and grepping the bundle does not find it. Loading the built
    page and looking for "Skip sign-in" is the only honest check.
-6. **A person has to read the reports (P0).** Guideline 1.2 asks for a timely
+5. **A person has to read the reports (P0).** Guideline 1.2 asks for a timely
    response and the terms promise 24 hours. The table exists; the habit does
    not.
 
@@ -166,13 +166,20 @@ one way: how the app presents itself.** A reviewer decides what your app *is*
 in about ninety seconds, from the name, the icon, the screenshots and the first
 screen.
 
-Which is why the **name is a genuine risk**. "Lotus Bet" is currently also the
-name of a live online casino and sportsbook (`lotusbet.casino`, operated by
-DLDAtech N.V., launched 2026), alongside Lotus365, Lotusbook365 and
-lotusbet365 — a whole cluster of real-money gambling brands. A reviewer who
-searches your app name will find casinos. See the naming recommendation
-delivered separately; **this is the strongest single argument for renaming
-before submission.**
+**The name was the biggest lever here, and it has been pulled.** The app was
+called *Lotus Bet* until 2026-09-19. That collided with a live online casino and
+sportsbook at `lotusbet.casino` (operated by DLDAtech N.V., launched 2026),
+alongside Lotus365, Lotusbook365 and lotusbet365 — a whole cluster of real-money
+gambling brands. A reviewer who searched the app name found casinos, which is
+the worst possible first ninety seconds for an app whose entire compliance
+posture is *no money moves through it*.
+
+It is now **Betta**, which collides with none of them. Keep it that way: do not
+reintroduce "bet", "odds" or "casino" into the name, the subtitle or the
+keywords.
+
+*(Those competitor names are recorded here deliberately and must stay spelled as
+they are — they are the evidence for the decision, not references to this app.)*
 
 **Do (P0):**
 - Keep the money disclaimer on the auth, new-bet, settle-up and profile screens.
@@ -203,17 +210,26 @@ one that opens as an imperative aimed at the user — so a suggestion added next
 year cannot quietly reintroduce the problem. The rule is written at the top of
 `suggestions.ts` where somebody adding one will read it.
 
-### 2.2 Sign in with Apple — **not required**
+### 2.2 Sign in with Apple — **required, P0**
 
-Guideline 4.8 applies when an app uses a *third-party* login service (Google,
-Facebook, etc.) as a primary sign-in. It explicitly does not apply when "your
-app exclusively uses your company's own account setup and sign-in systems".
+This section used to say "not required", with the caveat that *"if you later
+add Google sign-in, it becomes required immediately."* Google sign-in was added
+on 2026-09-18, so that caveat has fired and this is now a blocker.
 
-Lotus Bet uses Supabase email + password — your own system, not a third-party
-social login. **Sign in with Apple is therefore not required.**
+Guideline 4.8 applies the moment an app offers a third-party login as a primary
+sign-in. It then requires a second option that limits data collection to name
+and email and does not track — Sign in with Apple is what satisfies it. Google
+alone is a rejection.
 
-If you later add Google sign-in, it becomes required immediately. **P2** as a
-UX nicety; not a blocker.
+The code is done: `SocialAuthButtons` renders both providers as one list and has
+no prop to show only Google, precisely so this cannot regress. Apple on iOS is a
+native sheet returning a signed identity token (no browser, no redirect); see
+CLAUDE.md §6 for the nonce trap and the once-only name.
+
+What is missing is **account configuration, not code**: a Services ID and a Sign
+in with Apple key from the developer account, plugged into Supabase. Until then
+the Apple button is hidden on iOS by `isAvailableAsync` and the app would ship
+Google alone — which is the rejection case.
 
 ### 2.3 Account deletion — **P0**
 
@@ -436,7 +452,7 @@ halo inside that mask.
 ### 3.1 Draft copy
 
 Written to be used, not as a template. Everything below assumes the name is
-still "Lotus Bet"; if it is renamed (§2.1), swap it through and nothing else
+still "Betta"; if it is renamed (§2.1), swap it through and nothing else
 changes.
 
 **Subtitle** (30 char limit)
@@ -454,10 +470,10 @@ whether this is a gambling app reads the top of the description and the
 screenshots, and nothing else.
 
 ```
-Lotus Bet is where friends settle arguments.
+Betta is where friends settle arguments.
 
 It does not handle money. There is no wallet, no payments and nothing to
-buy — Lotus Bet writes down who said what and who ended up owing whom, and
+buy — Betta writes down who said what and who ended up owing whom, and
 you settle up with each other however you already do.
 
 Start a group with the people you actually argue with. Post the question —
@@ -477,7 +493,7 @@ and the app works out where everybody stands.
 Nothing is public. Everything lives inside a group you were invited to, and
 people are found by exact username — there is no directory to browse.
 
-Lotus Bet is a ledger, not a bookmaker. No money moves through the app.
+Betta is a ledger, not a bookmaker. No money moves through the app.
 ```
 
 **Keywords** (100 char limit, comma-separated, no spaces after commas)
@@ -505,9 +521,9 @@ costs you your place in it.
 
 | Setting | Value | Verdict |
 | --- | --- | --- |
-| `name` | "Lotus Bet" | See §2.1 |
+| `name` | "Betta" | See §2.1 |
 | `version` | `0.1.0` | Bump to `1.0.0` for release — **P0** |
-| `ios.bundleIdentifier` | `com.lotusbet.app` | Fine; must match App Store Connect. Changing it later means a new app |
+| `ios.bundleIdentifier` | `com.betta.app` | Fine; must match App Store Connect. Changing it later means a new app |
 | `ios.supportsTablet` | `false` | Fine — no iPad screenshots needed |
 | `ITSAppUsesNonExemptEncryption` | `false` | **Correct and valuable** — pre-answers export compliance, see §4.2 |
 | `orientation` | `portrait` | Consistent with the design |
@@ -622,7 +638,7 @@ first run.
 | Existing account sign-in | P0 |
 | Password reset end to end **on a real device with real email** | P0 |
 | Invite link: `https://` on a device without the app installed | P0 |
-| Deep link: `lotusbet://` with the app installed | P1 |
+| Deep link: `betta://` with the app installed | P1 |
 | Media permissions: grant, deny, and deny-then-enable-in-Settings | P0 |
 | Notification permission: grant and deny | P0 |
 | Slow network (Network Link Conditioner, 3G) | P1 |
@@ -637,11 +653,11 @@ first run.
 
 Reviewers reject what they do not understand. Give them this:
 
-> Lotus Bet is a private social app for friendly bets between people who
+> Betta is a private social app for friendly bets between people who
 > already know each other. It does **not** handle money in any form: there are
 > no payments, no wallets, no in-app currency and nothing purchasable. When a
 > bet is resolved the app records who owes whom, and users settle up between
-> themselves outside the app, in cash. No funds ever pass through Lotus Bet or
+> themselves outside the app, in cash. No funds ever pass through Betta or
 > any payment processor.
 >
 > There is no public or global discovery — bets exist only inside private groups
@@ -652,7 +668,7 @@ Reviewers reject what they do not understand. Give them this:
 > filtered on submission, the terms carry a no-tolerance policy agreed to at
 > sign-up, and reports are acted on within 24 hours.
 >
-> Demo account: appreview@lotusbet.local / AppReview-2026!
+> Demo account: appreview@betta.local / AppReview-2026!
 > It is pre-seeded with a group of five, an open bet with a side still free to
 > join, a three-option bet, a locked bet, a resolved bet with its ledger, a
 > private bet, a one-on-one duel, and a comment thread — so the whole flow is

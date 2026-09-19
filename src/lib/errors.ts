@@ -137,7 +137,7 @@ export function classifyFailure(err: unknown): Failure {
   if (UNAVAILABLE_PATTERNS.some((p) => p.test(text))) {
     return {
       kind: 'unavailable',
-      message: 'Lotus Bet is unreachable right now. Try again in a moment.',
+      message: 'Betta is unreachable right now. Try again in a moment.',
     };
   }
 

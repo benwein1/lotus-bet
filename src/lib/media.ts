@@ -214,7 +214,7 @@ export async function pickProofMedia(remaining: number): Promise<PickedMedia[]> 
 /** Shoot proof there and then. The camera is the common case for a receipt. */
 export async function captureProofMedia(): Promise<PickedMedia | null> {
   const permission = await ImagePicker.requestCameraPermissionsAsync();
-  if (!permission.granted) throw new Error('Camera access is off for Lotus Bet.');
+  if (!permission.granted) throw new Error('Camera access is off for Betta.');
 
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: ['images', 'videos'],
@@ -229,7 +229,7 @@ export async function captureProofMedia(): Promise<PickedMedia | null> {
 /** Opens the camera. Returns null when the user backs out or declines access. */
 export async function captureMedia(): Promise<PickedMedia | null> {
   const permission = await ImagePicker.requestCameraPermissionsAsync();
-  if (!permission.granted) throw new Error('Camera access is off for Lotus Bet.');
+  if (!permission.granted) throw new Error('Camera access is off for Betta.');
 
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: ['images', 'videos'],

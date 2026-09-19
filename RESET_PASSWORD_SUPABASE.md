@@ -12,9 +12,9 @@ the part only you can do. Nothing here is a migration.
 Add all three:
 
 ```
-https://lotus-bet.weinsteinben2.workers.dev/reset-password
+https://betta.weinsteinben2.workers.dev/reset-password
 http://localhost:8081/reset-password
-lotusbet://reset-password
+betta://reset-password
 ```
 
 Without these Supabase ignores where the app asks to send people and drops them
@@ -22,7 +22,7 @@ on the Site URL instead — they land signed in on the feed with no way to set a
 password. This is the step that most often gets missed.
 
 While you are on that screen, check **Site URL** is
-`https://lotus-bet.weinsteinben2.workers.dev` and not `http://localhost:3000`.
+`https://betta.weinsteinben2.workers.dev` and not `http://localhost:3000`.
 
 ## 2. Turn on your own SMTP
 
@@ -40,13 +40,13 @@ the host, port, username, password, and a sender address on a domain you own.
 In your `.env`:
 
 ```
-EXPO_PUBLIC_WEB_ORIGIN=https://lotus-bet.weinsteinben2.workers.dev
+EXPO_PUBLIC_WEB_ORIGIN=https://betta.weinsteinben2.workers.dev
 ```
 
 On a phone there is no address bar to read, so without this the app builds
-`lotusbet://` links, which only work if the app is already installed.
+`betta://` links, which only work if the app is already installed.
 
-Set the same variable in **Cloudflare → Workers → lotus-bet → Settings →
+Set the same variable in **Cloudflare → Workers → betta → Settings →
 Variables** so the deployed build has it too.
 
 ## 4. Check it

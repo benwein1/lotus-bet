@@ -6,7 +6,7 @@
 -- part of a deploy. Paste it into the Supabase SQL editor.
 --
 -- WHY THIS EXISTS
---   Lotus Bet has no public feed and no global discovery: a bet is only ever
+--   Betta has no public feed and no global discovery: a bet is only ever
 --   visible inside a group you were invited to. A brand-new account therefore
 --   opens onto three empty screens, and "we were unable to review your app" is
 --   a rejection rather than a question. App Store Connect asks for demo
@@ -21,7 +21,7 @@
 --   missing.
 --
 -- WHAT IT CREATES
---   * A reviewer account — appreview@lotusbet.local / AppReview-2026!
+--   * A reviewer account — appreview@betta.local / AppReview-2026!
 --     Put those exact strings in App Store Connect under App Review
 --     Information, and the notes in APP_STORE.md section 6 beside them.
 --   * Four friends, so the group is a group.
@@ -124,11 +124,11 @@ select
   now(),
   '', '', '', ''
 from (values
-  ('00000000-0000-4000-9000-000000000000'::uuid, 'appreview@lotusbet.local', 'Alex Rivera',   'AppReview-2026!'),
-  ('00000000-0000-4000-9000-000000000001'::uuid, 'dana.demo@lotusbet.local', 'Dana Peretz',   'lotus-demo-1234'),
-  ('00000000-0000-4000-9000-000000000002'::uuid, 'yoni.demo@lotusbet.local', 'Yonatan Adler', 'lotus-demo-1234'),
-  ('00000000-0000-4000-9000-000000000003'::uuid, 'maya.demo@lotusbet.local', 'Maya Cohen',    'lotus-demo-1234'),
-  ('00000000-0000-4000-9000-000000000004'::uuid, 'itai.demo@lotusbet.local', 'Itai Barak',    'lotus-demo-1234')
+  ('00000000-0000-4000-9000-000000000000'::uuid, 'appreview@betta.local', 'Alex Rivera',   'AppReview-2026!'),
+  ('00000000-0000-4000-9000-000000000001'::uuid, 'dana.demo@betta.local', 'Dana Peretz',   'lotus-demo-1234'),
+  ('00000000-0000-4000-9000-000000000002'::uuid, 'yoni.demo@betta.local', 'Yonatan Adler', 'lotus-demo-1234'),
+  ('00000000-0000-4000-9000-000000000003'::uuid, 'maya.demo@betta.local', 'Maya Cohen',    'lotus-demo-1234'),
+  ('00000000-0000-4000-9000-000000000004'::uuid, 'itai.demo@betta.local', 'Itai Barak',    'lotus-demo-1234')
 ) as person(id, email, name, password)
 on conflict (id) do nothing;
 
@@ -139,11 +139,11 @@ insert into public.users (id, email, display_name, profile_completed, username)
 select
   person.id, person.email, person.name, true, person.handle
 from (values
-  ('00000000-0000-4000-9000-000000000000'::uuid, 'appreview@lotusbet.local', 'Alex Rivera',   'alexrivera'),
-  ('00000000-0000-4000-9000-000000000001'::uuid, 'dana.demo@lotusbet.local', 'Dana Peretz',   'danaperetz'),
-  ('00000000-0000-4000-9000-000000000002'::uuid, 'yoni.demo@lotusbet.local', 'Yonatan Adler', 'yonatanadler'),
-  ('00000000-0000-4000-9000-000000000003'::uuid, 'maya.demo@lotusbet.local', 'Maya Cohen',    'mayacohen'),
-  ('00000000-0000-4000-9000-000000000004'::uuid, 'itai.demo@lotusbet.local', 'Itai Barak',    'itaibarak')
+  ('00000000-0000-4000-9000-000000000000'::uuid, 'appreview@betta.local', 'Alex Rivera',   'alexrivera'),
+  ('00000000-0000-4000-9000-000000000001'::uuid, 'dana.demo@betta.local', 'Dana Peretz',   'danaperetz'),
+  ('00000000-0000-4000-9000-000000000002'::uuid, 'yoni.demo@betta.local', 'Yonatan Adler', 'yonatanadler'),
+  ('00000000-0000-4000-9000-000000000003'::uuid, 'maya.demo@betta.local', 'Maya Cohen',    'mayacohen'),
+  ('00000000-0000-4000-9000-000000000004'::uuid, 'itai.demo@betta.local', 'Itai Barak',    'itaibarak')
 ) as person(id, email, name, handle)
 on conflict (id) do nothing;
 

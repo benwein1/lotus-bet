@@ -18,7 +18,7 @@
  * asks anybody to do anything.**
  *
  * App Store Review Guideline 1.4.5: an app must not urge users into activities
- * that risk physical harm. This is the one feature in Lotus Bet that *proposes
+ * that risk physical harm. This is the one feature in Betta that *proposes
  * content* rather than rendering what a user wrote, so it is the only place the
  * app could put a dare in somebody's mouth — "first to finish their drink",
  * "who can hold their breath longest". Those are the shape 1.4.5 is about, and

@@ -27,7 +27,7 @@ export function LotusMark({ size = 72 }: { size?: number }) {
       // No cross-fade: this is the first thing on screen in two of the three
       // places it appears, and a fade-in there is a flash of nothing.
       transition={0}
-      accessibilityLabel="Lotus Bet"
+      accessibilityLabel="Betta"
     />
   );
 }
