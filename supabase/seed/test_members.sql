@@ -76,7 +76,7 @@ where g.invite_code = 'RHMXXW';
 -- `public.users` from `raw_user_meta_data`, exactly as a real sign-up would,
 -- so these accounts are not a special case anywhere in the app.
 --
--- They can all sign in with the password `lotus-test-1234`.
+-- They can all sign in with the password `betta-test-1234`.
 insert into auth.users (
   instance_id, id, aud, role, email,
   encrypted_password, email_confirmed_at,
@@ -92,7 +92,7 @@ select
   'authenticated',
   'authenticated',
   person.email,
-  crypt('lotus-test-1234', gen_salt('bf')),
+  crypt('betta-test-1234', gen_salt('bf')),
   now(),
   '{"provider":"email","providers":["email"]}'::jsonb,
   jsonb_build_object('display_name', person.name),

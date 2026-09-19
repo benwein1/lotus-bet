@@ -127,8 +127,9 @@ src/
   components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
   components/payment-sheet.tsx amount entry for a part payment
   components/legal-document.tsx  the terms, the policy and the support page
-  components/lotus-mark.tsx  the app mark, wherever the app shows its own face
-  components/animated-splash.tsx  the hand-off out of the native splash
+  components/app-mark.tsx  the app mark, wherever the app shows its own face
+  components/animated-splash.tsx  the hand-off out of the native splash,
+                            and where the name is revealed
   lib/auth-links.ts         pure: reading a GoTrue recovery redirect
   lib/oauth-rules.ts        pure: provider names, redirect tokens, terms state
   lib/oauth.ts              …and the device half — Apple's sheet, Google's browser
@@ -160,7 +161,7 @@ global.css                  GENERATED from it by scripts/build-theme-css.js
 legal-text.json             SINGLE SOURCE OF TRUTH for terms, privacy, support
 public/legal/*.html         GENERATED from it by scripts/build-legal-html.js,
                             at build time, gitignored — see §11
-assets/logo/lotus.svg       the mark; scripts/build-icons.mjs renders every size
+assets/logo/mark.svg       the mark; scripts/build-icons.mjs renders every size
 supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
                             bet options · notification prefs · social ·
@@ -565,8 +566,20 @@ The hero **gives way to the keyboard** rather than being shoved off the top: the
 mark scales down and the explanatory sentence fades, on `transform` and
 `opacity` only. By the time somebody is typing they have read it.
 
-Profile setup swaps the Lotus mark for the user's own avatar, because by then
+Profile setup swaps the app mark for the user's own avatar, because by then
 the thing being introduced is them.
+
+**The splash reveals the name, and the name is out of flow.** The native splash
+is the mark alone, centred; `AnimatedSplash` redraws that same mark at the same
+size on the same ground so the hand-off is invisible. A wordmark laid out as a
+flex sibling still occupies its box at `opacity: 0`, which lifts the mark off
+centre from the first frame — so the mark would sit centred on the native splash
+and jump upward the instant the overlay mounted, giving away the seam the
+component exists to hide. It is `position: absolute` for that reason, offset by
+half the mark plus one section gap, and it is a sibling of the badge rather than
+a child so the exit scale belongs to the mark alone. The name fades up once the
+mark has settled; the hold is longer than it used to be because a word nobody
+can read is not worth showing.
 
 **The money disclaimer is in the shell, not in the screens.** It is load-bearing
 (§1) and putting it in one place is what stops a future redesign of one screen

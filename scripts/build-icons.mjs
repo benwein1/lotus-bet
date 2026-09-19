@@ -1,5 +1,5 @@
 /**
- * Renders every app icon from `assets/logo/lotus.svg`.
+ * Renders every app icon from `assets/logo/mark.svg`.
  *
  *   node scripts/build-icons.mjs
  *
@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const svg = readFileSync(join(root, 'assets/logo/lotus.svg'));
+const svg = readFileSync(join(root, 'assets/logo/mark.svg'));
 const out = join(root, 'assets/images');
 mkdirSync(out, { recursive: true });
 
@@ -93,7 +93,7 @@ files.push([
   'android-icon-monochrome.png',
   await sharp(
     Buffer.from(
-      readFileSync(join(root, 'assets/logo/lotus.svg'), 'utf8').replace(
+      readFileSync(join(root, 'assets/logo/mark.svg'), 'utf8').replace(
         /fill="#[0-9A-Fa-f]{6}"/g,
         'fill="#FFFFFF"'
       )

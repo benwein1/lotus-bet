@@ -10,7 +10,7 @@ import Animated, {
 } from '@/components/animated';
 
 import { DemoEntry } from '@/components/demo-entry';
-import { LotusMark } from '@/components/lotus-mark';
+import { AppMark } from '@/components/app-mark';
 import { ContentWidth, Screen } from '@/components/screen';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { motion } from '@/theme';
@@ -37,7 +37,7 @@ export function AuthShell({
   children,
   footer,
   /**
-   * Replaces the Lotus mark at the top. Profile setup swaps in the user's own
+   * Replaces the app mark at the top. Profile setup swaps in the user's own
    * avatar, because by then the thing being introduced is them, not the app.
    */
   hero,
@@ -105,7 +105,7 @@ export function AuthShell({
             <ContentWidth>
               <Animated.View entering={entering(0)} className="mb-9 items-center">
                 <Animated.View style={markStyle} className="mb-6">
-                  {hero ?? <LotusMark size={84} />}
+                  {hero ?? <AppMark size={84} />}
                 </Animated.View>
 
                 {/* Large Title, centred, with the tight tracking the scale

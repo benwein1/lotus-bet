@@ -125,10 +125,10 @@ select
   '', '', '', ''
 from (values
   ('00000000-0000-4000-9000-000000000000'::uuid, 'appreview@betta.local', 'Alex Rivera',   'AppReview-2026!'),
-  ('00000000-0000-4000-9000-000000000001'::uuid, 'dana.demo@betta.local', 'Dana Peretz',   'lotus-demo-1234'),
-  ('00000000-0000-4000-9000-000000000002'::uuid, 'yoni.demo@betta.local', 'Yonatan Adler', 'lotus-demo-1234'),
-  ('00000000-0000-4000-9000-000000000003'::uuid, 'maya.demo@betta.local', 'Maya Cohen',    'lotus-demo-1234'),
-  ('00000000-0000-4000-9000-000000000004'::uuid, 'itai.demo@betta.local', 'Itai Barak',    'lotus-demo-1234')
+  ('00000000-0000-4000-9000-000000000001'::uuid, 'dana.demo@betta.local', 'Dana Peretz',   'betta-demo-1234'),
+  ('00000000-0000-4000-9000-000000000002'::uuid, 'yoni.demo@betta.local', 'Yonatan Adler', 'betta-demo-1234'),
+  ('00000000-0000-4000-9000-000000000003'::uuid, 'maya.demo@betta.local', 'Maya Cohen',    'betta-demo-1234'),
+  ('00000000-0000-4000-9000-000000000004'::uuid, 'itai.demo@betta.local', 'Itai Barak',    'betta-demo-1234')
 ) as person(id, email, name, password)
 on conflict (id) do nothing;
 

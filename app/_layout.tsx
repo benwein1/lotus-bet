@@ -8,7 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AnimatedSplash } from '@/components/animated-splash';
 import { DemoEntry } from '@/components/demo-entry';
-import { LotusMark } from '@/components/lotus-mark';
+import { AppMark } from '@/components/app-mark';
 import { ChevronLeftIcon } from '@/components/icons';
 import { Screen } from '@/components/screen';
 import { PressableScale } from '@/components/ui';
@@ -201,7 +201,7 @@ function ModalCancel() {
 function SetupRequired() {
   return (
     <Screen className="items-center justify-center gap-4 px-10">
-      <LotusMark size={72} />
+      <AppMark size={72} />
       <Text className="text-center text-xl font-bold text-primary">Almost there</Text>
       <Text className="text-center text-subhead leading-5 text-secondary">
         Copy <Text className="font-semibold text-accent">.env.example</Text> to{' '}
