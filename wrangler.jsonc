@@ -10,6 +10,15 @@
   //
   // Both commands are what the Cloudflare build is configured to run.
   "$schema": "node_modules/wrangler/config-schema.json",
+
+  // This name is what a `wrangler deploy` run from a laptop creates, and it is
+  // where `*.workers.dev` gets its first label from. It is NOT what renames an
+  // existing deployment: Workers Builds pushes to the service the Git
+  // integration is bound to, so changing this line alone left the live site on
+  // `lotus-bet.weinsteinben2.workers.dev` after the app became Betta. A rename
+  // is a dashboard action — a new Worker with this name, the repo connected to
+  // it, the old one deleted — and `EXPO_PUBLIC_WEB_ORIGIN` in `eas.json` has
+  // to be the origin that action actually produces.
   "name": "betta",
   "compatibility_date": "2026-09-09",
   "assets": {
