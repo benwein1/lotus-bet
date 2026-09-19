@@ -38,6 +38,27 @@ import { motion } from '@/theme';
 const SLIVER = 64;
 
 /**
+ * Held outside the component because `FlatList` treats this as fixed after
+ * mount — handing it a fresh object every render is both a warning in dev and
+ * wasted work, since the value never actually changes.
+ */
+const VIEWABILITY = { itemVisiblePercentThreshold: 60 } as const;
+
+/**
+ * How much of the feed is mounted at once.
+ *
+ * Each card is most of a screen — media, a gradient, an odds bar and a roster
+ * of avatars — so these numbers are unusually low on purpose. The default
+ * `initialNumToRender` is 10, which meant the first paint built ten
+ * full-screen cards and decoded ten photos before showing anything, to display
+ * one. Two is what you can actually see (the card, plus the sliver of the next
+ * one), and the rest arrive in small batches as you scroll.
+ */
+const INITIAL_CARDS = 2;
+const BATCH_CARDS = 3;
+const WINDOW_CARDS = 5;
+
+/**
  * The feed. One bet fills most of the screen, and scrolling is how you get to
  * the next one — the bet, not a summary of your week, is the thing the app is
  * for. Bets you have already joined lead, then everything else still open.
@@ -203,12 +224,38 @@ export default function FeedScreen() {
   // Rebuilt on every feed change, which is also how a reminder goes away after
   // you pick a side.
   const wantsDeadlines = profile?.notify_deadlines ?? true;
+
+  // Keyed on what a reminder is actually made of, not on the bets array.
+  //
+  // `bets` is a new array every time anything in the feed changes — a like, a
+  // comment count, somebody else taking a side — and rescheduling means
+  // cancelling every notification this module owns and scheduling them all
+  // again, one bridge call at a time. Tapping a heart was doing that.
+  //
+  // `toReminderBet` reads exactly four things, so a signature of those four is
+  // a complete answer to "would the schedule come out any different". A like
+  // does not move it; picking a side does, which is what makes the reminder go
+  // away.
+  const reminderKey = useMemo(
+    () =>
+      bets
+        .map((bet) => {
+          const answered = (bet.positions ?? []).some((p) => p.user_id === userId);
+          return `${bet.id}:${bet.close_at ?? ''}:${bet.status}:${answered ? 1 : 0}`;
+        })
+        .join('|'),
+    [bets, userId]
+  );
+
+  const betsRef = useRef(bets);
+  betsRef.current = bets;
+
   useEffect(() => {
     void syncDeadlineReminders(
-      bets.map((bet) => toReminderBet(bet, userId || null)),
+      betsRef.current.map((bet) => toReminderBet(bet, userId || null)),
       wantsDeadlines
     );
-  }, [bets, userId, wantsDeadlines]);
+  }, [reminderKey, userId, wantsDeadlines]);
 
   const newCount = useMemo(
     () => bets.filter((bet) => isNewSince(bet.created_at, since, bet.creator_id, userId)).length,
@@ -282,6 +329,47 @@ export default function FeedScreen() {
 
   const myGroups = groups.data ?? [];
 
+  // Every row is one card plus its bottom margin, which is exactly the snap
+  // interval the list already scrolls by — so the list never has to measure a
+  // cell to know where the next one starts.
+  const getItemLayout = useCallback(
+    (_: ArrayLike<BetWithPositions> | null | undefined, index: number) => ({
+      length: snapInterval,
+      offset: snapInterval * index,
+      index,
+    }),
+    [snapInterval]
+  );
+
+  // Hoisted out of the JSX so its identity only changes when something a card
+  // actually draws from changes. As an inline arrow it was a new function on
+  // every render — including every like and every realtime position patch —
+  // which re-ran the cell renderer for every mounted card. `FeedCard`'s own
+  // memo caught most of that, but the cheapest re-render is the one that is
+  // never requested.
+  const renderCard = useCallback(
+    ({ item }: { item: BetWithPositions }) => (
+      <ContentWidth className="mb-4">
+        <FeedCard
+          bet={item}
+          currentUserId={userId}
+          height={cardHeight}
+          active={activeId === item.id}
+          isNew={isNewSince(item.created_at, since, item.creator_id, userId)}
+          onPickOption={(optionId) => pickOption(item.id, optionId)}
+          busyOptionId={busy?.betId === item.id ? busy.optionId : null}
+          onToggleLike={(next) => toggleLike(item.id, next)}
+          onOpenComments={() => setCommentsFor(item.id)}
+        />
+      </ContentWidth>
+    ),
+    // `pickOption` and `toggleLike` are declared in this component and close
+    // over nothing that is not already listed here, which is the same reason
+    // `FeedCard`'s comparator skips its callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [userId, cardHeight, activeId, since, busy]
+  );
+
   return (
     <Screen>
       <SafeAreaView edges={['top']} className="flex-1">
@@ -336,7 +424,21 @@ export default function FeedScreen() {
                   paddingHorizontal: 20,
                 }}
                 onViewableItemsChanged={onViewableItemsChanged.current}
-                viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
+                viewabilityConfig={VIEWABILITY}
+                // Every card is exactly the same height, so there is nothing
+                // for the list to measure. Without this it lays out each cell
+                // to find out where the next one goes — on a list of
+                // full-screen cards that is the work that shows up as a stutter
+                // when you flick, and it is the reason a snap could land
+                // slightly off before the layout settled.
+                getItemLayout={getItemLayout}
+                initialNumToRender={INITIAL_CARDS}
+                maxToRenderPerBatch={BATCH_CARDS}
+                windowSize={WINDOW_CARDS}
+                // Cards that have scrolled well away stop occupying the native
+                // view tree. It is a no-op on iOS and a real saving on Android,
+                // where a deep offscreen hierarchy still costs to traverse.
+                removeClippedSubviews
                 refreshControl={
                   <RefreshControl
                     refreshing={feed.refreshing}
@@ -344,21 +446,7 @@ export default function FeedScreen() {
                     tintColor={colors.textTertiary}
                   />
                 }
-                renderItem={({ item }) => (
-                  <ContentWidth className="mb-4">
-                    <FeedCard
-                      bet={item}
-                      currentUserId={userId}
-                      height={cardHeight}
-                      active={activeId === item.id}
-                      isNew={isNewSince(item.created_at, since, item.creator_id, userId)}
-                      onPickOption={(optionId) => pickOption(item.id, optionId)}
-                      busyOptionId={busy?.betId === item.id ? busy.optionId : null}
-                      onToggleLike={(next) => toggleLike(item.id, next)}
-                      onOpenComments={() => setCommentsFor(item.id)}
-                    />
-                  </ContentWidth>
-                )}
+                renderItem={renderCard}
                 ListFooterComponent={
                   <ContentWidth className="pb-2 pt-6">
                     {/* The end of the feed is where people leave. Giving it
