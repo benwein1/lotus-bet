@@ -55,12 +55,31 @@ import { supabase } from './supabase';
  * before extending this.
  */
 const USER_COLUMNS =
-  'id, display_name, username, avatar_url, profile_completed, notify_new_bets, notify_resolutions, notify_group_joins, notify_deadlines, created_at';
+  'id, display_name, username, avatar_url, profile_completed, age_verified_at, notify_new_bets, notify_resolutions, notify_group_joins, notify_deadlines, created_at';
 
 /** The subset needed to draw somebody: a name, a handle, a face. */
 const USER_PUBLIC_COLUMNS = 'id, display_name, username, avatar_url';
 
 export { USER_COLUMNS, USER_PUBLIC_COLUMNS };
+
+/**
+ * Confirm this account meets the 16+ minimum.
+ *
+ * The date of birth is a parameter and nothing more: `confirm_minimum_age`
+ * compares it against `current_date` in SQL and writes only a timestamp, so
+ * the birthday is never stored and the check cannot be won by a client that
+ * lies about the resulting age. An under-age date throws, which is what the
+ * caller renders.
+ *
+ * For accounts the sign-up form did not cover — Apple and Google return no
+ * date of birth — and for every account that predates the migration.
+ */
+export async function confirmMinimumAge(dateOfBirth: string): Promise<void> {
+  const { error } = await supabase.rpc('confirm_minimum_age', {
+    p_date_of_birth: dateOfBirth,
+  });
+  if (error) throw new Error(error.message);
+}
 
 function unwrap<T>(result: { data: T | null; error: { message: string } | null }): T {
   if (result.error) throw new Error(result.error.message);

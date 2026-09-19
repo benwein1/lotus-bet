@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-14",
+  "version": "2026-09-19",
   "documents": {
     "terms": {
       "title": "Terms of Service",
@@ -23,7 +23,7 @@
         {
           "heading": "Who can use it",
           "body": [
-            "You must be at least 13 years old, and old enough to agree to these terms where you live. If you are under 18, you should have a parent or guardian's permission.",
+            "You must be at least 16 years old to use {{app}}. We ask for your date of birth when you create an account, check it, and do not keep it — all that is recorded is that the check passed. If you are under 18, you should have a parent or guardian's permission.",
             "You need an account, and the details on it should be true. Keep your password to yourself — anything done from your account is treated as done by you."
           ]
         },
@@ -97,6 +97,7 @@
             "Your display name and handle, which the people in your groups see.",
             "Your profile photo, if you set one.",
             "What you post: bet questions and their options, descriptions, comments, likes, and any photo or video you attach to a bet.",
+            "Your date of birth, once, to check you are old enough. It is checked and discarded in the same step — we store only the fact that an account passed the check, never the date itself.",
             "Identifiers: an account id, and — only if you turn notifications on — a push token for the device you are using.",
             "A phone number, for accounts created under an older version of the app that signed people in by SMS. Nothing collects one now, and an account that has one can have it removed by deleting the account.",
             "We do not ask for, and have no way to accept, any payment details."
@@ -116,6 +117,7 @@
             "Your email address: to sign you in, to reset your password, and to reach you about your account.",
             "Your name, handle and photo: so the people in your groups know who they are betting against.",
             "What you post: because that is the app. A bet nobody can read is not a bet.",
+            "That your age was checked: because {{app}} is a 16+ app and we have to be able to show the check happened. Holding the date of birth as well would tell us nothing more.",
             "Your push token: to send the notification you asked for. Turn notifications off and it is deleted.",
             "We do not hold anything because it might be useful one day."
           ]
@@ -154,7 +156,7 @@
         {
           "heading": "Children",
           "body": [
-            "{{app}} is not for anybody under 13. We do not knowingly collect anything from a child under 13, and if we find out that we have, we delete the account."
+            "{{app}} is for people aged 16 and over. Everyone is asked for their date of birth before they can post anything, and an account that does not meet the minimum is refused. We do not knowingly collect anything from a child under 16, and if we find out that we have, we delete the account."
           ]
         },
         {

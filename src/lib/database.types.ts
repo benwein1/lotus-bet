@@ -51,6 +51,19 @@ export interface UserRow {
    */
   profile_completed?: boolean;
   avatar_url: string | null;
+  /**
+   * When this account confirmed it meets the 16+ minimum, or null if it never
+   * has. Readable but **not** writable: only the signup trigger and
+   * `confirm_minimum_age()` set it, so a client cannot stamp itself.
+   *
+   * Optional for the same reason `profile_completed` is — a project that has
+   * not applied `…_minimum_age.sql` returns a row without the column, and
+   * `needsAgeCheck` treats that as "nothing to ask".
+   *
+   * The date of birth behind it is deliberately never stored. See the head of
+   * that migration.
+   */
+  age_verified_at?: string | null;
   /** Never present on a client-read row — see `email` above. */
   expo_push_token?: string | null;
   notify_new_bets: boolean;

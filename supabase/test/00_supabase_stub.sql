@@ -1,17 +1,28 @@
 -- Enough of Supabase's platform schema to run the project's migrations against
 -- a plain Postgres. Only the objects the migrations actually touch.
-create extension if not exists pgcrypto with schema public;
-
 create schema if not exists auth;
 create schema if not exists extensions;
 create schema if not exists storage;
 
--- pgcrypto lives in `extensions` on Supabase; mirror that so the seed script's
--- `set search_path = public, extensions` resolves the same way.
-create or replace function extensions.crypt(text, text) returns text
-  language sql as $$ select public.crypt($1, $2) $$;
-create or replace function extensions.gen_salt(text) returns text
-  language sql as $$ select public.gen_salt($1) $$;
+-- pgcrypto goes in `extensions`, because that is where Supabase puts it.
+--
+-- This used to read `with schema public` plus two shims forwarding
+-- `extensions.crypt` and `extensions.gen_salt` back to `public` — which is
+-- backwards, and it cost the app its Share invite button. `create_group_invite`
+-- calls `gen_random_bytes` under `search_path = public`; against this stub the
+-- name resolved in `public` and the test passed, while on a real project the
+-- function is not in `public` at all and every tap failed with
+-- "function gen_random_bytes(integer) does not exist".
+--
+-- A stub that is more forgiving than the platform does not just miss a bug, it
+-- asserts the bug is not there. So the extension lives where the platform puts
+-- it, and anything reaching for it has to say so — which is what
+-- `…_fix_invite_token_search_path.sql` now does.
+--
+-- Note this also makes `…_init.sql`'s bare `create extension if not exists
+-- pgcrypto;` the no-op it is on a real project: already installed, so the
+-- statement is satisfied and nothing moves into `public`.
+create extension if not exists pgcrypto with schema extensions;
 
 -- --- auth ------------------------------------------------------------------
 create table if not exists auth.users (
