@@ -2282,3 +2282,108 @@ begin;
   select 'under-age account created' as check, count(*) as rows
     from public.users where id = 'f0f0f0f0-0000-4000-8000-000000000003';
 rollback;
+
+\echo '--- 50. Currency lives on the group, and cannot be mixed inside one ---'
+begin;
+  \echo '  (a) groups that predate the column are ILS, which is what they were'
+  select 'existing groups ILS' as check, count(*) as rows
+    from public.groups where currency = 'ILS';
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (b) a new group defaults to USD'
+  select 'new group USD' as check, count(*) as rows
+    from public.create_group('Dollar Group', null) g where g.currency = 'USD';
+
+  \echo '  (c) ...and an explicit currency is honoured'
+  select 'explicit GBP' as check, count(*) as rows
+    from public.create_group('Pound Group', null, 'GBP') g where g.currency = 'GBP';
+
+  \echo '  (d) the old two-argument call still resolves (must NOT be ambiguous)'
+  -- The overload trap: if both a 2-arg and a 3-arg form existed with defaults,
+  -- this call would fail with "is not unique" and every existing client with it.
+  select 'two-arg call works' as check, count(*) as rows
+    from public.create_group('Legacy Call') g where g.currency = 'USD';
+
+  \echo '  (e) an unsupported currency is refused (must fail)'
+  savepoint s1;
+  select public.create_group('Bad Money', null, 'XYZ');
+  rollback to s1;
+
+  \echo '  (f) the column constraint refuses it too, not just the RPC (must fail)'
+  savepoint s2;
+  reset role;
+  update public.groups set currency = 'XYZ'
+   where id = 'bbbbbbbb-0000-4000-8000-000000000000';
+  rollback to s2;
+rollback;
+
+\echo '--- 51. Username prefix search gives away as little as it can ---'
+begin;
+  -- Known handles, created here rather than relying on whatever
+  -- `suggest_username` generated for the seed accounts. Twelve sharing a
+  -- prefix, so the ten-row cap is actually exercised rather than vacuously
+  -- true.
+  insert into public.users (id, display_name, username, age_verified_at)
+  select ('f1f1f1f1-0000-4000-8000-0000000000' || lpad(i::text, 2, '0'))::uuid,
+         'Bar Person ' || i, 'barsearch' || i, now()
+  from generate_series(1, 12) i
+  on conflict (id) do nothing;
+
+  insert into public.users (id, display_name, username, age_verified_at)
+  values ('f2f2f2f2-0000-4000-8000-000000000001', 'Dana Search', 'danasearch', now())
+  on conflict (id) do nothing;
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (a) a two-character prefix finds people'
+  select 'prefix da finds Dana' as check, count(*) as rows
+    from public.search_users_by_username('da') where username = 'danasearch';
+
+  \echo '  (b) one character returns nothing — the namespace cannot be walked'
+  select 'single char leaks' as check, count(*) as rows
+    from public.search_users_by_username('d');
+
+  \echo '  (c) empty and null return nothing'
+  select 'empty leaks' as check, count(*) as rows
+    from public.search_users_by_username('');
+  select 'null leaks' as check, count(*) as rows
+    from public.search_users_by_username(null);
+
+  \echo '  (d) it is a PREFIX search, not contains'
+  -- "anasearch" is inside "danasearch". A contains-search would match it, and
+  -- would let two characters enumerate most of the table.
+  select 'contains matched' as check, count(*) as rows
+    from public.search_users_by_username('anasear');
+
+  \echo '  (e) you never appear in your own results'
+  reset role;
+  update public.users set username = 'selftest'
+   where id = 'aaaaaaaa-0000-4000-8000-000000000000';
+  set local role authenticated;
+  select 'self in results' as check, count(*) as rows
+    from public.search_users_by_username('selfte') where id = auth.uid();
+
+  \echo '  (f) capped at ten rows even though twelve match'
+  select 'rows returned (must be 10)' as check, count(*) as rows
+    from public.search_users_by_username('barsearch');
+
+  \echo '  (g) a deleted account cannot be found'
+  reset role;
+  update public.users set deleted_at = now()
+   where id = 'f2f2f2f2-0000-4000-8000-000000000001';
+  set local role authenticated;
+  select 'tombstone found' as check, count(*) as rows
+    from public.search_users_by_username('danasearch');
+rollback;
+
+\echo '--- 52. The new functions are not callable by anon ---'
+begin;
+  select 'new functions anon-callable' as check, count(*) as rows
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('search_users_by_username', 'create_group', 'create_duel')
+     and has_function_privilege('anon', p.oid, 'execute');
+rollback;
