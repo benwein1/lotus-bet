@@ -175,7 +175,7 @@ supabase/
                             user devices · moderation review · media retention ·
                             bets by creator · anon RPC lockdown ·
                             social sign-in · anon execute relock · feed index ·
-                            minimum age (29)
+                            minimum age · invite token search path (30)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
   functions/sweep-media/    scheduled retention for cancelled bets' media
@@ -1172,6 +1172,24 @@ privileges, set before the migrations run** — which is how Supabase actually
 does it. They used to be a blanket `GRANT` after them, which silently
 re-granted anything a migration revoked, so a function locked down to the
 service role tested as locked down while being callable by anyone.
+
+**A stub that is more forgiving than the platform asserts the bug is not
+there.** The same shape as the grants above, found a second time and worth
+stating as a rule. `00_supabase_stub.sql` used to install pgcrypto into
+`public`; Supabase installs it into `extensions`. `create_group_invite` mints
+its token with `gen_random_bytes` under `search_path = public`, so against the
+stub the name resolved and the check passed, while on a real project the
+function is not in `public` at all and **every tap on "Share invite" failed**
+with `function gen_random_bytes(integer) does not exist`. Nothing called the
+function in the harness either, so the whole path was untested twice over.
+Both halves are fixed: pgcrypto now lives where the platform puts it, and
+section 47 actually mints a link. `gen_random_uuid()` was never affected — it
+has been a core built-in since PostgreSQL 13 and needs no extension, which is
+precisely why that one call broke alone.
+
+When you model a piece of the platform, model it as it is, not as it would be
+convenient. A difference in the permissive direction is invisible until a user
+finds it.
 
 What it does **not** cover is anything the platform provides rather than this
 repo: real storage behaviour, GoTrue, and Edge Function deployment. The

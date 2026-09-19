@@ -2196,3 +2196,24 @@ begin;
      and p.proname in ('meets_minimum_age', 'confirm_minimum_age', 'require_age_verified')
      and has_function_privilege('anon', p.oid, 'execute');
 rollback;
+
+\echo '--- 47. Share invite actually mints a token ---'
+-- The regression that took the Share invite button out entirely:
+-- `create_group_invite` mints with `gen_random_bytes`, which is pgcrypto, and
+-- pgcrypto is not in `public` on Supabase. Nothing here called the function, so
+-- the whole path was untested and the failure only showed up on a real device.
+begin;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (a) a member gets a usable link'
+  select 'token minted' as check, count(*) as rows
+    from public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000', 168) i
+   where length(i.token) = 12 and i.token !~ '[+/=]';
+
+  \echo '  (b) tapping twice reuses the same link rather than minting a second'
+  select 'same token' as check, count(*) as rows
+    from public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000', 168) a,
+         public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000', 168) b
+   where a.token = b.token;
+rollback;
