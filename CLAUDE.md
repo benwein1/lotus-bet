@@ -175,7 +175,8 @@ supabase/
                             user devices · moderation review · media retention ·
                             bets by creator · anon RPC lockdown ·
                             social sign-in · anon execute relock · feed index ·
-                            minimum age · invite token search path (30)
+                            minimum age · invite token search path ·
+                            grandfather existing accounts (31)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
   functions/sweep-media/    scheduled retention for cancelled bets' media
@@ -817,6 +818,25 @@ cannot stamp itself — section 45(e) of the policy checks asserts exactly that.
 Nothing deletes an account that never answers; it can write nothing, so it
 harms nobody, and putting it on a timer is a product decision the migration
 says is still open.
+
+**Accounts that predate the rule are grandfathered, not verified**, and the
+column carries both meanings. `…_age_grandfather_existing.sql` exempts every
+account created before a **fixed literal cutoff** — the product decision being
+that the check belongs at signup and an established account should not be
+interrupted by a question that did not exist when it was made. The cutoff is a
+literal rather than `now()` precisely so the set stops growing: an unbounded
+`where age_verified_at is null` would exempt whatever happened to be unstamped
+whenever it ran, including the Apple and Google signups that are *supposed* to
+be waiting on the in-app check. Those rows are stamped with their own
+`created_at` rather than the migration's clock, because a today's-date stamp on
+a two-week-old account would read as "checked today", which is the one thing
+that is definitely untrue of them.
+
+So `age_verified_at` non-null means "may post", and what it means underneath
+depends on which side of that timestamp the row sits. Sections 48 and 49 assert
+the line holds in both directions — exempt before it, untouched after it, and a
+new under-age signup still refused outright. Nothing else about the gate
+changed; only its starting population did.
 
 ### Roles and who may write what
 

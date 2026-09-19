@@ -2217,3 +2217,68 @@ begin;
          public.create_group_invite('bbbbbbbb-0000-4000-8000-000000000000', 168) b
    where a.token = b.token;
 rollback;
+
+\echo '--- 48. Grandfathering: the cutoff exempts, and then stops ---'
+-- `…_age_grandfather_existing.sql` exempts accounts that predate the 16+ rule,
+-- so the check is asked at signup and nowhere else. The pre-fixture puts one
+-- account either side of the cutoff; these assert the line actually holds.
+begin;
+  \echo '  (a) an account from before the cutoff is grandfathered in'
+  select 'old account exempt' as check, count(*) as rows
+    from public.users
+   where id = 'f0f0f0f0-0000-4000-8000-000000000001'
+     and age_verified_at is not null;
+
+  \echo '  (b) ...stamped with its own created_at, not the migration''s clock'
+  -- A 2026-09-19 stamp on a 2026-09-10 account would read as "checked today",
+  -- which is the one thing that is definitely not true of these rows.
+  select 'stamped with created_at' as check, count(*) as rows
+    from public.users
+   where id = 'f0f0f0f0-0000-4000-8000-000000000001'
+     and age_verified_at = created_at;
+
+  \echo '  (c) an account from AFTER the cutoff is untouched'
+  -- The case that protects every Apple and Google signup: they are created
+  -- after the rule, are not grandfathered, and must still face the in-app
+  -- check. If the backfill ever grows to catch these, the gate is decorative.
+  select 'new account still unverified' as check, count(*) as rows
+    from public.users
+   where id = 'f0f0f0f0-0000-4000-8000-000000000002'
+     and age_verified_at is null;
+
+  \echo '  (d) and it still cannot post'
+  insert into public.group_members (group_id, user_id, role)
+  values ('bbbbbbbb-0000-4000-8000-000000000000',
+          'f0f0f0f0-0000-4000-8000-000000000002', 'member')
+  on conflict do nothing;
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'f0f0f0f0-0000-4000-8000-000000000002';
+  savepoint s1;
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'f0f0f0f0-0000-4000-8000-000000000002', 'should be refused');
+  rollback to s1;
+rollback;
+
+\echo '--- 49. A brand-new under-age signup is still refused ---'
+-- The whole point of grandfathering is that it changes who is exempt, not
+-- whether the rule works. If this ever passes, the backfill has eaten the gate.
+begin;
+  savepoint s1;
+  insert into auth.users (
+    instance_id, id, aud, role, email, encrypted_password,
+    email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+  )
+  values (
+    '00000000-0000-0000-0000-000000000000',
+    'f0f0f0f0-0000-4000-8000-000000000003',
+    'authenticated', 'authenticated', 'stillachild@example.test', 'x', now(), '{}'::jsonb,
+    ('{"display_name":"Still A Child","date_of_birth":"'
+      || (current_date - interval '11 years')::date || '"}')::jsonb,
+    now(), now()
+  );
+  rollback to s1;
+
+  select 'under-age account created' as check, count(*) as rows
+    from public.users where id = 'f0f0f0f0-0000-4000-8000-000000000003';
+rollback;
