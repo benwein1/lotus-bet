@@ -190,7 +190,9 @@ global.css                  GENERATED from it by scripts/build-theme-css.js
 legal-text.json             SINGLE SOURCE OF TRUTH for terms, privacy, support
 public/legal/*.html         GENERATED from it by scripts/build-legal-html.js,
                             at build time, gitignored — see §11
-assets/logo/mark.svg       the mark; scripts/build-icons.mjs renders every size
+assets/logo/mark.svg       the mark — one green-to-blue ramp across the whole
+                            fan; scripts/build-icons.mjs renders every size, and
+                            animated-mark.tsx redraws the same petals and ramps
 supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
                             bet options · notification prefs · social ·
