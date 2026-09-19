@@ -39,12 +39,21 @@ module.exports = {
         /**
          * The secondary brand colour, Spring Mint.
          *
-         * Deliberately named `brand` rather than anything money-shaped. It sits
-         * 8 degrees of hue from `positive`, which is close enough that the two
-         * must never appear side by side: `positive` means "owed to you" and
-         * `sideA` means "the side in favour", and those are learned. So brand
-         * green is for identity and selection — chips, live dots, secondary
-         * actions — and never for an amount or a bet side.
+         * Deliberately named `brand` rather than anything money-shaped, because
+         * it sits 8 degrees of hue from `positive` and the app already spends
+         * green twice: `positive` is money owed to you and `sideA` is the side
+         * in favour. Both are learned, and neither may drift.
+         *
+         * The rule that keeps the three apart is not distance, it is job.
+         * **Brand green never carries a number and never carries a side.** It
+         * marks status and selection — the live dot, the "open" badge, a
+         * selected chip, the mark itself — and every one of those is next to a
+         * word that says what it means ("Live", "$40" is not one of them). A
+         * live dot can therefore sit on the same card as a green side button
+         * without either being misread, which is exactly what the feed does.
+         *
+         * What would break it: colouring an amount, a bet side, an odds bar
+         * slice or a balance row with it. Those are `positive` and `sideA`.
          */
         brand: {
           DEFAULT: color('brand'),

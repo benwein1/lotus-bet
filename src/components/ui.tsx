@@ -467,11 +467,13 @@ export function Chip({
       accessibilityRole={multi ? 'checkbox' : 'radio'}
       accessibilityState={multi ? { checked: selected } : { selected }}
       className={`rounded-full border px-3.5 py-2 ${
-        selected ? 'border-accent bg-accent-soft' : 'border-hairline bg-surface2'
+        selected ? 'border-brand bg-brand-soft' : 'border-hairline bg-surface2'
       } ${className}`}
     >
       <Text
-        className={`text-subhead ${selected ? 'font-semibold text-accent' : 'text-secondary'}`}
+        className={`text-subhead ${
+          selected ? 'font-semibold text-brand-strong' : 'text-secondary'
+        }`}
       >
         {label}
       </Text>
@@ -556,7 +558,11 @@ type BadgeTone = 'neutral' | 'open' | 'locked' | 'resolved' | 'cancelled' | 'win
 
 const BADGE_TONE: Record<BadgeTone, { wrap: string; text: string; dot: string }> = {
   neutral: { wrap: 'bg-surface3', text: 'text-secondary', dot: 'bg-tertiary' },
-  open: { wrap: 'bg-accent-soft', text: 'text-accent', dot: 'bg-accent' },
+  // Brand green rather than accent blue. "Open" is a state the bet is in, not
+  // something to press — and it is the same state `LiveDot` reports two
+  // components down, so the two have to agree. See the `brand` note in
+  // tailwind.config.js for why this is never used for an amount or a side.
+  open: { wrap: 'bg-brand-soft', text: 'text-brand-strong', dot: 'bg-brand' },
   locked: { wrap: 'bg-surface3', text: 'text-primary', dot: 'bg-tertiary' },
   resolved: { wrap: 'bg-surface3', text: 'text-secondary', dot: 'bg-tertiary' },
   cancelled: { wrap: 'bg-surface3', text: 'text-tertiary', dot: 'bg-tertiary' },
@@ -582,7 +588,14 @@ export function Badge({
   );
 }
 
-/** A pulsing dot, for "this is live right now". */
+/**
+ * A pulsing dot, for "this is live right now".
+ *
+ * Brand green, not accent blue: blue is what you press, and this is not a
+ * control — it is the bet telling you it is still running. Green for "live" is
+ * the one colour convention people already arrive with. It sits eight degrees
+ * of hue from `positive`, so it is deliberately never used for an amount.
+ */
 export function LiveDot({ className = '' }: { className?: string }) {
   const colors = useColors();
   const pulse = useSharedValue(1);
@@ -604,7 +617,7 @@ export function LiveDot({ className = '' }: { className?: string }) {
 
   return (
     <Animated.View
-      style={[style, { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent }]}
+      style={[style, { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.brand }]}
       className={className}
     />
   );

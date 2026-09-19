@@ -251,6 +251,7 @@ never need to be.
 | `primary` / `secondary` / `tertiary` | label → secondary label → placeholder |
 | `inverse` | text on an inverted surface |
 | `accent` (+ `-strong`, `-soft`, `-ink`) | the one decisive colour |
+| `brand` (+ `-strong`, `-soft`, `-ink`) | Spring Mint — status and selection only |
 | `positive` / `negative` (+ `-soft`) | money owed to you / that you owe |
 | `sideA` / `sideB` (+ `-soft`, `-onMedia`) | the two sides of a bet |
 | `chrome` / `chrome-edge` | translucent floating material and its lit edge |
@@ -346,9 +347,16 @@ thicker: the tab bar takes a much higher blur intensity than a chip would.
 - **No tracked ALL-CAPS eyebrows.** `SectionTitle` is sentence case at Title 3.
 - **No middle-dot meta strings** (`A · B · C`). Write the sentence.
 - **No near-black-as-grey.** The dark ramp is genuinely black-first.
-- **One accent, used with meaning** — blue carries every action; green and red
-  carry direction, both on the ledger and on the two sides of a bet. Nothing is
-  coloured for decoration.
+- **One accent, used with meaning** — blue carries every action; `positive` and
+  `negative` carry direction, both on the ledger and on the two sides of a bet.
+  Nothing is coloured for decoration.
+- **`brand` is the fourth colour and it has one job.** Spring Mint, the app's
+  secondary, marks *status and selection*: the live dot, the "open" badge, a
+  selected chip, the mark itself. It never carries a number and never carries a
+  side — that is `positive` and `sideA`, which sit only 8 degrees of hue away.
+  The separation is the job, not the distance, which is why a green live dot
+  labelled "Live" can sit on the same card as a green side button. The full
+  rule is in `tailwind.config.js` next to the token.
 - **Loading states are skeletons, not spinners**, anywhere the shape of the
   content is known.
 
