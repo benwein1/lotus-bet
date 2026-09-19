@@ -7,7 +7,7 @@ import { cssInterop } from 'nativewind';
 cssInterop(Image, { className: 'style' });
 
 /**
- * The app mark — the same five-petal lotus as the home-screen icon.
+ * The app mark — the same five-petal form as the home-screen icon.
  *
  * One asset, rendered from `assets/logo/mark.svg` by `scripts/build-icons.mjs`
  * along with the icon, the splash and the favicon. Wherever the app shows its
