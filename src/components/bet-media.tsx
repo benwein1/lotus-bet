@@ -91,6 +91,18 @@ function MediaItem({ item, active }: { item: BetMedia; active: boolean }) {
       source={{ uri: item.url }}
       contentFit="cover"
       transition={220}
+      // The feed is a `FlatList`, so this view gets recycled onto a different
+      // bet as you scroll. Without a recycling key expo-image keeps showing
+      // the *previous* bet's photo until the new one decodes — a visible flash
+      // of the wrong picture on every reuse, and the thing that makes a fast
+      // scroll look broken. The key tells it the content changed, so it clears
+      // instead of holding the stale frame.
+      recyclingKey={item.id}
+      // Decoded bitmaps stay in memory as well as on disk, so scrolling back
+      // up a feed you have already seen costs nothing. The default is disk
+      // only, which means a fresh decode per pass — and decode, not download,
+      // is what drops frames once the file is cached.
+      cachePolicy="memory-disk"
       className="h-full w-full"
       accessibilityLabel="Attached photo"
     />

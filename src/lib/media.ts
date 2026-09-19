@@ -118,11 +118,25 @@ function toPicked(asset: ImagePicker.ImagePickerAsset): PickedMedia {
 const COMPRESSION = {
   attachment: {
     quality: 0.85,
+    // The long edge, in pixels. A modern phone camera hands back something
+    // like 4032×3024; the card it lands in is a phone width at 3× density,
+    // which is about 1170px. Everything past that is downloaded, decoded and
+    // then thrown away by the scaler.
+    //
+    // 1600 keeps real headroom over that — it is still oversampled on the
+    // densest screen and on a tablet — while cutting roughly 85% of the
+    // pixels, and pixels are what the cost is in: bytes over the wire, decode
+    // time on the scroll, bitmap bytes in memory, and the per-account quota.
+    maxEdge: 1600,
     videoQuality: ImagePicker.UIImagePickerControllerQualityType.High,
     videoMaxDuration: 60,
   },
   proof: {
     quality: 0.6,
+    // Proof is squeezed harder for the same reason its quality is lower: a
+    // receipt has to be legible enough to end an argument, not to be a bet's
+    // full-bleed face. It renders in a gallery tile, never edge to edge.
+    maxEdge: 1200,
     videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
     // Fifteen seconds. Video is the overwhelming majority of this app's
     // storage risk for a small slice of its value — SCALEABILITY.md §4 puts
@@ -151,13 +165,17 @@ const COMPRESSION = {
  * seconds is the mitigation that exists; stripping video metadata needs a
  * transcoding step nothing here has.
  */
-async function stripMetadata(picked: PickedMedia, quality: number): Promise<PickedMedia> {
+async function stripMetadata(
+  picked: PickedMedia,
+  quality: number,
+  maxEdge: number
+): Promise<PickedMedia> {
   if (picked.kind !== 'image') return picked;
 
   // A failure is surfaced rather than swallowed. Falling back to the original
   // would upload the coordinates anyway and say nothing, which is exactly the
   // "not a guarantee" state this function exists to end.
-  const result = await ImageManipulator.manipulateAsync(picked.uri, [], {
+  const result = await ImageManipulator.manipulateAsync(picked.uri, resizeTo(picked, maxEdge), {
     compress: quality,
     format: ImageManipulator.SaveFormat.JPEG,
   });
@@ -173,9 +191,39 @@ async function stripMetadata(picked: PickedMedia, quality: number): Promise<Pick
   };
 }
 
+/**
+ * The resize action for a picked still, or none at all.
+ *
+ * **The long edge is what gets capped, not the width.** Resizing by width
+ * alone turns a portrait photo — which is most of them, taken on a phone held
+ * upright — into something taller than the cap rather than smaller than it, so
+ * the expensive dimension is the one left untouched. `manipulateAsync` scales
+ * the other side to preserve the aspect ratio when only one is given, so
+ * naming the long one is the whole job.
+ *
+ * An image already inside the cap gets an empty action list, which is exactly
+ * what this function did before the cap existed — the re-encode still happens,
+ * so the metadata guarantee above holds either way. A picker that gave us no
+ * dimensions gets the same treatment: guessing at a resize from nothing could
+ * upscale, and an upscale costs bytes to add no detail.
+ */
+function resizeTo(picked: PickedMedia, maxEdge: number): ImageManipulator.Action[] {
+  const { width, height } = picked;
+  if (!width || !height) return [];
+
+  const longest = Math.max(width, height);
+  if (longest <= maxEdge) return [];
+
+  return width >= height ? [{ resize: { width: maxEdge } }] : [{ resize: { height: maxEdge } }];
+}
+
 /** Strips every still in a picked batch, leaving videos alone. */
-function stripBatch(picked: PickedMedia[], quality: number): Promise<PickedMedia[]> {
-  return Promise.all(picked.map((item) => stripMetadata(item, quality)));
+function stripBatch(
+  picked: PickedMedia[],
+  quality: number,
+  maxEdge: number
+): Promise<PickedMedia[]> {
+  return Promise.all(picked.map((item) => stripMetadata(item, quality, maxEdge)));
 }
 
 /** Opens the system library. Returns [] when the user backs out. */
@@ -188,7 +236,11 @@ export async function pickMedia(remaining: number): Promise<PickedMedia[]> {
   });
 
   if (result.canceled) return [];
-  return stripBatch(result.assets.slice(0, remaining).map(toPicked), COMPRESSION.attachment.quality);
+  return stripBatch(
+    result.assets.slice(0, remaining).map(toPicked),
+    COMPRESSION.attachment.quality,
+    COMPRESSION.attachment.maxEdge
+  );
 }
 
 /**
@@ -208,7 +260,11 @@ export async function pickProofMedia(remaining: number): Promise<PickedMedia[]> 
   });
 
   if (result.canceled) return [];
-  return stripBatch(result.assets.slice(0, remaining).map(toPicked), COMPRESSION.proof.quality);
+  return stripBatch(
+    result.assets.slice(0, remaining).map(toPicked),
+    COMPRESSION.proof.quality,
+    COMPRESSION.proof.maxEdge
+  );
 }
 
 /** Shoot proof there and then. The camera is the common case for a receipt. */
@@ -223,7 +279,7 @@ export async function captureProofMedia(): Promise<PickedMedia | null> {
 
   if (result.canceled) return null;
   const asset = result.assets[0];
-  return asset ? stripMetadata(toPicked(asset), COMPRESSION.proof.quality) : null;
+  return asset ? stripMetadata(toPicked(asset), COMPRESSION.proof.quality, COMPRESSION.proof.maxEdge) : null;
 }
 
 /** Opens the camera. Returns null when the user backs out or declines access. */
@@ -238,7 +294,7 @@ export async function captureMedia(): Promise<PickedMedia | null> {
 
   if (result.canceled) return null;
   const asset = result.assets[0];
-  return asset ? stripMetadata(toPicked(asset), COMPRESSION.attachment.quality) : null;
+  return asset ? stripMetadata(toPicked(asset), COMPRESSION.attachment.quality, COMPRESSION.attachment.maxEdge) : null;
 }
 
 /**

@@ -643,6 +643,13 @@ export function Avatar({
           style={{ width: '100%', height: '100%' }}
           contentFit="cover"
           transition={160}
+          // The same face appears many times over — every option roster, every
+          // balance row, every comment — and it is recycled through list cells
+          // like any other image. `recyclingKey` stops a reused avatar showing
+          // the last person's face for a frame; the memory cache means the
+          // second appearance of a face costs no decode at all.
+          recyclingKey={uri}
+          cachePolicy="memory-disk"
           accessibilityLabel={name}
         />
       ) : (

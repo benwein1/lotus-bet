@@ -170,7 +170,7 @@ supabase/
                             abuse limits · position group_id · media limits ·
                             user devices · moderation review · media retention ·
                             bets by creator · anon RPC lockdown ·
-                            social sign-in · anon execute relock (26)
+                            social sign-in · anon execute relock · feed index (27)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
   functions/sweep-media/    scheduled retention for cancelled bets' media
@@ -542,6 +542,29 @@ is deliberately no query library (§10).
 - **`FeedCard` is memoised** on everything except its callbacks, which the feed
   writes as inline arrows. They close over nothing that is not also a compared
   prop.
+- **Stills are resized on the way in, not just compressed.** `stripMetadata`
+  used an empty action list, so a 4032×3024 camera photo was uploaded whole and
+  then decoded whole to fill a card about 1170px wide. `COMPRESSION.maxEdge`
+  caps the **long** edge — 1600 for an attachment, 1200 for proof — because
+  capping width alone leaves a portrait photo, which is most of them, taller
+  than the cap. It is roughly 85% fewer pixels, and pixels are where the cost
+  is: bytes, decode time, bitmap memory, and the per-account quota.
+- **The feed list is windowed deliberately.** `initialNumToRender` defaults to
+  10, so the first paint built ten full-screen cards to show one.
+  `INITIAL_CARDS` is 2 — the card plus the sliver of the next. `getItemLayout`
+  is supplied because every row is exactly `snapInterval` tall, so the list
+  never measures a cell to place the next one.
+- **`recyclingKey` on every recycled image.** Without it expo-image holds the
+  previous bet's photo on a reused cell until the new one decodes, which is the
+  flash of the wrong picture that makes a fast scroll look broken.
+  `cachePolicy="memory-disk"` keeps decoded bitmaps around, so scrolling back
+  up costs no decode.
+- **Effects that drive native work key on a signature, not on the array.**
+  Rescheduling deadline reminders cancels and re-schedules every local
+  notification one bridge call at a time, and it was keyed on `bets` — a new
+  array on every like. It now keys on a string built from the four fields
+  `toReminderBet` actually reads, so a like does not move it and picking a side
+  still does.
 
 ### Chrome the tabs don't have
 
