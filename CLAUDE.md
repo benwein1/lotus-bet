@@ -171,7 +171,7 @@ supabase/
                             abuse limits · position group_id · media limits ·
                             user devices · moderation review · media retention ·
                             bets by creator · anon RPC lockdown ·
-                            social sign-in · anon execute relock · feed index (27)
+                            social sign-in · anon execute relock · feed index (28)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
   functions/sweep-media/    scheduled retention for cancelled bets' media
