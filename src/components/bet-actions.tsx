@@ -32,6 +32,7 @@ export function BetActions({
   onPressComments,
   onMedia = false,
   size = 'md',
+  showCommentCount = true,
 }: {
   liked: boolean;
   likeCount: number;
@@ -46,6 +47,11 @@ export function BetActions({
   /** Over a photo or video, where the palette has to ignore the scheme. */
   onMedia?: boolean;
   size?: 'sm' | 'md';
+  /**
+   * False where a "View all N comments" line sits underneath and already
+   * carries the number. Printing it twice in the same corner reads as a bug.
+   */
+  showCommentCount?: boolean;
 }) {
   const colors = useColors();
   const reduced = useReducedMotion();
@@ -126,7 +132,7 @@ export function BetActions({
           className="flex-row items-center gap-1.5"
         >
           <CommentIcon size={iconSize} color={restingColor} />
-          {commentCount > 0 ? (
+          {showCommentCount && commentCount > 0 ? (
             <Text style={tabular} className={`text-sm ${label}`}>
               {commentCount}
             </Text>

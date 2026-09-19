@@ -17,7 +17,7 @@ import { inviteShareText, type LinkTargets } from './invite-links';
 export { INVITE_PATH, inviteExpiry, inviteMessage, inviteUrl } from './invite-links';
 
 /** The app's own URL scheme, kept in step with `app.json`. */
-const SCHEME = (Constants.expoConfig?.scheme as string | undefined) ?? 'lotusbet';
+const SCHEME = (Constants.expoConfig?.scheme as string | undefined) ?? 'betta';
 
 /**
  * Where the web build lives.
@@ -25,7 +25,7 @@ const SCHEME = (Constants.expoConfig?.scheme as string | undefined) ?? 'lotusbet
  * On the web the browser already knows, and reading it there means a preview
  * deployment shares preview links rather than production ones. On a device
  * there is nothing to read, so it has to be configured — and when it is not,
- * `inviteUrl` falls back to the `lotusbet://` scheme rather than inventing a
+ * `inviteUrl` falls back to the `betta://` scheme rather than inventing a
  * domain that would 404 for whoever you sent it to.
  */
 export function linkTargets(): LinkTargets {
@@ -34,6 +34,20 @@ export function linkTargets(): LinkTargets {
   }
   const configured = process.env.EXPO_PUBLIC_WEB_ORIGIN?.trim();
   return { webOrigin: configured ? configured : null, scheme: SCHEME };
+}
+
+/**
+ * Where Supabase should send somebody after they click a password-reset link.
+ *
+ * Reuses `linkTargets` on purpose: a reset link has exactly the same problem an
+ * invite link does — it has to open something that exists, on whichever
+ * platform the person is on. On the web that is this origin; on a device it is
+ * the app's own scheme, which works here where it does not work for invites
+ * because the person clicking a reset link *already has the app*.
+ */
+export function passwordResetRedirectTo(): string {
+  const { webOrigin, scheme } = linkTargets();
+  return webOrigin ? `${webOrigin}/reset-password` : `${scheme}://reset-password`;
 }
 
 export interface ShareResult {
@@ -82,7 +96,7 @@ export async function shareInvite(
 
   const result = await Share.share(
     Platform.OS === 'ios' ? { message: text, url } : { message: `${text}\n\n${url}` },
-    { subject: `Join ${groupName} on Lotus Bet`, dialogTitle: `Invite to ${groupName}` }
+    { subject: `Join ${groupName} on Betta`, dialogTitle: `Invite to ${groupName}` }
   );
 
   return { shared: result.action === Share.sharedAction };
@@ -101,7 +115,7 @@ export async function shareInvite(
  * once there is a session. AsyncStorage rather than memory because signing up
  * can mean leaving the app entirely to confirm an email.
  */
-const PENDING_KEY = 'lotusbet.pendingInvite';
+const PENDING_KEY = 'betta.pendingInvite';
 
 export async function rememberInvite(token: string): Promise<void> {
   try {

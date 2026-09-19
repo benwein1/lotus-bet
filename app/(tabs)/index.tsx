@@ -12,6 +12,9 @@ import Animated, { FadeIn, FadeInDown, FadeOut } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedCard } from '@/components/bet-card';
+import { BetCommentsSheet } from '@/components/bet-comments';
+import { NotificationPrimer } from '@/components/notification-primer';
+import { ReportSheet, type ReportTarget } from '@/components/report-sheet';
 import { BetSuggestions } from '@/components/bet-suggestions';
 import { DemoBadge } from '@/components/demo-entry';
 import { ChevronUpIcon } from '@/components/icons';
@@ -20,11 +23,12 @@ import { BetFeedSkeleton } from '@/components/skeletons';
 import { ErrorNotice, PressableScale, tap } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { syncDeadlineReminders, toReminderBet } from '@/lib/reminders';
-import { useFeedRealtime } from '@/hooks/use-group-realtime';
+import { useForegroundRefresh } from '@/hooks/use-foreground-refresh';
+import { useFeedRealtime, type PositionPayload } from '@/hooks/use-group-realtime';
 import { isNewSince, useLastSeen } from '@/hooks/use-last-seen';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
-import type { BetWithPositions } from '@/lib/database.types';
+import type { BetSide, BetWithPositions } from '@/lib/database.types';
 import { fetchFeedBets, fetchMyGroups, joinBetOption, setBetLike } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
@@ -32,6 +36,27 @@ import { motion } from '@/theme';
 
 /** How much of the next card shows under the current one. */
 const SLIVER = 64;
+
+/**
+ * Held outside the component because `FlatList` treats this as fixed after
+ * mount — handing it a fresh object every render is both a warning in dev and
+ * wasted work, since the value never actually changes.
+ */
+const VIEWABILITY = { itemVisiblePercentThreshold: 60 } as const;
+
+/**
+ * How much of the feed is mounted at once.
+ *
+ * Each card is most of a screen — media, a gradient, an odds bar and a roster
+ * of avatars — so these numbers are unusually low on purpose. The default
+ * `initialNumToRender` is 10, which meant the first paint built ten
+ * full-screen cards and decoded ten photos before showing anything, to display
+ * one. Two is what you can actually see (the card, plus the sliver of the next
+ * one), and the rest arrive in small batches as you scroll.
+ */
+const INITIAL_CARDS = 2;
+const BATCH_CARDS = 3;
+const WINDOW_CARDS = 5;
 
 /**
  * The feed. One bet fills most of the screen, and scrolling is how you get to
@@ -57,18 +82,25 @@ export default function FeedScreen() {
   const reduced = useReducedMotion();
   const userId = session?.user.id ?? '';
 
-  const feed = useAsync(fetchFeedBets, [userId]);
+  // Passed rather than read from the session inside the query, because the
+  // feed's block filter has to know whose positions count as "mine".
+  const feed = useAsync(() => fetchFeedBets(userId), [userId]);
   const groups = useAsync(fetchMyGroups, [userId]);
   const { since } = useLastSeen();
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState<{ betId: string; optionId: string } | null>(null);
   const [scrolledAway, setScrolledAway] = useState(false);
+  /** The bet whose comments are open in the sheet, if any. */
+  const [commentsFor, setCommentsFor] = useState<string | null>(null);
+  /** What the report/block sheet is pointed at, if anything. */
+  const [reporting, setReporting] = useState<ReportTarget | null>(null);
   const [listHeight, setListHeight] = useState<number | null>(null);
   const listRef = useRef<FlatList<BetWithPositions>>(null);
 
-  // `feed` is a new object every render; `feed.reload` is stable.
-  const { reload: reloadFeed } = feed;
+  // `feed` is a new object every render; `feed.reload` and `feed.setData` are
+  // stable.
+  const { reload: reloadFeed, setData: setFeedData } = feed;
   const { reload: reloadGroups } = groups;
 
   const refresh = useCallback(() => {
@@ -76,7 +108,86 @@ export default function FeedScreen() {
     void reloadGroups({ silent: true });
   }, [reloadFeed, reloadGroups]);
 
-  useFeedRealtime(Boolean(userId), refresh);
+  // The groups the loaded bets belong to, which is what the position
+  // subscription filters on. Derived from the bets rather than from
+  // `fetchMyGroups`, because that one hides duels (CLAUDE.md section 6) and a
+  // duel's positions are exactly as interesting as any other group's.
+  const feedGroupIds = useMemo(
+    () => (userId ? Array.from(new Set((feed.data ?? []).map((bet) => bet.group_id))) : null),
+    [userId, feed.data]
+  );
+
+  // Which bets are actually on screen, kept as a set so the position handler
+  // below can answer "do I know this bet?" without reading through a hundred
+  // of them on every event.
+  const loadedBetIds = useMemo(
+    () => new Set((feed.data ?? []).map((bet) => bet.id)),
+    [feed.data]
+  );
+  const loadedRef = useRef(loadedBetIds);
+  loadedRef.current = loadedBetIds;
+
+  /**
+   * Apply a `bet_positions` change from the Realtime payload itself.
+   *
+   * Returns false for anything it cannot apply — a bet posted since the last
+   * fetch, a payload missing the columns the card draws — and the subscription
+   * falls back to a refetch. Being unable to patch is never being wrong.
+   *
+   * Deliberately decided from `loadedRef` rather than from inside the state
+   * updater: React may call an updater later, or twice, so a value written
+   * inside one is not a safe answer to return from here.
+   */
+  const patchPosition = useCallback(
+    (payload: PositionPayload) => {
+      const row = (payload.new ?? payload.old) as
+        | { bet_id?: string; user_id?: string; side?: BetSide | null; option_id?: string }
+        | null
+        | undefined;
+      const betId = row?.bet_id;
+      const whose = row?.user_id;
+      if (!betId || !whose || !loadedRef.current.has(betId)) return false;
+
+      const removed = payload.eventType === 'DELETE';
+      // An insert or update has to carry the option, because that is what the
+      // odds bar and the side buttons are drawn from. A delete only carries the
+      // primary key, which is all removing somebody needs.
+      if (!removed && !row.option_id) return false;
+
+      setFeedData((current) =>
+        current
+          ? current.map((bet) => {
+              if (bet.id !== betId) return bet;
+              // Switching sides arrives as an update, so the old row goes
+              // whichever kind of event this is.
+              const others = (bet.positions ?? []).filter((p) => p.user_id !== whose);
+              return {
+                ...bet,
+                positions: removed
+                  ? others
+                  : [
+                      ...others,
+                      {
+                        user_id: whose,
+                        side: row.side ?? null,
+                        option_id: row.option_id as string,
+                      },
+                    ],
+              };
+            })
+          : current
+      );
+      return true;
+    },
+    [setFeedData]
+  );
+
+  useFeedRealtime(feedGroupIds, refresh, patchPosition);
+
+  // A feed left open on a locked phone comes back with expired signed URLs and
+  // no error anywhere — it just renders broken tiles. Nothing failed, so
+  // nothing retries; only a re-read re-signs.
+  useForegroundRefresh(refresh, Boolean(userId));
 
   // Tab screens stay mounted, so without this the feed would still be showing
   // whatever it loaded at launch — a bet you just posted would not appear
@@ -113,12 +224,38 @@ export default function FeedScreen() {
   // Rebuilt on every feed change, which is also how a reminder goes away after
   // you pick a side.
   const wantsDeadlines = profile?.notify_deadlines ?? true;
+
+  // Keyed on what a reminder is actually made of, not on the bets array.
+  //
+  // `bets` is a new array every time anything in the feed changes — a like, a
+  // comment count, somebody else taking a side — and rescheduling means
+  // cancelling every notification this module owns and scheduling them all
+  // again, one bridge call at a time. Tapping a heart was doing that.
+  //
+  // `toReminderBet` reads exactly four things, so a signature of those four is
+  // a complete answer to "would the schedule come out any different". A like
+  // does not move it; picking a side does, which is what makes the reminder go
+  // away.
+  const reminderKey = useMemo(
+    () =>
+      bets
+        .map((bet) => {
+          const answered = (bet.positions ?? []).some((p) => p.user_id === userId);
+          return `${bet.id}:${bet.close_at ?? ''}:${bet.status}:${answered ? 1 : 0}`;
+        })
+        .join('|'),
+    [bets, userId]
+  );
+
+  const betsRef = useRef(bets);
+  betsRef.current = bets;
+
   useEffect(() => {
     void syncDeadlineReminders(
-      bets.map((bet) => toReminderBet(bet, userId || null)),
+      betsRef.current.map((bet) => toReminderBet(bet, userId || null)),
       wantsDeadlines
     );
-  }, [bets, userId, wantsDeadlines]);
+  }, [reminderKey, userId, wantsDeadlines]);
 
   const newCount = useMemo(
     () => bets.filter((bet) => isNewSince(bet.created_at, since, bet.creator_id, userId)).length,
@@ -149,15 +286,89 @@ export default function FeedScreen() {
 
   /**
    * The heart has already moved by the time this runs — `BetActions` owns the
-   * optimistic state and rolls itself back if this throws. So the only job
-   * here is the write and a quiet refresh to pick up anyone else's likes.
+   * optimistic state and rolls itself back if this throws.
+   *
+   * The write is followed by a **patch, not a refetch**. Re-reading the feed to
+   * move one number meant a hundred bets and every one of their signed URLs,
+   * which is absurd next to the one row that actually changed — and the card
+   * would visibly restate itself a second later. Patching also survives the
+   * card scrolling out of the window and remounting, which the row's own
+   * optimistic state does not.
    */
   async function toggleLike(betId: string, next: boolean) {
     await setBetLike(betId, userId, next);
-    void reloadFeed({ silent: true });
+    setFeedData((current) =>
+      current
+        ? current.map((bet) =>
+            bet.id === betId
+              ? {
+                  ...bet,
+                  likes: next
+                    ? [...(bet.likes ?? []), { user_id: userId }]
+                    : (bet.likes ?? []).filter((like) => like.user_id !== userId),
+                }
+              : bet
+          )
+        : current
+    );
+  }
+
+  /**
+   * The same trade the like makes: patch the one number that moved rather than
+   * re-reading a hundred bets and re-signing every media URL to change a count
+   * by one. PostgREST hands an aggregate embed back as a one-row array, which
+   * is the shape `betSocial` reads.
+   */
+  function patchCommentCount(betId: string, total: number) {
+    setFeedData((current) =>
+      current
+        ? current.map((bet) => (bet.id === betId ? { ...bet, comments: [{ count: total }] } : bet))
+        : current
+    );
   }
 
   const myGroups = groups.data ?? [];
+
+  // Every row is one card plus its bottom margin, which is exactly the snap
+  // interval the list already scrolls by — so the list never has to measure a
+  // cell to know where the next one starts.
+  const getItemLayout = useCallback(
+    (_: ArrayLike<BetWithPositions> | null | undefined, index: number) => ({
+      length: snapInterval,
+      offset: snapInterval * index,
+      index,
+    }),
+    [snapInterval]
+  );
+
+  // Hoisted out of the JSX so its identity only changes when something a card
+  // actually draws from changes. As an inline arrow it was a new function on
+  // every render — including every like and every realtime position patch —
+  // which re-ran the cell renderer for every mounted card. `FeedCard`'s own
+  // memo caught most of that, but the cheapest re-render is the one that is
+  // never requested.
+  const renderCard = useCallback(
+    ({ item }: { item: BetWithPositions }) => (
+      <ContentWidth className="mb-4">
+        <FeedCard
+          bet={item}
+          currentUserId={userId}
+          height={cardHeight}
+          active={activeId === item.id}
+          isNew={isNewSince(item.created_at, since, item.creator_id, userId)}
+          onPickOption={(optionId) => pickOption(item.id, optionId)}
+          busyOptionId={busy?.betId === item.id ? busy.optionId : null}
+          onToggleLike={(next) => toggleLike(item.id, next)}
+          onOpenComments={() => setCommentsFor(item.id)}
+        />
+      </ContentWidth>
+    ),
+    // `pickOption` and `toggleLike` are declared in this component and close
+    // over nothing that is not already listed here, which is the same reason
+    // `FeedCard`'s comparator skips its callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [userId, cardHeight, activeId, since, busy]
+  );
 
   return (
     <Screen>
@@ -213,7 +424,21 @@ export default function FeedScreen() {
                   paddingHorizontal: 20,
                 }}
                 onViewableItemsChanged={onViewableItemsChanged.current}
-                viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
+                viewabilityConfig={VIEWABILITY}
+                // Every card is exactly the same height, so there is nothing
+                // for the list to measure. Without this it lays out each cell
+                // to find out where the next one goes — on a list of
+                // full-screen cards that is the work that shows up as a stutter
+                // when you flick, and it is the reason a snap could land
+                // slightly off before the layout settled.
+                getItemLayout={getItemLayout}
+                initialNumToRender={INITIAL_CARDS}
+                maxToRenderPerBatch={BATCH_CARDS}
+                windowSize={WINDOW_CARDS}
+                // Cards that have scrolled well away stop occupying the native
+                // view tree. It is a no-op on iOS and a real saving on Android,
+                // where a deep offscreen hierarchy still costs to traverse.
+                removeClippedSubviews
                 refreshControl={
                   <RefreshControl
                     refreshing={feed.refreshing}
@@ -221,20 +446,7 @@ export default function FeedScreen() {
                     tintColor={colors.textTertiary}
                   />
                 }
-                renderItem={({ item }) => (
-                  <ContentWidth className="mb-4">
-                    <FeedCard
-                      bet={item}
-                      currentUserId={userId}
-                      height={cardHeight}
-                      active={activeId === item.id}
-                      isNew={isNewSince(item.created_at, since, item.creator_id, userId)}
-                      onPickOption={(optionId) => pickOption(item.id, optionId)}
-                      busyOptionId={busy?.betId === item.id ? busy.optionId : null}
-                      onToggleLike={(next) => toggleLike(item.id, next)}
-                    />
-                  </ContentWidth>
-                )}
+                renderItem={renderCard}
                 ListFooterComponent={
                   <ContentWidth className="pb-2 pt-6">
                     {/* The end of the feed is where people leave. Giving it
@@ -247,7 +459,7 @@ export default function FeedScreen() {
                     />
 
                     <Text className="mt-8 text-center text-xs leading-4 text-tertiary">
-                      Lotus Bet tracks obligations only. Settle up with your friends however you
+                      Betta tracks obligations only. Settle up with your friends however you
                       normally do.
                     </Text>
                   </ContentWidth>
@@ -290,6 +502,43 @@ export default function FeedScreen() {
           )}
         </View>
       </SafeAreaView>
+
+      {/* One sheet for the whole feed, pointed at whichever bet is open. A
+          `FlatList` keeps several cards mounted, so a sheet per card would be
+          several modals stacked on one screen. */}
+      <BetCommentsSheet
+        betId={commentsFor}
+        onClose={() => setCommentsFor(null)}
+        onTotalChange={patchCommentCount}
+        onReportComment={(comment) =>
+          setReporting({
+            kind: 'comment',
+            id: comment.id,
+            authorId: comment.user_id,
+            authorName: comment.author?.display_name ?? 'this person',
+            noun: 'this comment',
+          })
+        }
+        currentUserId={userId}
+        currentUserName={profile?.display_name}
+        currentUserAvatar={profile?.avatar_url}
+      />
+
+      {/* Asked here rather than on sign-in, and only once there is a bet on
+          screen to be notified *about*. A cold permission prompt gets declined,
+          and on iOS a declined prompt is effectively permanent. */}
+      <NotificationPrimer ready={!feed.loading && bets.length > 0} />
+
+      {/* Blocking changes what the feed may show, so a successful block has to
+          re-read it rather than leave the blocked person's bets on screen. */}
+      <ReportSheet
+        target={reporting}
+        onClose={() => setReporting(null)}
+        onBlocked={() => {
+          setCommentsFor(null);
+          void reloadFeed({ silent: true });
+        }}
+      />
     </Screen>
   );
 }

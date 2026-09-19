@@ -12,18 +12,18 @@ export const INVITE_PATH = 'join';
 
 export interface LinkTargets {
   /**
-   * The deployed web origin, e.g. `https://lotus-bet.example.workers.dev`.
+   * The deployed web origin, e.g. `https://betta.example.workers.dev`.
    * Null until the app is actually deployed somewhere.
    */
   webOrigin: string | null;
-  /** The app's own scheme, `lotusbet`. */
+  /** The app's own scheme, `betta`. */
   scheme: string;
 }
 
 /**
  * The URL to share.
  *
- * An `https://` link is strongly preferred over `lotusbet://` and it is not a
+ * An `https://` link is strongly preferred over `betta://` and it is not a
  * matter of taste: a custom scheme is dead text in every chat app, mail client
  * and browser that has never heard of it, which is all of them until the app is
  * installed. The person you are inviting is by definition the person who does
@@ -46,7 +46,7 @@ export function inviteUrl(token: string, targets: LinkTargets): string {
  * What goes in the message box above the link.
  *
  * Named, short, and it says what the app does — a bare URL in a group chat
- * reads like spam, and "Lotus Bet" alone does not tell anyone why they should
+ * reads like spam, and "Betta" alone does not tell anyone why they should
  * tap it. The URL is deliberately *not* interpolated into this sentence: iOS
  * and Android share sheets take the message and the URL separately and will
  * render the link preview themselves, and apps that only take one string get
@@ -56,8 +56,8 @@ export function inviteMessage(groupName: string, inviterName?: string | null): s
   const who = inviterName?.trim();
   const group = groupName.trim() || 'a group';
   return who
-    ? `${who} wants you in "${group}" on Lotus Bet — bet your friends on anything, settle up however you like.`
-    : `Join "${group}" on Lotus Bet — bet your friends on anything, settle up however you like.`;
+    ? `${who} wants you in "${group}" on Betta — bet your friends on anything, settle up however you like.`
+    : `Join "${group}" on Betta — bet your friends on anything, settle up however you like.`;
 }
 
 /** Message and URL as one string, for anywhere that only accepts one. */

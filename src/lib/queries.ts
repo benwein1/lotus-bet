@@ -7,7 +7,10 @@
  */
 import type {
   BetComment,
+  BlockedUser,
+  BetDetail,
   BetLedgerEntryRow,
+  BetMediaPurpose,
   BetMediaRow,
   BetRow,
   BetSide,
@@ -18,17 +21,46 @@ import type {
   GroupRow,
   MyStatsRow,
   PersonBalance,
+  ReportReason,
+  ReportTargetKind,
   UserLookup,
   SettlementConfirmationRow,
   UserRow,
 } from './database.types';
 import { demo, isDemoMode } from './demo';
-import { signMedia, uploadBetMedia, type PickedMedia } from './media';
+import { discardUploads, signMedia, uploadBetMedia, type PickedMedia } from './media';
 import { announceBetResolved, announceGroupJoin, announceNewBet } from './notifications';
 import { computeBetPayouts } from './payout';
+import { prepareContent } from './content-rules';
 import { isMissingColumn } from './postgrest';
 import { personBalances, type BalanceLine } from './settlement';
 import { supabase } from './supabase';
+
+/**
+ * The columns of `public.users` a client is allowed to read.
+ *
+ * Not a tidiness preference — it is half of the fix in
+ * `…_user_column_privileges.sql`, and the half that has to live here. RLS is
+ * row-level: the policy on `users` decides whether you may see a person at
+ * all, and has nothing to say about which of their columns. `users(*)` was
+ * therefore handing every group member the email address, phone number and
+ * device push token of everyone else in the group.
+ *
+ * The migration revokes those three at the column level, which makes
+ * `select *` on this table an outright error ("permission denied for column
+ * email") rather than a quietly narrower row. So every read site names its
+ * columns, and there is exactly one list to audit.
+ *
+ * Adding a column to `users` does **not** add it here. Read the migration
+ * before extending this.
+ */
+const USER_COLUMNS =
+  'id, display_name, username, avatar_url, profile_completed, notify_new_bets, notify_resolutions, notify_group_joins, notify_deadlines, created_at';
+
+/** The subset needed to draw somebody: a name, a handle, a face. */
+const USER_PUBLIC_COLUMNS = 'id, display_name, username, avatar_url';
+
+export { USER_COLUMNS, USER_PUBLIC_COLUMNS };
 
 function unwrap<T>(result: { data: T | null; error: { message: string } | null }): T {
   if (result.error) throw new Error(result.error.message);
@@ -97,7 +129,7 @@ export async function fetchMyGroups(): Promise<GroupWithMembers[]> {
   if (isDemoMode()) return demo.fetchMyGroups();
   const { data, error } = await supabase
     .from('groups')
-    .select('*, members:group_members(*, user:users(*))')
+    .select(`*, members:group_members(*, user:users(${USER_PUBLIC_COLUMNS}))`)
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -111,7 +143,7 @@ export async function fetchAllMyGroups(): Promise<GroupWithMembers[]> {
   if (isDemoMode()) return demo.fetchAllMyGroups();
   const { data, error } = await supabase
     .from('groups')
-    .select('*, members:group_members(*, user:users(*))')
+    .select(`*, members:group_members(*, user:users(${USER_PUBLIC_COLUMNS}))`)
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -123,16 +155,22 @@ export async function fetchGroup(groupId: string): Promise<GroupWithMembers> {
   return unwrap(
     await supabase
       .from('groups')
-      .select('*, members:group_members(*, user:users(*))')
+      .select(`*, members:group_members(*, user:users(${USER_PUBLIC_COLUMNS}))`)
       .eq('id', groupId)
       .single()
   ) as unknown as GroupWithMembers;
 }
 
 export async function createGroup(name: string, emoji: string | null): Promise<GroupRow> {
-  if (isDemoMode()) return demo.createGroup(name, emoji);
+  // `strict`: a group name is identity rather than speech. It appears on every
+  // card, every feed row and every invite message, so the shouting and
+  // repetition thresholds are lower than they are for a comment.
+  const checked = prepareContent(name, { strict: true });
+  if (!checked.ok) throw new Error(checked.message);
+
+  if (isDemoMode()) return demo.createGroup(checked.text, emoji);
   return unwrap(
-    await supabase.rpc('create_group', { p_name: name, p_emoji: emoji }).single()
+    await supabase.rpc('create_group', { p_name: checked.text, p_emoji: emoji }).single()
   ) as GroupRow;
 }
 
@@ -242,6 +280,24 @@ const betSelectWithGroup = (withAvatar: boolean) =>
   `${BET_SELECT}, group:groups(id, name, emoji${withAvatar ? ', avatar_url' : ''})`;
 
 /**
+ * The bet screen's select. Same as the feed's, plus the two things that screen
+ * used to fetch *afterwards*.
+ *
+ * The roster under each option needs names and faces, and the ledger needs its
+ * rows once the bet is called. Both used to be their own `useAsync`, keyed on
+ * something only the first response could tell them — the group id, the status
+ * — so opening a bet cost three round trips end to end, each waiting on the
+ * one before it. Embedding them makes it one.
+ *
+ * Deliberately *not* folded into `BET_SELECT`: the feed reads a hundred bets
+ * at once and would pay for a hundred copies of a member list it never renders.
+ */
+const betDetailSelect = (withAvatar: boolean) =>
+  `${BET_SELECT}, ledger:bet_ledger_entries(*), group:groups(id, name, emoji${
+    withAvatar ? ', avatar_url' : ''
+  }, members:group_members(*, user:users(${USER_PUBLIC_COLUMNS})))`;
+
+/**
  * Media rows arrive as storage paths; the bucket is private, so they have to be
  * signed before anything can render them. Signing is batched across the whole
  * result — a feed of ten bets with photos costs one round trip, not ten.
@@ -264,38 +320,129 @@ async function attachSignedMedia<T extends { media?: BetMediaRow[] | null }>(
   }));
 }
 
-export async function fetchGroupBets(groupId: string): Promise<BetWithPositions[]> {
-  if (isDemoMode()) return demo.fetchGroupBets(groupId);
-  const { data, error } = await supabase
-    .from('bets')
-    .select(BET_SELECT)
-    .eq('group_id', groupId)
-    .order('created_at', { ascending: false });
+/** How much settled history the group screen asks for at a time. */
+export const GROUP_HISTORY_PAGE = 25;
 
-  if (error) throw new Error(error.message);
-  return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
+/** What the group screen draws: the two sections, and whether there is more. */
+export type GroupBets = {
+  /** Open and locked, in full. */
+  live: BetWithPositions[];
+  /** Resolved and cancelled, newest first, one page at a time. */
+  past: BetWithPositions[];
+  /** Whether another page of history exists. */
+  morePast: boolean;
+};
+
+/**
+ * The group screen's bets, in the two sections it actually renders.
+ *
+ * This used to be one unbounded `select` — SCALEABILITY.md names it as the
+ * first query in the app that will feel slow, because a group two years old
+ * fetches all 800 bets *with every embed* every time the screen opens.
+ *
+ * The obvious fix, a `limit` on the whole thing, is wrong here. The screen
+ * splits into "Live bets" and "Settled and cancelled", and a limit over the
+ * combined list ordered by `created_at` would silently drop an old bet that is
+ * still running — which is the one row on the screen somebody might need to
+ * act on.
+ *
+ * So the split moves into the query. Live bets are unbounded because they are
+ * bounded by nature: a friend group does not have eighty bets running at once.
+ * History is what grows without end, and history is what pages.
+ *
+ * Two requests rather than one, issued together. Signing is still a single
+ * round trip across both, which is what `attachSignedMedia` is for.
+ */
+export async function fetchGroupBets(
+  groupId: string,
+  pastLimit = GROUP_HISTORY_PAGE
+): Promise<GroupBets> {
+  if (isDemoMode()) {
+    const all = await demo.fetchGroupBets(groupId);
+    return splitGroupBets(
+      all.filter((bet) => bet.status !== 'resolved' && bet.status !== 'cancelled'),
+      all.filter((bet) => bet.status === 'resolved' || bet.status === 'cancelled'),
+      pastLimit
+    );
+  }
+
+  const [live, past] = await Promise.all([
+    supabase
+      .from('bets')
+      .select(BET_SELECT)
+      .eq('group_id', groupId)
+      .in('status', ['open', 'locked'])
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('bets')
+      .select(BET_SELECT)
+      .eq('group_id', groupId)
+      .in('status', ['resolved', 'cancelled'])
+      .order('created_at', { ascending: false })
+      // One more than asked for, which is how the screen knows whether to offer
+      // another page without a second count query.
+      .limit(pastLimit + 1),
+  ]);
+
+  if (live.error) throw new Error(live.error.message);
+  if (past.error) throw new Error(past.error.message);
+
+  // Signed in one batch across both lists — ten bets with photos cost one
+  // storage round trip, not twenty.
+  const signed = await attachSignedMedia([
+    ...((live.data ?? []) as unknown as BetWithPositions[]),
+    ...((past.data ?? []) as unknown as BetWithPositions[]),
+  ]);
+
+  const liveCount = (live.data ?? []).length;
+  return splitGroupBets(signed.slice(0, liveCount), signed.slice(liveCount), pastLimit);
+}
+
+function splitGroupBets(
+  live: BetWithPositions[],
+  past: BetWithPositions[],
+  pastLimit: number
+): GroupBets {
+  return {
+    live,
+    past: past.slice(0, pastLimit),
+    morePast: past.length > pastLimit,
+  };
 }
 
 /** Every bet across every group the user is in — the Home feed's raw input. */
-export async function fetchFeedBets(): Promise<BetWithPositions[]> {
+export async function fetchFeedBets(userId?: string): Promise<BetWithPositions[]> {
   if (isDemoMode()) return demo.fetchFeedBets();
-  const data = await withGroupAvatarFallback((withAvatar) =>
-    supabase
-      .from('bets')
-      .select(betSelectWithGroup(withAvatar))
-      .in('status', ['open', 'locked'])
-      .order('created_at', { ascending: false })
-      .limit(100)
+  // One extra round trip for the block list, in parallel with the feed itself
+  // rather than before it. See `blockedIds` for why this filter lives here and
+  // not in a policy.
+  const [data, blocked] = await Promise.all([
+    withGroupAvatarFallback((withAvatar) =>
+      supabase
+        .from('bets')
+        .select(betSelectWithGroup(withAvatar))
+        .in('status', ['open', 'locked'])
+        .order('created_at', { ascending: false })
+        .limit(100)
+    ),
+    blockedIds(),
+  ]);
+
+  const bets = ((data ?? []) as unknown as BetWithPositions[]).filter(
+    (bet) =>
+      !blocked.has(bet.creator_id) ||
+      // Still yours to see if your money is on it.
+      (bet.positions ?? []).some((p) => p.user_id === userId)
   );
 
-  return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
+  return attachSignedMedia(bets);
 }
 
-export async function fetchBet(betId: string): Promise<BetWithPositions> {
-  if (isDemoMode()) return demo.fetchBet(betId);
+export async function fetchBet(betId: string): Promise<BetDetail> {
+  if (isDemoMode()) return demo.fetchBet(betId) as unknown as Promise<BetDetail>;
   const bet = (await withGroupAvatarFallback((withAvatar) =>
-    supabase.from('bets').select(betSelectWithGroup(withAvatar)).eq('id', betId).single()
-  )) as unknown as BetWithPositions;
+    supabase.from('bets').select(betDetailSelect(withAvatar)).eq('id', betId).single()
+  )) as unknown as BetDetail;
 
   const [withMedia] = await attachSignedMedia([bet]);
   return withMedia ?? bet;
@@ -325,11 +472,41 @@ export const MIN_BET_OPTIONS = 2;
 export const MAX_BET_OPTIONS = 8;
 
 export async function createBet(input: NewBetInput): Promise<BetRow> {
-  if (isDemoMode()) return demo.createBet(input);
+  // The filter runs before the demo short-circuit, for the same reason it does
+  // in `postBetComment`: demo mode must never be more permissive than the real
+  // backend.
+  //
+  // The title is a question everybody in the group reads, and the option
+  // labels sit on the buttons they press, so both go through the filter. The
+  // description is speech and gets the ordinary threshold.
+  const checkedTitle = prepareContent(input.title, { strict: true });
+  if (!checkedTitle.ok) throw new Error(checkedTitle.message);
 
-  const labels = input.optionLabels.map((label) => label.trim()).filter(Boolean);
+  let checkedDescription: string | null = null;
+  if (input.description && input.description.trim()) {
+    const checked = prepareContent(input.description);
+    if (!checked.ok) throw new Error(checked.message);
+    checkedDescription = checked.text;
+  }
+
+  const labels: string[] = [];
+  for (const raw of input.optionLabels) {
+    if (!raw.trim()) continue;
+    const checked = prepareContent(raw, { strict: true });
+    if (!checked.ok) throw new Error(checked.message);
+    labels.push(checked.text);
+  }
   if (labels.length < MIN_BET_OPTIONS) {
     throw new Error('A bet needs at least two options.');
+  }
+
+  if (isDemoMode()) {
+    return demo.createBet({
+      ...input,
+      title: checkedTitle.text,
+      description: checkedDescription,
+      optionLabels: labels,
+    });
   }
 
   // The first two labels go on the bet row, where they always have. A trigger
@@ -342,8 +519,8 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
       .insert({
         group_id: input.groupId,
         creator_id: input.creatorId,
-        title: input.title,
-        description: input.description,
+        title: checkedTitle.text,
+        description: checkedDescription,
         option_a_label: labels[0],
         option_b_label: labels[1],
         total_pot_agorot: input.totalPotAgorot,
@@ -391,13 +568,16 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
 async function attachMediaToBet(
   bet: BetRow,
   media: PickedMedia[],
-  uploaderId: string
+  uploaderId: string,
+  purpose: BetMediaPurpose = 'attachment',
+  positionFrom = 0
 ): Promise<void> {
   const uploaded = [] as {
     bet_id: string;
     group_id: string;
     uploaded_by: string;
     kind: string;
+    purpose: BetMediaPurpose;
     storage_path: string;
     width: number | null;
     height: number | null;
@@ -405,22 +585,67 @@ async function attachMediaToBet(
     position: number;
   }[];
 
-  for (const [index, item] of media.entries()) {
-    const result = await uploadBetMedia(bet.group_id, bet.id, item);
-    uploaded.push({
-      bet_id: bet.id,
-      group_id: bet.group_id,
-      uploaded_by: uploaderId,
-      kind: result.kind,
-      storage_path: result.storagePath,
-      width: result.width,
-      height: result.height,
-      duration_ms: result.durationMs,
-      position: index,
-    });
-  }
+  // Every path that reaches the bucket, so a failure part way can take them
+  // back out again. Without this the objects stay, paid for, with nothing
+  // pointing at them and nothing that will ever delete them — CLAUDE.md §7.1.
+  const written: string[] = [];
 
-  const { error } = await supabase.from('bet_media').insert(uploaded);
+  try {
+    for (const [index, item] of media.entries()) {
+      const result = await uploadBetMedia(bet.group_id, bet.id, item);
+      written.push(result.storagePath);
+      uploaded.push({
+        bet_id: bet.id,
+        group_id: bet.group_id,
+        uploaded_by: uploaderId,
+        kind: result.kind,
+        purpose,
+        storage_path: result.storagePath,
+        width: result.width,
+        height: result.height,
+        duration_ms: result.durationMs,
+        position: positionFrom + index,
+      });
+    }
+
+    const { error } = await supabase.from('bet_media').insert(uploaded);
+    if (error) throw new Error(error.message);
+  } catch (err) {
+    // The rows are all-or-nothing — one insert — so a failure here means no
+    // row exists for any of these objects. Sweep them and re-throw the real
+    // error, which is the one worth showing.
+    await discardUploads(written);
+    throw err;
+  }
+}
+
+/**
+ * Attach proof of outcome to a bet that has already been called.
+ *
+ * Deliberately not folded into `createBet`'s media path: that one runs once,
+ * owned by the creator, before anybody has seen the bet. This one runs any
+ * number of times, from any of the people who had a side, long after the
+ * argument started — so it appends rather than replaces, and `position`
+ * continues from what is already there instead of restarting at zero and
+ * shuffling the gallery every time somebody adds a photo.
+ *
+ * The RLS policy is the real gate (resolved bet, participant or creator); this
+ * only has to hand it well-formed rows.
+ */
+export async function addBetProof(
+  bet: BetRow,
+  media: PickedMedia[],
+  uploaderId: string,
+  existingProofCount = 0
+): Promise<void> {
+  if (media.length === 0) return;
+  if (isDemoMode()) return demo.addBetProof(bet.id, media, existingProofCount);
+  await attachMediaToBet(bet, media, uploaderId, 'proof', existingProofCount);
+}
+
+export async function deleteBetMedia(mediaId: string): Promise<void> {
+  if (isDemoMode()) return demo.deleteBetMedia(mediaId);
+  const { error } = await supabase.from('bet_media').delete().eq('id', mediaId);
   if (error) throw new Error(error.message);
 }
 
@@ -658,14 +883,24 @@ export async function postBetComment(
   userId: string,
   body: string
 ): Promise<BetComment> {
-  if (isDemoMode()) return demo.postBetComment(betId, userId, body);
+  // Guideline 1.2's "method for filtering objectionable material". It stores
+  // the *cleaned* string rather than the raw one, which is the whole reason
+  // `prepareContent` returns text — validating one string and writing another
+  // lets every invisible character through the check it just passed.
+  //
+  // Above the demo short-circuit on purpose. Demo mode is scaffolding, and the
+  // one thing it must never do is behave *more permissively* than the real
+  // backend — that is how a rule gets tested in the demo, looks fine, and is
+  // missing in production. Same reason resolving a bet there runs the real
+  // payout maths.
+  const checked = prepareContent(body);
+  if (!checked.ok) throw new Error(checked.message);
 
-  const trimmed = body.trim();
-  if (!trimmed) throw new Error('Write something first.');
+  if (isDemoMode()) return demo.postBetComment(betId, userId, checked.text);
 
   const { data, error } = await supabase
     .from('bet_comments')
-    .insert({ bet_id: betId, user_id: userId, body: trimmed })
+    .insert({ bet_id: betId, user_id: userId, body: checked.text })
     .select('*, author:users(id, display_name, avatar_url)')
     .single();
 
@@ -773,6 +1008,37 @@ export async function fetchMyHistory(userId: string): Promise<HistoryEntry[]> {
   return (data ?? []) as unknown as HistoryEntry[];
 }
 
+/** How many of your own bets the Profile grid asks for at a time. */
+export const MY_BETS_PAGE = 30;
+
+/**
+ * The bets you started, newest first.
+ *
+ * Authorship, not participation — `fetchMyHistory` already answers "what have
+ * I been in", and this answers "what have I put up", which is the question a
+ * profile grid is really asking. A bet you created but never took a side on
+ * still belongs to you and still appears.
+ *
+ * No group filter: your bets span every group you are in, duels included, and
+ * RLS decides what comes back the same way it does everywhere else.
+ */
+export async function fetchMyBets(
+  userId: string,
+  limit = MY_BETS_PAGE
+): Promise<BetWithPositions[]> {
+  if (isDemoMode()) return demo.fetchMyBets(userId, limit);
+
+  const { data, error } = await supabase
+    .from('bets')
+    .select(BET_SELECT)
+    .eq('creator_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(error.message);
+  return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
+}
+
 export async function fetchMyStats(): Promise<MyStatsRow | null> {
   if (isDemoMode()) return demo.fetchMyStats();
   const { data, error } = await supabase.rpc('my_stats');
@@ -792,4 +1058,110 @@ export async function fetchBetLedger(betId: string): Promise<BetLedgerEntryRow[]
 
   if (error) throw new Error(error.message);
   return (data ?? []) as BetLedgerEntryRow[];
+}
+
+// ---------------------------------------------------------------------------
+// Moderation
+// ---------------------------------------------------------------------------
+
+/**
+ * File a report.
+ *
+ * An RPC rather than an insert, and the reason is worth keeping in view: the
+ * client does **not** say who is being reported. The function resolves that
+ * from the target, because a client-supplied `reported_user_id` would let
+ * anybody file a complaint against anybody. It also refuses a target the
+ * caller cannot see, with the same error it gives for one that does not exist,
+ * so the report endpoint is not an oracle for whether a private bet exists.
+ *
+ * Repeat taps are idempotent — one open report per person per thing, or a
+ * single determined user can bury the queue.
+ */
+export async function reportContent(
+  targetKind: ReportTargetKind,
+  targetId: string,
+  reason: ReportReason
+): Promise<void> {
+  if (isDemoMode()) return demo.reportContent(targetKind, targetId, reason);
+  const { error } = await supabase.rpc('report_content', {
+    p_target_kind: targetKind,
+    p_target_id: targetId,
+    p_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Block somebody.
+ *
+ * Mutual invisibility, not a mute: their comments stop reaching you and yours
+ * stop reaching them. Enforced by the policy on `bet_comments`, not here —
+ * filtering in the client would leave the rows on the device and the next
+ * screen that forgets to filter would re-expose them.
+ *
+ * It is not a membership change and it does not touch the ledger. A debt does
+ * not disappear because two people stopped speaking.
+ */
+export async function blockUser(userId: string): Promise<void> {
+  if (isDemoMode()) return demo.blockUser(userId);
+  const { error } = await supabase.rpc('block_user', { p_user_id: userId });
+  if (error) throw new Error(error.message);
+}
+
+export async function unblockUser(userId: string): Promise<void> {
+  if (isDemoMode()) return demo.unblockUser(userId);
+  const { error } = await supabase.rpc('unblock_user', { p_user_id: userId });
+  if (error) throw new Error(error.message);
+}
+
+/** Everyone you have blocked, so Profile can offer to undo it. */
+export async function fetchBlockedUsers(): Promise<BlockedUser[]> {
+  if (isDemoMode()) return demo.fetchBlockedUsers();
+  const { data, error } = await supabase.rpc('my_blocked_users');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as BlockedUser[];
+}
+
+/**
+ * The ids you have blocked, for the one thing the database cannot decide.
+ *
+ * A blocked person's *comments* are gone at the policy level, which is where a
+ * boundary belongs. Their *bets* are a different kind of object: a bet is a
+ * group's shared financial record, and hiding one you have money on would
+ * leave you owing against something you cannot open. So the feed drops their
+ * bets only where you have no position — a display choice, made here, and
+ * deliberately not a policy.
+ */
+async function blockedIds(): Promise<Set<string>> {
+  try {
+    const blocked = await fetchBlockedUsers();
+    return new Set(blocked.map((b) => b.id));
+  } catch {
+    // A project without the moderation migration has no such function. An
+    // unfiltered feed is the right failure here — blank is worse.
+    return new Set();
+  }
+}
+
+/**
+ * Deletes the signed-in account.
+ *
+ * Takes no argument on purpose: there is nothing to point at somebody else.
+ * The RPC reads `auth.uid()` and nothing but.
+ *
+ * What it does is **scrub, not erase** — see
+ * `…_account_deletion.sql`. The `auth.users` row genuinely goes, so the
+ * account cannot sign in and the email is freed; the profile row survives with
+ * every personal field removed, because `bet_ledger_entries` points at it and
+ * those rows are what everyone *else*'s balance is computed from. Deleting
+ * them would not erase one person's data, it would silently change what four
+ * other people owe each other.
+ *
+ * The caller must sign out immediately afterwards: the JWT stays valid until
+ * it expires, and there is no longer an account behind it.
+ */
+export async function deleteAccount(): Promise<void> {
+  if (isDemoMode()) return demo.deleteAccount();
+  const { error } = await supabase.rpc('delete_account');
+  if (error) throw new Error(error.message);
 }

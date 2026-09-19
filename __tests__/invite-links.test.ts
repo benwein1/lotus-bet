@@ -6,16 +6,16 @@ import {
   inviteUrl,
 } from '../src/lib/invite-links';
 
-const WEB = { webOrigin: 'https://lotus-bet.example.com', scheme: 'lotusbet' };
-const NO_WEB = { webOrigin: null, scheme: 'lotusbet' };
+const WEB = { webOrigin: 'https://betta.example.com', scheme: 'betta' };
+const NO_WEB = { webOrigin: null, scheme: 'betta' };
 
 describe('inviteUrl', () => {
   it('prefers the https origin', () => {
-    expect(inviteUrl('abc123', WEB)).toBe('https://lotus-bet.example.com/join/abc123');
+    expect(inviteUrl('abc123', WEB)).toBe('https://betta.example.com/join/abc123');
   });
 
   it('falls back to the app scheme when nothing is deployed', () => {
-    expect(inviteUrl('abc123', NO_WEB)).toBe('lotusbet://join/abc123');
+    expect(inviteUrl('abc123', NO_WEB)).toBe('betta://join/abc123');
   });
 
   it('does not double the slash when the origin has a trailing one', () => {
@@ -25,13 +25,13 @@ describe('inviteUrl', () => {
   });
 
   it('trims whitespace picked up from a paste', () => {
-    expect(inviteUrl('  abc123 \n', WEB)).toBe('https://lotus-bet.example.com/join/abc123');
+    expect(inviteUrl('  abc123 \n', WEB)).toBe('https://betta.example.com/join/abc123');
   });
 
   it('escapes a token so base64url padding can never break the path', () => {
     // The RPC mints base64url, which has no `+` or `/`. Encoding anyway means a
     // token minted by anything else still produces a single-segment URL.
-    expect(inviteUrl('a+b/c=', WEB)).toBe('https://lotus-bet.example.com/join/a%2Bb%2Fc%3D');
+    expect(inviteUrl('a+b/c=', WEB)).toBe('https://betta.example.com/join/a%2Bb%2Fc%3D');
   });
 
   it('uses the same path segment the route is named after', () => {

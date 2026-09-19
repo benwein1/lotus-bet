@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-const STORAGE_KEY = 'lotusbet.feed.lastSeen';
+const STORAGE_KEY = 'betta.feed.lastSeen';
 
 /**
  * When the user last looked at the feed.

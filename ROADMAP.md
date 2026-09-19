@@ -6,7 +6,7 @@ are visible rather than remembered.
 
 Three things frame all of it:
 
-- **Lotus Bet never touches money.** Nothing below adds payments, wallets or
+- **Betta never touches money.** Nothing below adds payments, wallets or
   in-app currency, and nothing should. It is a product decision and an App
   Store compliance decision at the same time.
 - **The payout maths is settled.** `supabase/functions/_shared/payout.ts` is

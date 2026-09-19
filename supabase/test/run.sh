@@ -23,7 +23,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PGBIN="${PGBIN:-/usr/lib/postgresql/16/bin}"
-WORK="${TMPDIR:-/tmp}/lotus-pgtest.$$"
+WORK="${TMPDIR:-/tmp}/betta-pgtest.$$"
 SOCK="$WORK/sock"
 PORT="${PGTEST_PORT:-54999}"
 
@@ -68,10 +68,10 @@ for _ in $(seq 1 20); do
   sleep 0.5
 done
 
-psql -q -v ON_ERROR_STOP=1 -c 'create database lotus' postgres
+psql -q -v ON_ERROR_STOP=1 -c 'create database betta' postgres
 
 echo "==> platform stub"
-psql -q -v ON_ERROR_STOP=1 -d lotus -f "$ROOT/supabase/test/00_supabase_stub.sql" 2>&1 \
+psql -q -v ON_ERROR_STOP=1 -d betta -f "$ROOT/supabase/test/00_supabase_stub.sql" 2>&1 \
   | grep -v 'wal_level is insufficient' || true
 
 echo "==> migrations"
@@ -84,25 +84,31 @@ for f in "$ROOT"/supabase/migrations/*.sql; do
   pre="$ROOT/supabase/test/pre/$(basename "$f")"
   if [ -f "$pre" ]; then
     echo "    (pre) $(basename "$pre")"
-    psql -q -v ON_ERROR_STOP=1 -d lotus -f "$pre" 2>&1 | grep -v '^NOTICE' || true
+    psql -q -v ON_ERROR_STOP=1 -d betta -f "$pre" 2>&1 | grep -v '^NOTICE' || true
   fi
   echo "    $(basename "$f")"
-  psql -q -v ON_ERROR_STOP=1 -d lotus -f "$f" 2>&1 | grep -v '^NOTICE' || true
+  psql -q -v ON_ERROR_STOP=1 -d betta -f "$f" 2>&1 | grep -v '^NOTICE' || true
 done
 
 echo "==> fixture"
-psql -q -v ON_ERROR_STOP=1 -d lotus -f "$ROOT/supabase/test/10_fixture.sql" >/dev/null
+psql -q -v ON_ERROR_STOP=1 -d betta -f "$ROOT/supabase/test/10_fixture.sql" >/dev/null
 
 echo "==> seed script"
-psql -q -v ON_ERROR_STOP=1 -d lotus -f "$ROOT/supabase/seed/test_members.sql" >/dev/null
+psql -q -v ON_ERROR_STOP=1 -d betta -f "$ROOT/supabase/seed/test_members.sql" >/dev/null
+
+# The App Review seed is the data an Apple reviewer signs into, and a script
+# that half-applies leaves them looking at a hole. It is exercised here for the
+# same reason the migrations are: nothing else runs it until it matters.
+echo "==> App Review seed"
+psql -q -v ON_ERROR_STOP=1 -d betta -f "$ROOT/supabase/seed/review_account.sql" >/dev/null
 
 echo "==> policy checks"
-psql -d lotus -f "$ROOT/supabase/test/20_policy_checks.sql" 2>&1 \
+psql -d betta -f "$ROOT/supabase/test/20_policy_checks.sql" 2>&1 \
   | grep -v '^SET$\|^BEGIN$\|^COMMIT$\|^ROLLBACK$'
 
 echo
 echo "==> balances after seeding (what the settle-up screen reads)"
-psql -d lotus <<SQL
+psql -d betta <<SQL
 set request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
 select u.display_name, b.amount_agorot
 from public.groups g

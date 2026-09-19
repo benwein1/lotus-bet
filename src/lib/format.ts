@@ -72,6 +72,39 @@ export function formatShortDate(iso: string, now: Date = new Date()): string {
   });
 }
 
+/**
+ * "now" / "4m" / "3h" / "6d" / "2w" / "5 Sep" — a comment's age, in the
+ * shortest honest form.
+ *
+ * Comments are read in a column where the timestamp is the least important
+ * thing on the line, so it gets the fewest characters that still answer "was
+ * this just now or last week". Past a month the relative form stops helping —
+ * "7w" is not something anyone converts in their head — so it hands over to
+ * the absolute date.
+ */
+export function formatRelativeShort(iso: string, now: number = Date.now()): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+
+  const seconds = Math.floor((now - then) / 1000);
+  // A clock that is a little behind the server should not read "in 3 seconds".
+  if (seconds < 45) return 'now';
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${Math.max(1, minutes)}m`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w`;
+
+  return formatShortDate(iso, new Date(now));
+}
+
 /** Two-letter monogram for the avatar bubbles. */
 export function initials(displayName: string): string {
   const parts = displayName.trim().split(/\s+/).filter(Boolean);

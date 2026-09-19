@@ -7,11 +7,19 @@
  * helper the tables use. Nothing is public: reads are short-lived signed URLs.
  */
 import { File } from 'expo-file-system';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { Platform } from 'react-native';
 
-import type { BetMedia, BetMediaKind, BetMediaRow } from './database.types';
+import type {
+  BetMedia,
+  BetMediaKind,
+  BetMediaPurpose,
+  BetMediaRow,
+} from './database.types';
 import { supabase } from './supabase';
+
+export { splitMedia } from './media-rules';
 
 export const BUCKET = 'bet-media';
 
@@ -25,8 +33,36 @@ export const AVATAR_BUCKET = 'avatars';
 /** Four is enough to tell a story and short enough to stay scrollable. */
 export const MAX_ATTACHMENTS = 4;
 
+/**
+ * Proof gets a larger budget than the bet's own illustration, and it is a
+ * budget for the whole bet rather than for one person: an argument worth
+ * photographing from three angles is exactly the argument this is for.
+ */
+export const MAX_PROOF = 8;
+
 /** Signed URLs are re-fetched on every load, so they only need to outlive one. */
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
+
+/**
+ * How long a signed URL is reused before being asked for again.
+ *
+ * Comfortably inside the hour the URL is actually good for, so a cached one is
+ * never handed out close enough to expiry to break mid-render. The gap is the
+ * whole point: a feed refresh is triggered by every realtime event and every
+ * screen focus, and re-signing the same twenty paths each time is a storage
+ * round trip that buys nothing — the objects have not moved.
+ */
+export const SIGN_CACHE_MS = 45 * 60 * 1000;
+
+const signCache = new Map<string, { url: string; expires: number }>();
+
+/**
+ * Drops the cache. Called on sign-out, because the next person to use this
+ * device must not inherit URLs minted for somebody else's session.
+ */
+export function clearMediaCache(): void {
+  signCache.clear();
+}
 
 export interface PickedMedia {
   /** Local file URI, straight from the picker. */
@@ -65,34 +101,200 @@ function toPicked(asset: ImagePicker.ImagePickerAsset): PickedMedia {
   };
 }
 
+/**
+ * How hard to squeeze a file on the way in.
+ *
+ * `expo-image-picker` does the work itself — it re-encodes before handing back
+ * a URI — so there is no second compression library to add. `quality` is JPEG
+ * quality for stills; `videoQuality` picks the export preset; `videoMaxDuration`
+ * is the real lever on size, because a clip's bytes scale with its length far
+ * more predictably than with its preset.
+ *
+ * Proof is squeezed harder than a bet's own illustration. A receipt only has to
+ * be legible enough to end an argument, and it is uploaded on a phone in a bar
+ * on a bad connection — the illustration is the bet's face and sits in a
+ * full-bleed feed card.
+ */
+const COMPRESSION = {
+  attachment: {
+    quality: 0.85,
+    // The long edge, in pixels. A modern phone camera hands back something
+    // like 4032×3024; the card it lands in is a phone width at 3× density,
+    // which is about 1170px. Everything past that is downloaded, decoded and
+    // then thrown away by the scaler.
+    //
+    // 1600 keeps real headroom over that — it is still oversampled on the
+    // densest screen and on a tablet — while cutting roughly 85% of the
+    // pixels, and pixels are what the cost is in: bytes over the wire, decode
+    // time on the scroll, bitmap bytes in memory, and the per-account quota.
+    maxEdge: 1600,
+    videoQuality: ImagePicker.UIImagePickerControllerQualityType.High,
+    videoMaxDuration: 60,
+  },
+  proof: {
+    quality: 0.6,
+    // Proof is squeezed harder for the same reason its quality is lower: a
+    // receipt has to be legible enough to end an argument, not to be a bet's
+    // full-bleed face. It renders in a gallery tile, never edge to edge.
+    maxEdge: 1200,
+    videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+    // Fifteen seconds. Video is the overwhelming majority of this app's
+    // storage risk for a small slice of its value — SCALEABILITY.md §4 puts
+    // capping it first — and a receipt only has to be legible enough to end an
+    // argument. A bet's own illustration keeps its minute.
+    videoMaxDuration: 15,
+  },
+} as const;
+
+/**
+ * Re-encodes a still so the file that leaves the phone carries no metadata.
+ *
+ * SECURITY.md finding #6. A photo taken to prove a bet in somebody's flat can
+ * carry GPS coordinates, and every member of the group can download the
+ * object. `expo-image-picker` re-encodes stills at the configured quality,
+ * which drops most metadata *in practice* — but "in practice" is not a
+ * property, and the whole finding is that nothing guaranteed it.
+ *
+ * A re-encode with no actions is the guarantee: the encoder writes a fresh
+ * file from decoded pixels, so there is no EXIF block to carry anything over.
+ * On the web the same call goes through a canvas, which drops metadata for the
+ * same reason.
+ *
+ * **Videos are not covered, and pretending otherwise would be worse than not
+ * trying.** This library does not touch them. Shortening proof clips to 15
+ * seconds is the mitigation that exists; stripping video metadata needs a
+ * transcoding step nothing here has.
+ */
+async function stripMetadata(
+  picked: PickedMedia,
+  quality: number,
+  maxEdge: number
+): Promise<PickedMedia> {
+  if (picked.kind !== 'image') return picked;
+
+  // A failure is surfaced rather than swallowed. Falling back to the original
+  // would upload the coordinates anyway and say nothing, which is exactly the
+  // "not a guarantee" state this function exists to end.
+  const result = await ImageManipulator.manipulateAsync(picked.uri, resizeTo(picked, maxEdge), {
+    compress: quality,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+
+  return {
+    ...picked,
+    uri: result.uri,
+    width: result.width || picked.width,
+    height: result.height || picked.height,
+    // The re-encode settles the format, whatever came in.
+    mimeType: 'image/jpeg',
+    fileName: picked.fileName?.replace(/\.[^.]+$/, '.jpg') ?? null,
+  };
+}
+
+/**
+ * The resize action for a picked still, or none at all.
+ *
+ * **The long edge is what gets capped, not the width.** Resizing by width
+ * alone turns a portrait photo — which is most of them, taken on a phone held
+ * upright — into something taller than the cap rather than smaller than it, so
+ * the expensive dimension is the one left untouched. `manipulateAsync` scales
+ * the other side to preserve the aspect ratio when only one is given, so
+ * naming the long one is the whole job.
+ *
+ * An image already inside the cap gets an empty action list, which is exactly
+ * what this function did before the cap existed — the re-encode still happens,
+ * so the metadata guarantee above holds either way. A picker that gave us no
+ * dimensions gets the same treatment: guessing at a resize from nothing could
+ * upscale, and an upscale costs bytes to add no detail.
+ */
+function resizeTo(picked: PickedMedia, maxEdge: number): ImageManipulator.Action[] {
+  const { width, height } = picked;
+  if (!width || !height) return [];
+
+  const longest = Math.max(width, height);
+  if (longest <= maxEdge) return [];
+
+  return width >= height ? [{ resize: { width: maxEdge } }] : [{ resize: { height: maxEdge } }];
+}
+
+/** Strips every still in a picked batch, leaving videos alone. */
+function stripBatch(
+  picked: PickedMedia[],
+  quality: number,
+  maxEdge: number
+): Promise<PickedMedia[]> {
+  return Promise.all(picked.map((item) => stripMetadata(item, quality, maxEdge)));
+}
+
 /** Opens the system library. Returns [] when the user backs out. */
 export async function pickMedia(remaining: number): Promise<PickedMedia[]> {
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['images', 'videos'],
     allowsMultipleSelection: true,
     selectionLimit: Math.max(1, remaining),
-    quality: 0.85,
-    videoMaxDuration: 60,
+    ...COMPRESSION.attachment,
   });
 
   if (result.canceled) return [];
-  return result.assets.slice(0, remaining).map(toPicked);
+  return stripBatch(
+    result.assets.slice(0, remaining).map(toPicked),
+    COMPRESSION.attachment.quality,
+    COMPRESSION.attachment.maxEdge
+  );
+}
+
+/**
+ * The same library picker, squeezed for proof of outcome.
+ *
+ * Separate from `pickMedia` rather than a flag on it, because the two differ
+ * in more than compression: proof has its own cap, and a resolved bet can
+ * collect several rounds of it from several people, so "remaining" is not the
+ * same budget.
+ */
+export async function pickProofMedia(remaining: number): Promise<PickedMedia[]> {
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images', 'videos'],
+    allowsMultipleSelection: true,
+    selectionLimit: Math.max(1, remaining),
+    ...COMPRESSION.proof,
+  });
+
+  if (result.canceled) return [];
+  return stripBatch(
+    result.assets.slice(0, remaining).map(toPicked),
+    COMPRESSION.proof.quality,
+    COMPRESSION.proof.maxEdge
+  );
+}
+
+/** Shoot proof there and then. The camera is the common case for a receipt. */
+export async function captureProofMedia(): Promise<PickedMedia | null> {
+  const permission = await ImagePicker.requestCameraPermissionsAsync();
+  if (!permission.granted) throw new Error('Camera access is off for Betta.');
+
+  const result = await ImagePicker.launchCameraAsync({
+    mediaTypes: ['images', 'videos'],
+    ...COMPRESSION.proof,
+  });
+
+  if (result.canceled) return null;
+  const asset = result.assets[0];
+  return asset ? stripMetadata(toPicked(asset), COMPRESSION.proof.quality, COMPRESSION.proof.maxEdge) : null;
 }
 
 /** Opens the camera. Returns null when the user backs out or declines access. */
 export async function captureMedia(): Promise<PickedMedia | null> {
   const permission = await ImagePicker.requestCameraPermissionsAsync();
-  if (!permission.granted) throw new Error('Camera access is off for Lotus Bet.');
+  if (!permission.granted) throw new Error('Camera access is off for Betta.');
 
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: ['images', 'videos'],
-    quality: 0.85,
-    videoMaxDuration: 60,
+    ...COMPRESSION.attachment,
   });
 
   if (result.canceled) return null;
   const asset = result.assets[0];
-  return asset ? toPicked(asset) : null;
+  return asset ? stripMetadata(toPicked(asset), COMPRESSION.attachment.quality, COMPRESSION.attachment.maxEdge) : null;
 }
 
 /**
@@ -151,21 +353,69 @@ export async function uploadBetMedia(
 }
 
 /**
+ * Removes objects that were uploaded but never got a row.
+ *
+ * `createBet` and `addBetProof` upload first and insert the `bet_media` rows
+ * afterwards, because the bet's id is part of the storage path and so the row
+ * has to exist before there is anywhere to put the file. That ordering is
+ * correct and it leaves a window: if the third upload of four fails, or the
+ * insert is refused, the objects already in the bucket have nothing pointing
+ * at them and nothing will ever delete them.
+ *
+ * Orphaned bytes are the better half of that failure — the bet survives — but
+ * they are bytes the group pays for forever, and SCALEABILITY.md puts storage
+ * at the top of the cost list. So the caller sweeps up what it uploaded.
+ *
+ * Best-effort and silent by design: this runs while an error is already on its
+ * way to the user, and "could not post the bet, and also could not tidy up" is
+ * two failures reported where one is actionable.
+ */
+export async function discardUploads(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  try {
+    await supabase.storage.from(BUCKET).remove(paths);
+  } catch {
+    // Nothing to do and nobody to tell. The orphan is now a storage-sweep
+    // problem rather than a user-facing one.
+  }
+  for (const path of paths) signCache.delete(path);
+}
+
+/**
  * Turns stored rows into renderable ones. Signing is batched: a feed of ten
  * bets with media should cost one round trip, not ten.
  */
 export async function signMedia(rows: BetMediaRow[]): Promise<BetMedia[]> {
   if (rows.length === 0) return [];
 
-  const { data, error } = await supabase.storage
-    .from(BUCKET)
-    .createSignedUrls(
-      rows.map((row) => row.storage_path),
-      SIGNED_URL_TTL_SECONDS
-    );
-  if (error) throw new Error(error.message);
+  const now = Date.now();
+  const urls = new Map<string, string>();
 
-  const urls = new Map((data ?? []).map((entry) => [entry.path, entry.signedUrl]));
+  // Anything still comfortably inside its TTL is answered from memory, so a
+  // refresh that changed one like does not re-sign the whole feed's media.
+  const missing: string[] = [];
+  for (const row of rows) {
+    const hit = signCache.get(row.storage_path);
+    if (hit && hit.expires > now) urls.set(row.storage_path, hit.url);
+    else if (!missing.includes(row.storage_path)) missing.push(row.storage_path);
+  }
+
+  if (missing.length > 0) {
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrls(missing, SIGNED_URL_TTL_SECONDS);
+    if (error) throw new Error(error.message);
+
+    for (const entry of data ?? []) {
+      // `path` and `signedUrl` are both nullable: an object that has gone
+      // comes back as an entry with an error rather than as a missing row.
+      const path = entry.path;
+      const url = entry.signedUrl;
+      if (!path || !url) continue;
+      urls.set(path, url);
+      signCache.set(path, { url, expires: now + SIGN_CACHE_MS });
+    }
+  }
 
   return rows
     .map((row) => {

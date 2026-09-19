@@ -1,4 +1,4 @@
-// Shared helpers for Lotus Bet Edge Functions (Deno runtime).
+// Shared helpers for Betta Edge Functions (Deno runtime).
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
 export const corsHeaders = {

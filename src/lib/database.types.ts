@@ -20,10 +20,21 @@ export type GroupRole = 'admin' | 'member';
 
 export interface UserRow {
   id: string;
-  /** Set for accounts created with email + password, which is all of them now. */
-  email: string | null;
-  /** Kept for the accounts created under the old phone-OTP flow. */
-  phone: string | null;
+  /**
+   * **Never present on a row the client read.** `email`, `phone` and
+   * `expo_push_token` are revoked from `authenticated` at the column level by
+   * `…_user_column_privileges.sql`, because RLS is row-level and could not
+   * stop a group member reading them off everyone else's row.
+   *
+   * They stay on the type because the row still has them server-side — the
+   * signup trigger writes `email`, `push_targets_*` reads the token — and
+   * because a `SECURITY DEFINER` function is unaffected by the grant. For the
+   * signed-in user's own address, read `session.user.email` from GoTrue, which
+   * is what this column was only ever a mirror of.
+   */
+  email?: string | null;
+  /** Kept for the accounts created under the old phone-OTP flow. Never read. */
+  phone?: string | null;
   display_name: string;
   /**
    * The handle other people challenge you by. Assigned on signup and
@@ -40,7 +51,8 @@ export interface UserRow {
    */
   profile_completed?: boolean;
   avatar_url: string | null;
-  expo_push_token: string | null;
+  /** Never present on a client-read row — see `email` above. */
+  expo_push_token?: string | null;
   notify_new_bets: boolean;
   notify_resolutions: boolean;
   /**
@@ -137,12 +149,24 @@ export interface BetOptionRow {
 
 export type BetMediaKind = 'image' | 'video';
 
+/**
+ * Why a file is attached to a bet.
+ *
+ * `attachment` is the creator's illustration, posted with the bet while it is
+ * open. `proof` is the receipt — added by somebody who actually had a side in
+ * it, only once the bet has been called. Same bucket, same path, same viewer;
+ * different rules about when it may be written and where it is shown.
+ */
+export type BetMediaPurpose = 'attachment' | 'proof';
+
 export interface BetMediaRow {
   id: string;
   bet_id: string;
   group_id: string;
   uploaded_by: string;
   kind: BetMediaKind;
+  /** Older rows predate the column and read as `attachment`, which they are. */
+  purpose?: BetMediaPurpose;
   /** Path inside the private `bet-media` bucket. Signed on read. */
   storage_path: string;
   width: number | null;
@@ -258,6 +282,21 @@ export interface BetWithPositions extends BetRow {
 }
 
 /**
+ * One bet, with everything the bet screen needs to draw itself.
+ *
+ * The extra two embeds are the difference between one round trip and three:
+ * the option rosters need the group's members, and a called bet needs its
+ * ledger rows, and neither could be asked for until the bet itself had come
+ * back and named its group and its status.
+ */
+export interface BetDetail extends BetWithPositions {
+  group?: Pick<GroupRow, 'id' | 'name' | 'emoji' | 'avatar_url'> & {
+    members?: (GroupMemberRow & { user: UserRow })[];
+  };
+  ledger?: BetLedgerEntryRow[];
+}
+
+/**
  * What one person owes another, netted across every group they share.
  *
  * Derived from `simplifyDebts`, not stored: there is no such thing as a
@@ -271,4 +310,46 @@ export interface PersonBalance {
   amountAgorot: number;
   /** The groups the figure came from, for the secondary line. */
   groupNames: string[];
+}
+
+/**
+ * Why somebody was reported. A short fixed list, not free text — a free-text
+ * box on a report form is an abuse vector in its own right, since it is a
+ * message aimed at whoever reads the queue from somebody already angry. The
+ * values match the check constraint in `…_moderation.sql`.
+ */
+export type ReportReason =
+  | 'spam'
+  | 'harassment'
+  | 'hate'
+  | 'sexual'
+  | 'violence'
+  | 'other';
+
+/** What is being reported. One table covers all three — see the migration. */
+export type ReportTargetKind = 'comment' | 'bet' | 'user';
+
+export interface ReportRow {
+  id: string;
+  reporter_id: string;
+  target_kind: ReportTargetKind;
+  target_id: string;
+  reported_user_id: string | null;
+  reason: ReportReason;
+  status: 'open' | 'reviewed' | 'actioned' | 'dismissed';
+  created_at: string;
+}
+
+/**
+ * Somebody you have blocked, as `my_blocked_users()` returns them.
+ *
+ * Not a `UserRow`: unblocking has to stay possible after you have left a group
+ * together, and at that point the column-restricted `users` table would give
+ * the client nothing to render. The RPC is `SECURITY DEFINER` so it can.
+ */
+export interface BlockedUser {
+  id: string;
+  display_name: string;
+  username: string | null;
+  avatar_url: string | null;
 }

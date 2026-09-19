@@ -10,6 +10,28 @@
  * These are prompts, not templates: tapping one opens the ordinary new-bet
  * form with the fields already filled, and everything stays editable. Nothing
  * here is stored or sent anywhere.
+ *
+ * ---------------------------------------------------------------------------
+ * THE RULE EVERY SUGGESTION MUST FOLLOW
+ * ---------------------------------------------------------------------------
+ * **A suggestion predicts something that was going to happen anyway. It never
+ * asks anybody to do anything.**
+ *
+ * App Store Review Guideline 1.4.5: an app must not urge users into activities
+ * that risk physical harm. This is the one feature in Betta that *proposes
+ * content* rather than rendering what a user wrote, so it is the only place the
+ * app could put a dare in somebody's mouth — "first to finish their drink",
+ * "who can hold their breath longest". Those are the shape 1.4.5 is about, and
+ * the grammar is the tell: an imperative or a superlative-of-endurance rather
+ * than a question about an outcome.
+ *
+ * Every current suggestion passes because every one is an observation waiting
+ * to be settled — will it rain, will they be late, will anyone reply. Nobody
+ * is asked to act, so nobody can be hurt acting.
+ *
+ * `__tests__/suggestions.test.ts` enforces this rather than trusting it: a new
+ * suggestion phrased as an instruction, or reaching for dare vocabulary, fails
+ * the build. Audited in full and found clean — APP_STORE.md §2.1.
  */
 
 export interface BetSuggestion {
@@ -32,7 +54,7 @@ export const CATEGORY_LABEL: Record<SuggestionCategory, string> = {
   silly: 'Nonsense',
 };
 
-const CATALOGUE: BetSuggestion[] = [
+export const CATALOGUE: BetSuggestion[] = [
   // --- The people you are in a group with -----------------------------------
   {
     id: 'late',

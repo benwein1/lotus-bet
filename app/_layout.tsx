@@ -8,7 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AnimatedSplash } from '@/components/animated-splash';
 import { DemoEntry } from '@/components/demo-entry';
-import { LotusMark } from '@/components/lotus-mark';
+import { AppMark } from '@/components/app-mark';
 import { ChevronLeftIcon } from '@/components/icons';
 import { Screen } from '@/components/screen';
 import { PressableScale } from '@/components/ui';
@@ -65,7 +65,7 @@ function Chrome() {
 }
 
 function RootNavigator() {
-  const { session, loading, needsProfileSetup } = useAuth();
+  const { session, loading, needsProfileSetup, recovering } = useAuth();
   const colors = useColors();
   const segments = useSegments();
   const router = useRouter();
@@ -78,8 +78,23 @@ function RootNavigator() {
     // `segments` is a typed tuple under typedRoutes; compare it as plain strings.
     const path = segments as readonly string[];
     const inAuthGroup = path[0] === '(auth)';
+    // The terms and the privacy policy are linked from the sign-up screen, so
+    // they have to be readable by somebody who does not have an account yet —
+    // which is everybody the checkbox is asking. Without this exemption the
+    // gate bounces them straight back to sign-in and the agreement links at
+    // nothing, which is the state this whole file used to be in.
+    const inLegalGroup = path[0] === 'legal';
 
-    if (!session && !inAuthGroup) {
+    // A recovery session is a real session, so every branch below would happily
+    // wave it through to the tabs — and the whole point of the link was to set
+    // a password. Hold it on the reset screen until `updatePassword` clears the
+    // flag. This has to come first for the same reason.
+    if (recovering) {
+      if (path[1] !== 'reset-password') router.replace('/(auth)/reset-password');
+      return;
+    }
+
+    if (!session && !inAuthGroup && !inLegalGroup) {
       router.replace('/(auth)/sign-in');
     } else if (session && needsProfileSetup && path[1] !== 'profile-setup') {
       router.replace('/(auth)/profile-setup');
@@ -92,7 +107,7 @@ function RootNavigator() {
         else router.replace('/(tabs)');
       });
     }
-  }, [session, loading, needsProfileSetup, segments, router]);
+  }, [session, loading, needsProfileSetup, recovering, segments, router]);
 
   if (!isSupabaseConfigured && !session) return <SetupRequired />;
   if (loading) {
@@ -132,6 +147,16 @@ function RootNavigator() {
       <Stack.Screen name="group/[id]/new-bet" options={modalOptions('New bet')} />
       <Stack.Screen name="group/[id]/settle" options={{ title: 'Settle up' }} />
       <Stack.Screen name="bet/[id]" options={{ title: '' }} />
+      {/* Pushed rather than presented as a sheet: it is a decision with a lot
+          to read, and a sheet invites dismissing it by reflex. */}
+      <Stack.Screen name="delete-account" options={{ title: 'Delete account' }} />
+      {/* Guideline 1.2 wants the rules and a contact published, and 5.1.1 wants
+          the privacy policy reachable from inside the app. These render text
+          bundled with the build, so they work before any domain exists and
+          before there is a network. */}
+      <Stack.Screen name="legal/terms" options={{ title: 'Terms of Service' }} />
+      <Stack.Screen name="legal/privacy" options={{ title: 'Privacy Policy' }} />
+      <Stack.Screen name="legal/support" options={{ title: 'Support' }} />
     </Stack>
   );
 }
@@ -176,7 +201,7 @@ function ModalCancel() {
 function SetupRequired() {
   return (
     <Screen className="items-center justify-center gap-4 px-10">
-      <LotusMark size={72} />
+      <AppMark size={72} />
       <Text className="text-center text-xl font-bold text-primary">Almost there</Text>
       <Text className="text-center text-subhead leading-5 text-secondary">
         Copy <Text className="font-semibold text-accent">.env.example</Text> to{' '}

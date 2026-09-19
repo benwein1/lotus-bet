@@ -67,7 +67,7 @@ Two settings worth a decision:
 - **Site URL / redirect URLs** (Authentication → URL Configuration). The
   confirmation and password-reset links point here. For local development add
   `http://localhost:8081`; for a device build add the app's scheme,
-  `lotusbet://`.
+  `betta://`.
 
 The `on_auth_user_created` trigger mirrors each new `auth.users` row into
 `public.users`. The sign-up form sends the display name in the user metadata,

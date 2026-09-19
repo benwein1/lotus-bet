@@ -14,17 +14,20 @@
  *   the actual money maths rather than a second implementation of it.
  * - The entry point only renders in development (see `DEMO_AVAILABLE`).
  */
+import type { PickedMedia } from './media';
 import { computeBetPayouts } from './payout';
 import { personBalances } from './settlement';
 import type {
   BetComment,
   BetCommentRow,
+  BlockedUser,
   BetLedgerEntryRow,
   BetLikeRow,
   BetOptionRow,
   BetMedia,
   BetRow,
   BetSide,
+  BetDetail,
   BetWithPositions,
   GroupBalanceRow,
   GroupInviteRow,
@@ -96,10 +99,10 @@ function user(id: string, name: string, email: string): UserRow {
 }
 
 const USERS: Record<string, UserRow> = {
-  [DEMO_USER_ID]: user(DEMO_USER_ID, 'You', 'you@lotusbet.demo'),
-  [DOR]: user(DOR, 'Dor Levi', 'dor@lotusbet.demo'),
-  [NOA]: user(NOA, 'Noa Bar', 'noa@lotusbet.demo'),
-  [YOSSI]: user(YOSSI, 'Yossi Cohen', 'yossi@lotusbet.demo'),
+  [DEMO_USER_ID]: user(DEMO_USER_ID, 'You', 'you@betta.demo'),
+  [DOR]: user(DOR, 'Dor Levi', 'dor@betta.demo'),
+  [NOA]: user(NOA, 'Noa Bar', 'noa@betta.demo'),
+  [YOSSI]: user(YOSSI, 'Yossi Cohen', 'yossi@betta.demo'),
 };
 
 export const demoProfile: UserRow = USERS[DEMO_USER_ID]!;
@@ -167,6 +170,8 @@ interface DemoState {
   settlements: SettlementConfirmationRow[];
   likes: BetLikeRow[];
   comments: BetCommentRow[];
+  /** Ids this demo user has blocked. Reset with the rest of the state. */
+  blocked: string[];
   profile: UserRow;
 }
 
@@ -226,6 +231,7 @@ function emptySeed(): DemoState {
     settlements: [],
     likes: [],
     comments: [],
+    blocked: [],
     media: [],
   };
 }
@@ -373,7 +379,26 @@ function seed(): SeededState {
     ],
     settlements: [],
     likes: [],
-    comments: [],
+    // A couple of remarks from other people, so the thread is not empty and —
+    // more to the point — so there is somebody else's comment to long-press.
+    // Report and block are unreachable in a demo where every comment is yours.
+    comments: [
+      {
+        id: 'demo-comment-1',
+        bet_id: 'demo-bet-1',
+        user_id: DOR,
+        body: 'He has been late every single week this season.',
+        created_at: iso(-2),
+      },
+      {
+        id: 'demo-comment-2',
+        bet_id: 'demo-bet-1',
+        user_id: NOA,
+        body: 'Give him a chance, he set three alarms.',
+        created_at: iso(-1),
+      },
+    ],
+    blocked: [],
   };
 }
 
@@ -546,6 +571,16 @@ export const demo = {
     return clone(group);
   },
 
+  async fetchMyBets(userId: string, limit: number): Promise<BetWithPositions[]> {
+    return clone(
+      state.bets
+        .filter((b) => b.creator_id === userId)
+        .sort(byNewest)
+        .slice(0, limit)
+        .map((b) => withPositions(b))
+    );
+  },
+
   async fetchGroupBets(groupId: string): Promise<BetWithPositions[]> {
     return clone(
       state.bets
@@ -565,10 +600,31 @@ export const demo = {
     );
   },
 
-  async fetchBet(betId: string): Promise<BetWithPositions> {
+  async fetchBet(betId: string): Promise<BetDetail> {
     const bet = state.bets.find((b) => b.id === betId);
     if (!bet) throw new Error('Bet not found');
-    return clone(withPositions(bet, true));
+
+    // The real `fetchBet` embeds the group's members and the ledger so the bet
+    // screen costs one round trip rather than three. Demo has to hand back the
+    // same shape or the rosters and the payout line render empty here and only
+    // here — exactly the kind of drift that makes the demo lie.
+    const group = state.groups.find((g) => g.id === bet.group_id);
+    const base = withPositions(bet, true);
+
+    return clone({
+      ...base,
+      ledger: state.ledger.filter((entry) => entry.bet_id === bet.id),
+      ...(group
+        ? {
+            group: {
+              id: group.id,
+              name: group.name,
+              emoji: group.emoji,
+              members: withMembers(group).members,
+            },
+          }
+        : {}),
+    } as BetDetail);
   },
 
   async createBet(input: NewBetInput): Promise<BetRow> {
@@ -614,6 +670,7 @@ export const demo = {
         group_id: bet.group_id,
         uploaded_by: DEMO_USER_ID,
         kind: item.kind,
+        purpose: 'attachment',
         storage_path: item.uri,
         url: item.uri,
         width: item.width,
@@ -625,6 +682,42 @@ export const demo = {
     });
 
     return clone(bet);
+  },
+
+  async addBetProof(
+    betId: string,
+    media: PickedMedia[],
+    existingProofCount: number
+  ): Promise<void> {
+    const bet = state.bets.find((b) => b.id === betId);
+    if (!bet) throw new Error('Bet not found');
+    // The real policy refuses this; the demo has to refuse it too, or the
+    // offline build shows behaviour the backend does not have.
+    if (bet.status !== 'resolved') {
+      throw new Error('Proof can only be added once the bet is resolved.');
+    }
+
+    media.forEach((item, index) => {
+      state.media.push({
+        id: `demo-proof-${betId}-${existingProofCount + index}-${Date.now()}`,
+        bet_id: betId,
+        group_id: bet.group_id,
+        uploaded_by: DEMO_USER_ID,
+        kind: item.kind,
+        purpose: 'proof',
+        storage_path: item.uri,
+        url: item.uri,
+        width: item.width,
+        height: item.height,
+        duration_ms: item.durationMs,
+        position: existingProofCount + index,
+        created_at: new Date().toISOString(),
+      });
+    });
+  },
+
+  async deleteBetMedia(mediaId: string): Promise<void> {
+    state.media = state.media.filter((m) => m.id !== mediaId);
   },
 
   async joinBetOption(betId: string, optionId: string): Promise<void> {
@@ -743,6 +836,40 @@ export const demo = {
 
   async fetchBetLedger(betId: string): Promise<BetLedgerEntryRow[]> {
     return clone(state.ledger.filter((e) => e.bet_id === betId));
+  },
+
+  // --- Moderation ---------------------------------------------------------
+  // Reports go nowhere by design: there is no queue to read them and no
+  // moderator to act, so recording them would only make the demo look like it
+  // has a backend it does not have. Blocking is real, because its effect is
+  // visible on screen and that is the point of being able to click through it.
+  async reportContent(_kind: string, _targetId: string, _reason: string): Promise<void> {},
+
+  // Demo state is in memory and is thrown away on sign-out anyway, so the
+  // honest thing is to do nothing and let the caller's sign-out clear it.
+  async deleteAccount(): Promise<void> {},
+
+  async blockUser(userId: string): Promise<void> {
+    if (userId === state.profile.id) throw new Error('You cannot block yourself.');
+    if (!state.blocked.includes(userId)) state.blocked.push(userId);
+  },
+
+  async unblockUser(userId: string): Promise<void> {
+    state.blocked = state.blocked.filter((id) => id !== userId);
+  },
+
+  async fetchBlockedUsers(): Promise<BlockedUser[]> {
+    return clone(
+      state.blocked
+        .map((id) => USERS[id])
+        .filter((u): u is NonNullable<typeof u> => Boolean(u))
+        .map((u) => ({
+          id: u.id,
+          display_name: u.display_name,
+          username: u.username ?? null,
+          avatar_url: u.avatar_url ?? null,
+        }))
+    );
   },
 
   async fetchMyHistory(userId: string): Promise<HistoryEntry[]> {
