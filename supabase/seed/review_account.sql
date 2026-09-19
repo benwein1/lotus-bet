@@ -119,7 +119,10 @@ select
   -- Store Connect are dead on arrival.
   now(),
   '{"provider":"email","providers":["email"]}'::jsonb,
-  jsonb_build_object('display_name', person.name, 'terms_version', '2026-09-14'),
+  -- Over the 16+ minimum, so the reviewer's account is verified by the signup
+  -- trigger itself rather than by the fallback insert below.
+  jsonb_build_object('display_name', person.name, 'terms_version', '2026-09-19',
+                     'date_of_birth', '1995-06-12'),
   now() - interval '40 days',
   now(),
   '', '', '', ''
@@ -135,9 +138,9 @@ on conflict (id) do nothing;
 -- Belt and braces: if the signup trigger is not installed on this project the
 -- insert above leaves no profile behind, and every join below fails on a
 -- foreign key. This fills the gap and is a no-op when the trigger did its job.
-insert into public.users (id, email, display_name, profile_completed, username)
+insert into public.users (id, email, display_name, profile_completed, username, age_verified_at)
 select
-  person.id, person.email, person.name, true, person.handle
+  person.id, person.email, person.name, true, person.handle, now()
 from (values
   ('00000000-0000-4000-9000-000000000000'::uuid, 'appreview@betta.local', 'Alex Rivera',   'alexrivera'),
   ('00000000-0000-4000-9000-000000000001'::uuid, 'dana.demo@betta.local', 'Dana Peretz',   'danaperetz'),

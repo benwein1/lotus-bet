@@ -65,7 +65,7 @@ function Chrome() {
 }
 
 function RootNavigator() {
-  const { session, loading, needsProfileSetup, recovering } = useAuth();
+  const { session, loading, needsProfileSetup, needsAgeCheck, recovering } = useAuth();
   const colors = useColors();
   const segments = useSegments();
   const router = useRouter();
@@ -96,9 +96,19 @@ function RootNavigator() {
 
     if (!session && !inAuthGroup && !inLegalGroup) {
       router.replace('/(auth)/sign-in');
-    } else if (session && needsProfileSetup && path[1] !== 'profile-setup') {
+    } else if (session && needsAgeCheck && path[1] !== 'age-check') {
+      // Before profile setup, not after. An account that cannot pass the age
+      // check is not going to be allowed to post, so asking it to pick a name
+      // and a photo first would be collecting personal data from somebody we
+      // are about to turn away — which is the opposite of what the rule is for.
+      //
+      // `require_age_verified()` is what actually stops the writes; this only
+      // decides which screen is in front of them. Reads are untouched, so this
+      // is one question rather than a locked account.
+      router.replace('/(auth)/age-check');
+    } else if (session && !needsAgeCheck && needsProfileSetup && path[1] !== 'profile-setup') {
       router.replace('/(auth)/profile-setup');
-    } else if (session && !needsProfileSetup && inAuthGroup) {
+    } else if (session && !needsAgeCheck && !needsProfileSetup && inAuthGroup) {
       // Somebody who arrived on an invite link and had to make an account
       // first goes back to the link, not to an empty Groups tab. `take` clears
       // it, so a stale token can never redirect a later sign-in.
@@ -107,7 +117,7 @@ function RootNavigator() {
         else router.replace('/(tabs)');
       });
     }
-  }, [session, loading, needsProfileSetup, recovering, segments, router]);
+  }, [session, loading, needsProfileSetup, needsAgeCheck, recovering, segments, router]);
 
   if (!isSupabaseConfigured && !session) return <SetupRequired />;
   if (loading) {

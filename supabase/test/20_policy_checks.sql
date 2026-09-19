@@ -2013,3 +2013,186 @@ begin;
    where id = '66666666-0000-4000-8000-000000000001'
      and creator_id = auth.uid();
 rollback;
+
+\echo '--- 44. The 16+ minimum age gate ---'
+-- `…_minimum_age.sql` enforces the age floor in three places. These drive all
+-- three, because the whole value of the migration is that the rule survives a
+-- client that skips the sign-up screen and calls PostgREST directly.
+begin;
+  \echo '  (a) meets_minimum_age agrees with src/lib/age.ts on the boundary'
+  select 'exactly 16 today' as check,
+         public.meets_minimum_age((current_date - interval '16 years')::date) as pass;
+  select 'one day short of 16' as check,
+         public.meets_minimum_age((current_date - interval '16 years' + interval '1 day')::date)
+           as must_be_false;
+  select 'comfortably older' as check,
+         public.meets_minimum_age((current_date - interval '40 years')::date) as pass;
+  select 'null date of birth' as check,
+         public.meets_minimum_age(null) as must_be_false;
+
+  \echo '  (b) the signup trigger refuses an under-age account (must fail)'
+  savepoint s1;
+  insert into auth.users (
+    instance_id, id, aud, role, email, encrypted_password,
+    email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+  )
+  values (
+    '00000000-0000-0000-0000-000000000000',
+    'eeeeeeee-0000-4000-8000-000000000001',
+    'authenticated', 'authenticated', 'child@example.test', 'x', now(), '{}'::jsonb,
+    ('{"display_name":"Too Young","date_of_birth":"'
+      || (current_date - interval '12 years')::date || '"}')::jsonb,
+    now(), now()
+  );
+  rollback to s1;
+
+  \echo '  (c) nothing was left behind by the refused signup'
+  select 'orphan auth row' as check, count(*) as rows
+    from auth.users where id = 'eeeeeeee-0000-4000-8000-000000000001';
+  select 'orphan profile row' as check, count(*) as rows
+    from public.users where id = 'eeeeeeee-0000-4000-8000-000000000001';
+
+  \echo '  (d) a malformed date of birth is refused, not ignored (must fail)'
+  savepoint s2;
+  insert into auth.users (
+    instance_id, id, aud, role, email, encrypted_password,
+    email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+  )
+  values (
+    '00000000-0000-0000-0000-000000000000',
+    'eeeeeeee-0000-4000-8000-000000000002',
+    'authenticated', 'authenticated', 'junk@example.test', 'x', now(), '{}'::jsonb,
+    '{"display_name":"Junk Date","date_of_birth":"not-a-date"}'::jsonb, now(), now()
+  );
+  rollback to s2;
+
+  \echo '  (e) an old-enough signup is verified by the trigger itself'
+  insert into auth.users (
+    instance_id, id, aud, role, email, encrypted_password,
+    email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+  )
+  values (
+    '00000000-0000-0000-0000-000000000000',
+    'eeeeeeee-0000-4000-8000-000000000003',
+    'authenticated', 'authenticated', 'grownup@example.test', 'x', now(), '{}'::jsonb,
+    '{"display_name":"Old Enough","date_of_birth":"1990-05-05"}'::jsonb, now(), now()
+  );
+  select 'verified at signup' as check, count(*) as rows
+    from public.users
+   where id = 'eeeeeeee-0000-4000-8000-000000000003' and age_verified_at is not null;
+
+  \echo '  (f) a social signup arrives unverified rather than assumed adult'
+  -- Apple and Google return no date of birth, so these accounts exist and can
+  -- read, but must not be stamped as checked.
+  insert into auth.users (
+    instance_id, id, aud, role, email, encrypted_password,
+    email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+  )
+  values (
+    '00000000-0000-0000-0000-000000000000',
+    'eeeeeeee-0000-4000-8000-000000000004',
+    'authenticated', 'authenticated', 'social@example.test', 'x', now(), '{}'::jsonb,
+    '{"display_name":"Social Signup"}'::jsonb, now(), now()
+  );
+  select 'unverified as expected' as check, count(*) as rows
+    from public.users
+   where id = 'eeeeeeee-0000-4000-8000-000000000004' and age_verified_at is null;
+rollback;
+
+\echo '--- 45. Age verification cannot be forged, and gates content ---'
+begin;
+  -- The social signup from above, recreated so this block stands alone.
+  insert into auth.users (
+    instance_id, id, aud, role, email, encrypted_password,
+    email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+  )
+  values (
+    '00000000-0000-0000-0000-000000000000',
+    'eeeeeeee-0000-4000-8000-000000000005',
+    'authenticated', 'authenticated', 'unverified@example.test', 'x', now(), '{}'::jsonb,
+    '{"display_name":"Unverified"}'::jsonb, now(), now()
+  );
+  insert into public.group_members (group_id, user_id, role)
+  values ('bbbbbbbb-0000-4000-8000-000000000000',
+          'eeeeeeee-0000-4000-8000-000000000005', 'member')
+  on conflict do nothing;
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'eeeeeeee-0000-4000-8000-000000000005';
+
+  \echo '  (a) an unverified member can still READ — this is a gate, not a lockout'
+  select 'groups visible' as check, count(*) as rows from public.groups;
+  select 'bets visible' as check, count(*) as rows from public.bets;
+
+  \echo '  (b) an unverified member cannot post a comment (must fail)'
+  savepoint s1;
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'eeeeeeee-0000-4000-8000-000000000005', 'hello');
+  rollback to s1;
+
+  \echo '  (c) nor take a side on a bet (must fail)'
+  savepoint s2;
+  insert into public.bet_positions (bet_id, user_id, side)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'eeeeeeee-0000-4000-8000-000000000005', 'a');
+  rollback to s2;
+
+  \echo '  (d) nor like anything (must fail)'
+  savepoint s3;
+  insert into public.bet_likes (bet_id, user_id)
+  values ('cccccccc-0000-4000-8000-000000000000',
+          'eeeeeeee-0000-4000-8000-000000000005');
+  rollback to s3;
+
+  \echo '  (e) a client cannot stamp its own age_verified_at (must fail)'
+  savepoint s4;
+  update public.users set age_verified_at = now() where id = auth.uid();
+  rollback to s4;
+
+  \echo '  (f) confirm_minimum_age refuses an under-age date (must fail)'
+  savepoint s5;
+  select public.confirm_minimum_age((current_date - interval '10 years')::date);
+  rollback to s5;
+
+  \echo '  (g) ...and a date in the future (must fail)'
+  savepoint s6;
+  select public.confirm_minimum_age((current_date + interval '1 day')::date);
+  rollback to s6;
+
+  \echo '  (h) an old-enough date passes, and then content writes work'
+  select public.confirm_minimum_age('1994-03-03'::date);
+  select 'now verified' as check, count(*) as rows
+    from public.users where id = auth.uid() and age_verified_at is not null;
+  insert into public.bet_comments (bet_id, user_id, body)
+  values ('cccccccc-0000-4000-8000-000000000000', auth.uid(), 'now I can talk');
+  select 'comment landed' as check, count(*) as rows
+    from public.bet_comments where user_id = auth.uid();
+
+  \echo '  (i) re-confirming does not move the original stamp'
+  -- The first confirmation is the one that happened; a later call must not
+  -- look like a fresh check on an account that already passed.
+  -- Backdated out of role: the grant forbids a client writing this column,
+  -- which is exactly what (e) asserts, so the setup cannot use it.
+  reset role;
+  update public.users set age_verified_at = '2020-01-01T00:00:00Z'
+   where id = 'eeeeeeee-0000-4000-8000-000000000005';
+  set local role authenticated;
+  select public.confirm_minimum_age('1994-03-03'::date);
+  select 'stamp preserved' as check, count(*) as rows
+    from public.users
+   where id = auth.uid() and age_verified_at = '2020-01-01T00:00:00Z';
+rollback;
+
+\echo '--- 46. The age functions are not callable by anon ---'
+-- CLAUDE.md §10: every new function in `public` needs its own explicit revoke,
+-- because the platform re-grants on newly created objects. That finding is
+-- what `…_relock_anon_execute.sql` records, and this is the check for it.
+begin;
+  select 'age functions anon-callable' as check, count(*) as rows
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('meets_minimum_age', 'confirm_minimum_age', 'require_age_verified')
+     and has_function_privilege('anon', p.oid, 'execute');
+rollback;

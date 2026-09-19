@@ -11,6 +11,8 @@ import { ContentWidth, Screen } from '@/components/screen';
 import { Button, ErrorNotice, FieldGroup, PressableScale, TextField } from '@/components/ui';
 import { CheckIcon } from '@/components/icons';
 import { isValidEmail, passwordProblem } from '@/lib/format';
+import { dateOfBirthProblem, toISODate, type DateParts } from '@/lib/age';
+import { AGE_FOOTNOTE, DateOfBirthField } from '@/components/date-of-birth-field';
 import type { OAuthProvider } from '@/lib/oauth-rules';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
@@ -31,25 +33,42 @@ export default function SignUpScreen() {
   const [busy, setBusy] = useState(false);
   const [confirmationSent, setConfirmationSent] = useState(false);
   const [agreed, setAgreed] = useState(false);
+  const [birth, setBirth] = useState<Partial<DateParts>>({});
   const [social, setSocial] = useState<OAuthProvider | null>(null);
 
   const trimmedName = name.trim();
   const problem = passwordProblem(password);
+  // The 16+ minimum, checked here so the button is honest about it — and again
+  // in `handle_new_auth_user`, which is the copy that actually enforces it.
+  // This one exists to explain; that one exists to hold.
+  const birthProblem = dateOfBirthProblem(birth);
   // Agreement gates the button rather than being a line of small print under
   // it. Guideline 1.2 wants people to have agreed to the rules, and a checkbox
   // that is ticked by default is not an agreement.
   const ready =
-    trimmedName.length >= 2 && isValidEmail(email) && problem === null && agreed;
+    trimmedName.length >= 2 &&
+    isValidEmail(email) &&
+    problem === null &&
+    birthProblem === null &&
+    agreed;
   // Only once they have typed enough for the rule to be about *their* password
   // rather than a scolding for an empty field.
   const showProblem = password.length > 0 && problem !== null;
+  // Only once the year is there. Complaining "you must be 16" at somebody who
+  // has typed two digits of a day is a scolding, not help.
+  const showBirthProblem = birth.year !== undefined && birthProblem !== null;
 
   async function submit() {
     if (!ready) return;
     setError(null);
     setBusy(true);
     try {
-      const { needsEmailConfirmation } = await signUp(email, password, trimmedName);
+      const { needsEmailConfirmation } = await signUp(
+        email,
+        password,
+        trimmedName,
+        toISODate(birth as DateParts)
+      );
       // With confirmation on there is no session yet, so the redirect gate has
       // nothing to act on — say so rather than leaving them on a dead form.
       if (needsEmailConfirmation) setConfirmationSent(true);
@@ -128,7 +147,7 @@ export default function SignUpScreen() {
 
       <AuthDivider label="or sign up with email" />
 
-      <FieldGroup>
+      <FieldGroup footer={AGE_FOOTNOTE}>
         <TextField
           label="Name"
           value={name}
@@ -167,7 +186,6 @@ export default function SignUpScreen() {
           autoCapitalize="none"
           returnKeyType="go"
           onSubmitEditing={() => void submit()}
-          last
           accessory={
             <PressableScale
               onPress={() => setReveal((value) => !value)}
@@ -180,6 +198,10 @@ export default function SignUpScreen() {
             </PressableScale>
           }
         />
+        {/* Last, because it is the one field that can refuse the account
+            outright — and asking for it before the password would read as the
+            app's opening question rather than as a condition of joining. */}
+        <DateOfBirthField value={birth} onChange={setBirth} onComplete={() => void submit()} last />
       </FieldGroup>
 
       {/* One line, and only once there is something to say about. A rule shown
@@ -187,6 +209,14 @@ export default function SignUpScreen() {
       {showProblem && (
         <Animated.View entering={FadeIn.duration(160)}>
           <Text className="mt-2.5 px-1 text-sm text-secondary">{problem}</Text>
+        </Animated.View>
+      )}
+
+      {showBirthProblem && (
+        <Animated.View entering={FadeIn.duration(160)}>
+          <Text className="mt-2.5 px-1 text-sm text-negative" accessibilityRole="alert">
+            {birthProblem}
+          </Text>
         </Animated.View>
       )}
 
