@@ -430,7 +430,7 @@ it before you rely on the liability and warranty clauses.
 | **Description** | Open with what it is and what it is not. Put the no-money line in the first paragraph | P0 |
 | **Keywords** | 100 chars. **Avoid** casino, gambling, betting odds, sportsbook, wager. **Use** friends, group, challenge, scoreboard, settle, dare, prediction | P0 |
 | **Screenshots** | 6.9" and 6.5" required; 5.5" if supporting older devices. iPad not needed (`supportsTablet: false`) | P0 |
-| **App icon** | 1024×1024, no alpha, no rounded corners. The lotus mark already renders every size via `scripts/build-icons.mjs` | P0 |
+| **App icon** | 1024×1024, no alpha, no rounded corners. `scripts/build-icons.mjs` already renders every size from `assets/logo/mark.svg`. **The artwork still illustrates the old name** — it was drawn as a lotus/fanned-cards shape for *Lotus Bet* and means nothing under *Betta*. Shipping it is a choice, not a blocker | P0 |
 | **Privacy policy URL** | Required, live. Written and generated — `<origin>/legal/privacy.html`, produced by `npm run build:web`. You still have to deploy it somewhere | P0 |
 | **Support URL** | Required, live — `<origin>/legal/support.html`, same build. Set `EXPO_PUBLIC_SUPPORT_EMAIL` first or it prints a placeholder | P0 |
 | **Marketing URL** | Optional | P2 |

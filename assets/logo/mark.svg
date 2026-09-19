@@ -1,11 +1,16 @@
 <!--
-  The Lotus Bet mark.
+  The Betta mark.
 
-  A lotus of five petals fanning from one point, which is also a hand of cards
-  fanned from the same point — the two things the product is named for and
-  about, in one shape. Every petal is the same path rotated about the base, so
-  the mark is one repeated form rather than five drawn shapes and cannot drift
-  out of symmetry.
+  Five petals fanning from one point. Every petal is the same path rotated
+  about the base, so the mark is one repeated form rather than five drawn
+  shapes and cannot drift out of symmetry.
+
+  It was drawn for the app's first name, Lotus Bet, where the shape read as
+  both a lotus and a hand of cards fanned from the same point — the two things
+  that product was named for. The app is Betta now and neither reading applies,
+  so this is a geometric mark that no longer illustrates its name. That is a
+  live decision, not an oversight: see APP_STORE.md, where the 1024px icon is
+  a listing requirement.
 
   Flat and geometric on purpose. An app icon is seen at 60px on a home screen
   far more often than at 1024, and strokes or gradients turn to mush there.
