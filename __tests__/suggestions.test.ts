@@ -4,7 +4,7 @@ import { CATALOGUE, suggestBets, suggestionSeed } from '@/lib/suggestions';
  * Guideline 1.4.5 — an app must not urge users into activities that risk
  * physical harm.
  *
- * `suggestions.ts` is the only feature in Lotus Bet that *proposes* content
+ * `suggestions.ts` is the only feature in Betta that *proposes* content
  * rather than rendering what somebody wrote, so it is the only place the app
  * could put a dare in a user's mouth. APP_STORE.md asks for a read-through;
  * this is that read-through turned into a check, because a one-off audit does

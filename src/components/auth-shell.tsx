@@ -10,10 +10,11 @@ import Animated, {
 } from '@/components/animated';
 
 import { DemoEntry } from '@/components/demo-entry';
-import { LotusMark } from '@/components/lotus-mark';
+import { AppMark } from '@/components/app-mark';
 import { ContentWidth, Screen } from '@/components/screen';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { motion } from '@/theme';
+import { APP_NAME } from '@/lib/legal';
 
 /**
  * The frame every screen before sign-in sits in.
@@ -36,7 +37,7 @@ export function AuthShell({
   children,
   footer,
   /**
-   * Replaces the Lotus mark at the top. Profile setup swaps in the user's own
+   * Replaces the app mark at the top. Profile setup swaps in the user's own
    * avatar, because by then the thing being introduced is them, not the app.
    */
   hero,
@@ -104,7 +105,7 @@ export function AuthShell({
             <ContentWidth>
               <Animated.View entering={entering(0)} className="mb-9 items-center">
                 <Animated.View style={markStyle} className="mb-6">
-                  {hero ?? <LotusMark size={84} />}
+                  {hero ?? <AppMark size={84} />}
                 </Animated.View>
 
                 {/* Large Title, centred, with the tight tracking the scale
@@ -126,7 +127,7 @@ export function AuthShell({
 
                 {/* Load-bearing. See the note at the top of this file. */}
                 <Text className="max-w-[300px] text-center text-xs leading-4 text-tertiary">
-                  Lotus Bet never handles money. It only keeps track of who owes whom.
+                  {APP_NAME} never handles money. It only keeps track of who owes whom.
                 </Text>
 
                 {showDemoEntry && <DemoEntry />}

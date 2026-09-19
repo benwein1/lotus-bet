@@ -7,16 +7,16 @@ import {
 
 /** What GoTrue actually lands on under the implicit flow. */
 const WEB_RECOVERY =
-  'https://lotus-bet.example.workers.dev/reset-password' +
+  'https://betta.example.workers.dev/reset-password' +
   '#access_token=eyJhbGciOiJIUzI1NiJ9.aaa&expires_at=1789000000&expires_in=3600' +
   '&refresh_token=rt_abc123&token_type=bearer&type=recovery';
 
 const NATIVE_RECOVERY =
-  'lotusbet://reset-password#access_token=eyJhbGciOiJIUzI1NiJ9.aaa' +
+  'betta://reset-password#access_token=eyJhbGciOiJIUzI1NiJ9.aaa' +
   '&refresh_token=rt_abc123&token_type=bearer&type=recovery';
 
 const EXPIRED =
-  'https://lotus-bet.example.workers.dev/reset-password' +
+  'https://betta.example.workers.dev/reset-password' +
   '#error=access_denied&error_code=otp_expired' +
   '&error_description=Email+link+is+invalid+or+has+expired';
 
@@ -68,8 +68,8 @@ describe('isRecoveryRedirect', () => {
   });
 
   it('does not fire on an ordinary page load', () => {
-    expect(isRecoveryRedirect('https://lotus-bet.example.workers.dev/')).toBe(false);
-    expect(isRecoveryRedirect('https://lotus-bet.example.workers.dev/reset-password')).toBe(false);
+    expect(isRecoveryRedirect('https://betta.example.workers.dev/')).toBe(false);
+    expect(isRecoveryRedirect('https://betta.example.workers.dev/reset-password')).toBe(false);
   });
 
   it('does not fire on a magic-link or signup redirect', () => {
@@ -96,16 +96,16 @@ describe('recoveryTokens', () => {
   });
 
   it('refuses a link that is not a recovery', () => {
-    expect(recoveryTokens('lotusbet://x#access_token=a&refresh_token=b&type=signup')).toBeNull();
+    expect(recoveryTokens('betta://x#access_token=a&refresh_token=b&type=signup')).toBeNull();
   });
 
   it('refuses a half-complete pair rather than calling setSession with junk', () => {
-    expect(recoveryTokens('lotusbet://x#access_token=a&type=recovery')).toBeNull();
-    expect(recoveryTokens('lotusbet://x#refresh_token=b&type=recovery')).toBeNull();
+    expect(recoveryTokens('betta://x#access_token=a&type=recovery')).toBeNull();
+    expect(recoveryTokens('betta://x#refresh_token=b&type=recovery')).toBeNull();
   });
 
   it('refuses an ordinary URL', () => {
-    expect(recoveryTokens('lotusbet://reset-password')).toBeNull();
+    expect(recoveryTokens('betta://reset-password')).toBeNull();
   });
 });
 

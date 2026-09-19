@@ -76,7 +76,7 @@ where g.invite_code = 'RHMXXW';
 -- `public.users` from `raw_user_meta_data`, exactly as a real sign-up would,
 -- so these accounts are not a special case anywhere in the app.
 --
--- They can all sign in with the password `lotus-test-1234`.
+-- They can all sign in with the password `betta-test-1234`.
 insert into auth.users (
   instance_id, id, aud, role, email,
   encrypted_password, email_confirmed_at,
@@ -92,7 +92,7 @@ select
   'authenticated',
   'authenticated',
   person.email,
-  crypt('lotus-test-1234', gen_salt('bf')),
+  crypt('betta-test-1234', gen_salt('bf')),
   now(),
   '{"provider":"email","providers":["email"]}'::jsonb,
   jsonb_build_object('display_name', person.name),
@@ -100,11 +100,11 @@ select
   now(),
   '', '', '', ''
 from (values
-  ('00000000-0000-4000-8000-000000000001'::uuid, 'dana.test@lotusbet.local',    'Dana Peretz'),
-  ('00000000-0000-4000-8000-000000000002'::uuid, 'yonatan.test@lotusbet.local', 'Yonatan Adler'),
-  ('00000000-0000-4000-8000-000000000003'::uuid, 'maya.test@lotusbet.local',    'Maya Cohen'),
-  ('00000000-0000-4000-8000-000000000004'::uuid, 'itai.test@lotusbet.local',    'Itai Barak'),
-  ('00000000-0000-4000-8000-000000000005'::uuid, 'noa.test@lotusbet.local',     'Noa Shemesh')
+  ('00000000-0000-4000-8000-000000000001'::uuid, 'dana.test@betta.local',    'Dana Peretz'),
+  ('00000000-0000-4000-8000-000000000002'::uuid, 'yonatan.test@betta.local', 'Yonatan Adler'),
+  ('00000000-0000-4000-8000-000000000003'::uuid, 'maya.test@betta.local',    'Maya Cohen'),
+  ('00000000-0000-4000-8000-000000000004'::uuid, 'itai.test@betta.local',    'Itai Barak'),
+  ('00000000-0000-4000-8000-000000000005'::uuid, 'noa.test@betta.local',     'Noa Shemesh')
 ) as person(id, email, name)
 on conflict (id) do nothing;
 
@@ -115,11 +115,11 @@ insert into public.users (id, email, display_name, profile_completed)
 select
   person.id, person.email, person.name, true
 from (values
-  ('00000000-0000-4000-8000-000000000001'::uuid, 'dana.test@lotusbet.local',    'Dana Peretz'),
-  ('00000000-0000-4000-8000-000000000002'::uuid, 'yonatan.test@lotusbet.local', 'Yonatan Adler'),
-  ('00000000-0000-4000-8000-000000000003'::uuid, 'maya.test@lotusbet.local',    'Maya Cohen'),
-  ('00000000-0000-4000-8000-000000000004'::uuid, 'itai.test@lotusbet.local',    'Itai Barak'),
-  ('00000000-0000-4000-8000-000000000005'::uuid, 'noa.test@lotusbet.local',     'Noa Shemesh')
+  ('00000000-0000-4000-8000-000000000001'::uuid, 'dana.test@betta.local',    'Dana Peretz'),
+  ('00000000-0000-4000-8000-000000000002'::uuid, 'yonatan.test@betta.local', 'Yonatan Adler'),
+  ('00000000-0000-4000-8000-000000000003'::uuid, 'maya.test@betta.local',    'Maya Cohen'),
+  ('00000000-0000-4000-8000-000000000004'::uuid, 'itai.test@betta.local',    'Itai Barak'),
+  ('00000000-0000-4000-8000-000000000005'::uuid, 'noa.test@betta.local',     'Noa Shemesh')
 ) as person(id, email, name)
 on conflict (id) do nothing;
 

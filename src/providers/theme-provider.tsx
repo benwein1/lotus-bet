@@ -7,7 +7,7 @@ import { colorsFor, type ColorScheme, type Palette } from '@/theme';
 
 export type AppearancePreference = 'system' | 'light' | 'dark';
 
-const STORAGE_KEY = 'lotusbet.appearance';
+const STORAGE_KEY = 'betta.appearance';
 
 interface ThemeContextValue {
   /** What the user asked for. */

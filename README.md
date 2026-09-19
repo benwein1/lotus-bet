@@ -1,9 +1,9 @@
-# 🪷 Lotus Bet
+# 🪷 Betta
 
 Friendly bets with your group chat. Post a two-outcome bet, watch your friends
 pick sides, and let the app keep score of who owes whom.
 
-**Lotus Bet never touches money.** There are no payments, no wallets, no in-app
+**Betta never touches money.** There are no payments, no wallets, no in-app
 currency, and nothing purchasable. It records obligations; you settle up
 outside the app — cash, Bit, bank transfer, whatever you already do. This is a
 deliberate product and App Store compliance decision, not a missing feature.

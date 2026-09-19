@@ -21,7 +21,7 @@ const PHRASE = 'DELETE';
  * lie about what happens, and the honest version here is unusual enough to be
  * worth a whole screen.
  *
- * Lotus Bet's job is recording who owes whom. A bet that has been called wrote
+ * Betta's job is recording who owes whom. A bet that has been called wrote
  * one signed row per person, and `group_balances` sums those to work out what
  * *everyone else* owes. Deleting this person's rows would not erase one
  * person's data — it would silently change what four other people owe each

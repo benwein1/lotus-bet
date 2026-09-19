@@ -63,7 +63,7 @@ describe('providerDisplayName', () => {
 describe('oauthTokens', () => {
   it('reads both tokens out of the fragment', () => {
     const url =
-      'lotusbet://#access_token=abc123&refresh_token=def456&token_type=bearer&expires_in=3600';
+      'betta://#access_token=abc123&refresh_token=def456&token_type=bearer&expires_in=3600';
     expect(oauthTokens(url)).toEqual({ accessToken: 'abc123', refreshToken: 'def456' });
   });
 
@@ -77,15 +77,15 @@ describe('oauthTokens', () => {
   // A session that cannot be refreshed signs somebody out an hour later for no
   // reason they could see, so half a pair is treated as none.
   it('refuses an access token with no refresh token', () => {
-    expect(oauthTokens('lotusbet://#access_token=abc123')).toBeNull();
+    expect(oauthTokens('betta://#access_token=abc123')).toBeNull();
   });
 
   it('is null for a redirect carrying an error instead', () => {
-    expect(oauthTokens('lotusbet://#error=access_denied&error_description=User+cancelled')).toBeNull();
+    expect(oauthTokens('betta://#error=access_denied&error_description=User+cancelled')).toBeNull();
   });
 
   it('is null for a plain URL', () => {
-    expect(oauthTokens('lotusbet://')).toBeNull();
+    expect(oauthTokens('betta://')).toBeNull();
   });
 });
 

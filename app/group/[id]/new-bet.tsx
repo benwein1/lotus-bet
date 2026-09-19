@@ -415,7 +415,7 @@ export default function NewBetScreen() {
               disabled={!canSubmit}
             />
             <Text className="mt-4 text-center text-xs leading-4 text-tertiary">
-              No money moves through Lotus Bet. You&apos;re recording a friendly wager, nothing
+              No money moves through Betta. You&apos;re recording a friendly wager, nothing
               more.
             </Text>
           </ContentWidth>

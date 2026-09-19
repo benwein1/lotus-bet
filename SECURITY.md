@@ -1,4 +1,4 @@
-# SECURITY.md — Lotus Bet
+# SECURITY.md — Betta
 
 A review of what this repository actually does, not a checklist of what apps
 generally should do. Every claim below was read out of the migrations, the RLS
@@ -66,8 +66,8 @@ into the JavaScript heap of every other member's device.
 - **Push tokens are close to bearer credentials.** Anyone holding an Expo push
   token can POST to `https://exp.host/--/api/v2/push/send` and put a
   notification on that person's lock screen. No secret is required. A group
-  member can therefore spoof notifications that look like they came from Lotus
-  Bet.
+  member can therefore spoof notifications that look like they came from
+  Betta.
 
 This directly contradicts the intent already written into CLAUDE.md §6, where
 `push_targets_for_bet` / `push_targets_for_group` are revoked from
@@ -292,7 +292,7 @@ Handled in §6 of CLAUDE.md and fixed on this branch. Security-relevant points:
   strings, and `recoveryTokens` refuses a half-complete pair rather than calling
   `setSession` with garbage.
 - On native, tokens arrive via `Linking` and are handed to `setSession`. **Any
-  app that registers the `lotusbet://` scheme could intercept that deep link**
+  app that registers the `betta://` scheme could intercept that deep link**
   — this is an inherent weakness of custom schemes on iOS, not a bug here. The
   fix is Universal Links (`apple-app-site-association` + the associated-domains
   entitlement), which CLAUDE.md already notes is not set up. Track it with the

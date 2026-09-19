@@ -1,4 +1,4 @@
-# CLAUDE.md — Lotus Bet
+# CLAUDE.md — Betta
 
 Guidance for Claude Code working in this repo. Read this before touching
 anything; the NativeWind, colour-scheme and money-invariant sections in
@@ -11,7 +11,7 @@ particular encode mistakes already made and fixed once.
 An iOS-first React Native app where friends form groups, post two-outcome
 bets against each other, and the app tracks who owes whom.
 
-**Lotus Bet never touches money.** No payments, no wallets, no in-app
+**Betta never touches money.** No payments, no wallets, no in-app
 currency, nothing purchasable, no payment-processor integration. It records
 obligations; users settle up outside the app (cash, Bit, bank transfer).
 
@@ -127,8 +127,9 @@ src/
   components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
   components/payment-sheet.tsx amount entry for a part payment
   components/legal-document.tsx  the terms, the policy and the support page
-  components/lotus-mark.tsx  the app mark, wherever the app shows its own face
-  components/animated-splash.tsx  the hand-off out of the native splash
+  components/app-mark.tsx  the app mark, wherever the app shows its own face
+  components/animated-splash.tsx  the hand-off out of the native splash,
+                            and where the name is revealed
   lib/auth-links.ts         pure: reading a GoTrue recovery redirect
   lib/oauth-rules.ts        pure: provider names, redirect tokens, terms state
   lib/oauth.ts              …and the device half — Apple's sheet, Google's browser
@@ -160,7 +161,7 @@ global.css                  GENERATED from it by scripts/build-theme-css.js
 legal-text.json             SINGLE SOURCE OF TRUTH for terms, privacy, support
 public/legal/*.html         GENERATED from it by scripts/build-legal-html.js,
                             at build time, gitignored — see §11
-assets/logo/lotus.svg       the mark; scripts/build-icons.mjs renders every size
+assets/logo/mark.svg       the mark; scripts/build-icons.mjs renders every size
 supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
                             bet options · notification prefs · social ·
@@ -170,7 +171,7 @@ supabase/
                             abuse limits · position group_id · media limits ·
                             user devices · moderation review · media retention ·
                             bets by creator · anon RPC lockdown ·
-                            social sign-in · anon execute relock · feed index (27)
+                            social sign-in · anon execute relock · feed index (28)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
   functions/sweep-media/    scheduled retention for cancelled bets' media
@@ -249,7 +250,7 @@ media is the sole literal, because white-on-media does not follow the scheme.
   against React Native's `useColorScheme()` and always hands NativeWind a
   *concrete* scheme. Passing `'system'` to `setColorScheme` leaves the web
   build stuck in light mode — verified, then fixed.
-- The user's choice lives in AsyncStorage under `lotusbet.appearance` and is
+- The user's choice lives in AsyncStorage under `betta.appearance` and is
   changed from the Appearance control on Profile.
 
 ### Type
@@ -588,8 +589,20 @@ The hero **gives way to the keyboard** rather than being shoved off the top: the
 mark scales down and the explanatory sentence fades, on `transform` and
 `opacity` only. By the time somebody is typing they have read it.
 
-Profile setup swaps the Lotus mark for the user's own avatar, because by then
+Profile setup swaps the app mark for the user's own avatar, because by then
 the thing being introduced is them.
+
+**The splash reveals the name, and the name is out of flow.** The native splash
+is the mark alone, centred; `AnimatedSplash` redraws that same mark at the same
+size on the same ground so the hand-off is invisible. A wordmark laid out as a
+flex sibling still occupies its box at `opacity: 0`, which lifts the mark off
+centre from the first frame — so the mark would sit centred on the native splash
+and jump upward the instant the overlay mounted, giving away the seam the
+component exists to hide. It is `position: absolute` for that reason, offset by
+half the mark plus one section gap, and it is a sibling of the badge rather than
+a child so the exit scale belongs to the mark alone. The name fades up once the
+mark has settled; the hold is longer than it used to be because a word nobody
+can read is not worth showing.
 
 **The money disclaimer is in the shell, not in the screens.** It is load-bearing
 (§1) and putting it in one place is what stops a future redesign of one screen
@@ -674,7 +687,7 @@ because both are opened from somewhere else and have to land on something a
 browser can show. An OAuth redirect is the opposite: it has to come back into
 the process that started it. `openAuthSessionAsync(url, returnUrl)` only hands
 control back when the browser reaches `returnUrl`, so on a device it must be
-`lotusbet://` — reusing `linkTargets()` here was a bug waiting for the domain to
+`betta://` — reusing `linkTargets()` here was a bug waiting for the domain to
 be configured, and every native Google sign-in would have started hanging the
 day `EXPO_PUBLIC_WEB_ORIGIN` was set, with nothing on screen to say why.
 
@@ -738,7 +751,7 @@ tokens arrive in one and some errors in the other). `isRecoveryRedirect` fires
 without tokens present on purpose: the gate must latch before the session is
 confirmed, or it gets a frame in which a recovery session looks ordinary.
 
-On native there is no `detectSessionInUrl`, so the `lotusbet://` deep link is
+On native there is no `detectSessionInUrl`, so the `betta://` deep link is
 handled by hand: lift the tokens out, `setSession`, and latch **first**, because
 `setSession` announces itself as an ordinary `SIGNED_IN`.
 
@@ -1030,7 +1043,7 @@ button: which app a group actually lives in is not something to guess, and a
 hardcoded `whatsapp://` is a dead end on a phone without it with no way to find
 out beforehand.
 
-`inviteUrl` prefers `https://` over `lotusbet://` and that is not cosmetic — a
+`inviteUrl` prefers `https://` over `betta://` and that is not cosmetic — a
 custom scheme is dead text everywhere until the app is installed, and the person
 being invited is by definition the one who has not installed it. On the web the
 origin is read from `window.location`; on a device it comes from

@@ -1,23 +1,23 @@
 {
   "expo": {
-    "name": "Lotus Bet",
-    "slug": "lotus-bet",
+    "name": "Betta",
+    "slug": "betta",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "lotusbet",
+    "scheme": "betta",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.lotusbet.app",
+      "bundleIdentifier": "com.betta.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
       "usesAppleSignIn": true
     },
     "android": {
-      "package": "com.lotusbet.app",
+      "package": "com.betta.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
@@ -55,9 +55,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Lotus Bet uses your photos so you can attach one to a bet.",
-          "cameraPermission": "Lotus Bet uses your camera so you can shoot a photo or clip for a bet.",
-          "microphonePermission": "Lotus Bet uses your microphone when you record a video for a bet."
+          "photosPermission": "Betta uses your photos so you can attach one to a bet.",
+          "cameraPermission": "Betta uses your camera so you can shoot a photo or clip for a bet.",
+          "microphonePermission": "Betta uses your microphone when you record a video for a bet."
         }
       ],
       [

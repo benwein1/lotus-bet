@@ -66,7 +66,7 @@ export function HomeIcon({ active, ...props }: IconProps) {
  * of rounded squares that reads as "cards" or "copy" anywhere else in an
  * interface. Neither said anything about *this* app.
  *
- * A group in Lotus Bet is people sitting round arguing about something, so the
+ * A group in Betta is people sitting round arguing about something, so the
  * icon is that seen from above. It is not a person glyph — which matters,
  * because `ProfileIcon` next to it in the same bar already is one, and two
  * silhouettes differing only in headcount is exactly the confusion the tab bar

@@ -21,7 +21,7 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_LEGAL_ORIGIN": "https://example.invalid",
-        "EXPO_PUBLIC_SUPPORT_EMAIL": "support@example.invalid"
+        "EXPO_PUBLIC_SUPPORT_EMAIL": "weinsteinben2@gmail.com"
       }
     }
   },

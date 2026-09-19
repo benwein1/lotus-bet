@@ -32,6 +32,7 @@ import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import type { PersonBalance } from '@/lib/database.types';
 import { formatAgorot, formatShortDate } from '@/lib/format';
 import {
+  APP_NAME,
   SUPPORT_CONTACT_PUBLISHED,
   SUPPORT_EMAIL,
   SUPPORT_MAILTO,
@@ -534,7 +535,7 @@ export default function ProfileScreen() {
             </Link>
 
             <Text className="mt-7 text-center text-xs leading-4 text-tertiary">
-              Lotus Bet is a tracker. It holds no money, processes no payments, and sells no
+              Betta is a tracker. It holds no money, processes no payments, and sells no
               currency.
             </Text>
           </ContentWidth>
@@ -627,7 +628,7 @@ function PeopleLedger({
       )}
 
       <Text className="mt-2.5 px-1 text-sm text-tertiary">
-        Lotus Bet never moves money. Settle up however you already do.
+        {APP_NAME} never moves money. Settle up however you already do.
       </Text>
     </Animated.View>
   );

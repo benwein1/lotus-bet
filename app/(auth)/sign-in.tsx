@@ -81,7 +81,7 @@ export default function SignInScreen() {
       // "Keeps score" rather than "place bets": this is a scoreboard between
       // friends, not a sportsbook, and the first sentence is where that has to
       // be unmistakable.
-      subtitle="Bet your friends on anything. Lotus Bet keeps score and remembers who owes whom — you settle up however you already do."
+      subtitle="Bet your friends on anything. Betta keeps score and remembers who owes whom — you settle up however you already do."
       showDemoEntry={DEMO_AVAILABLE}
       footer={
         <View className="w-full gap-4">

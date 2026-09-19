@@ -1,4 +1,4 @@
-# SCALEABILITY.md — Lotus Bet
+# SCALEABILITY.md — Betta
 
 What actually breaks first, with numbers, based on this schema and these
 providers — not on generic advice about Postgres.
