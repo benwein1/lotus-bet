@@ -36,6 +36,23 @@ module.exports = {
           ink: color('accent-ink'),
         },
 
+        /**
+         * The secondary brand colour, Spring Mint.
+         *
+         * Deliberately named `brand` rather than anything money-shaped. It sits
+         * 8 degrees of hue from `positive`, which is close enough that the two
+         * must never appear side by side: `positive` means "owed to you" and
+         * `sideA` means "the side in favour", and those are learned. So brand
+         * green is for identity and selection — chips, live dots, secondary
+         * actions — and never for an amount or a bet side.
+         */
+        brand: {
+          DEFAULT: color('brand'),
+          strong: color('brand-strong'),
+          soft: color('brand-soft'),
+          ink: color('brand-ink'),
+        },
+
         positive: { DEFAULT: color('positive'), soft: color('positive-soft') },
         negative: { DEFAULT: color('negative'), soft: color('negative-soft') },
 
