@@ -28,6 +28,7 @@ import type {
   UserRow,
 } from './database.types';
 import { demo, isDemoMode } from './demo';
+import { orderFeed } from './feed-order';
 import { discardUploads, signMedia, uploadBetMedia, type PickedMedia } from './media';
 import { announceBetResolved, announceGroupJoin, announceNewBet } from './notifications';
 import { computeBetPayouts } from './payout';
@@ -295,8 +296,21 @@ export async function leaveGroup(groupId: string, userId: string): Promise<void>
 // that also points at `bets` twice.
 const BET_SELECT =
   '*, options:bet_options!bet_options_bet_id_fkey(*), positions:bet_positions(user_id, side, option_id), media:bet_media(*), likes:bet_likes(user_id), comments:bet_comments(count)';
+/**
+ * `creator` names its foreign key even though `bets` has only one to `users`.
+ *
+ * The habit is the point: `bet_options` has two keys back to `bets`, and an
+ * unnamed embed there makes PostgREST refuse the *whole* select — so the feed
+ * comes back empty rather than merely without options. Naming it here costs
+ * nothing and means a second `bets → users` key added later cannot silently
+ * empty the feed.
+ *
+ * `currency` rides along because every amount on the card is denominated by the
+ * group, not the bet. One embed, no extra round trip.
+ */
 const betSelectWithGroup = (withAvatar: boolean) =>
-  `${BET_SELECT}, group:groups(id, name, emoji${withAvatar ? ', avatar_url' : ''})`;
+  `${BET_SELECT}, creator:users!bets_creator_id_fkey(id, display_name, username, avatar_url)` +
+  `, group:groups(id, name, emoji, currency${withAvatar ? ', avatar_url' : ''})`;
 
 /**
  * The bet screen's select. Same as the feed's, plus the two things that screen
@@ -441,6 +455,10 @@ export async function fetchFeedBets(userId?: string): Promise<BetWithPositions[]
         .from('bets')
         .select(betSelectWithGroup(withAvatar))
         .in('status', ['open', 'locked'])
+        // Newest first here so the 100-row cap takes the most recent hundred.
+        // The *display* order is not this — `orderFeed` bands live above closed
+        // afterwards, because "live" depends on `close_at` against now and is
+        // not a column PostgREST can sort on.
         .order('created_at', { ascending: false })
         .limit(100)
     ),
@@ -454,7 +472,8 @@ export async function fetchFeedBets(userId?: string): Promise<BetWithPositions[]
       (bet.positions ?? []).some((p) => p.user_id === userId)
   );
 
-  return attachSignedMedia(bets);
+  // Live newest-first, then closed-but-uncalled newest-first. See `feed-order`.
+  return orderFeed(await attachSignedMedia(bets));
 }
 
 export async function fetchBet(betId: string): Promise<BetDetail> {

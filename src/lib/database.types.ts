@@ -93,6 +93,19 @@ export interface GroupRow {
   avatar_url?: string | null;
   created_by: string;
   invite_code: string;
+  /**
+   * ISO 4217 code every amount in this group is denominated in.
+   *
+   * Optional because a project that has not applied `…_group_currency.sql`
+   * returns a row without it — `asCurrency()` treats that, and anything else it
+   * does not recognise, as the default rather than throwing.
+   *
+   * Fixed when the group is created and never changed: altering it would
+   * silently reinterpret every settled balance in the group, and there is no
+   * correct conversion because the amounts record what people agreed rather
+   * than a value to be re-priced.
+   */
+  currency?: string | null;
   created_at: string;
 }
 
@@ -283,7 +296,12 @@ export interface BetWithPositions extends BetRow {
   /** Ordered by `position`. Always at least two. */
   options: BetOptionRow[];
   media?: BetMedia[];
-  group?: Pick<GroupRow, 'id' | 'name' | 'emoji' | 'avatar_url'>;
+  /**
+   * Who put the bet up. Embedded by the feed so the card can credit them
+   * without a second read per bet.
+   */
+  creator?: Pick<UserRow, 'id' | 'display_name' | 'username' | 'avatar_url'> | null;
+  group?: Pick<GroupRow, 'id' | 'name' | 'emoji' | 'avatar_url' | 'currency'>;
   /**
    * Who liked this. The whole list rather than a count, because the card needs
    * both the number *and* whether you are in it, and at friend-group scale
