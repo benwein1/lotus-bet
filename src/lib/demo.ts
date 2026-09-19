@@ -15,6 +15,7 @@
  * - The entry point only renders in development (see `DEMO_AVAILABLE`).
  */
 import type { PickedMedia } from './media';
+import { DEFAULT_CURRENCY, asCurrency } from './currency';
 import { computeBetPayouts } from './payout';
 import { personBalances } from './settlement';
 import type {
@@ -39,7 +40,13 @@ import type {
   SettlementConfirmationRow,
   UserRow,
 } from './database.types';
-import type { GroupWithMembers, HistoryEntry, NewBetInput, ResolveBetResult } from './queries';
+import type {
+  CurrencyTotal,
+  GroupWithMembers,
+  HistoryEntry,
+  NewBetInput,
+  ResolveBetResult,
+} from './queries';
 
 /**
  * The demo entry point is development-only. `__DEV__` is false in any
@@ -254,6 +261,7 @@ function seed(): SeededState {
         emoji: '⚽️',
         created_by: DOR,
         invite_code: 'K7QM2X',
+        currency: 'USD',
         created_at: iso(-24 * 30),
       },
       {
@@ -262,6 +270,11 @@ function seed(): SeededState {
         emoji: '🏠',
         created_by: DEMO_USER_ID,
         invite_code: 'PL9WTZ',
+        // Deliberately not the same as the other group's. Two currencies is
+        // the case nothing else in the design loop can show — the profile
+        // stacking one lifetime figure per currency, and a person appearing in
+        // "who owes who" once per currency, only exist when they differ.
+        currency: 'ILS',
         created_at: iso(-24 * 12),
       },
     ],
@@ -486,7 +499,11 @@ export const demo = {
     return clone(withMembers(group));
   },
 
-  async createGroup(name: string, emoji: string | null): Promise<GroupRow> {
+  async createGroup(
+    name: string,
+    emoji: string | null,
+    currency: string = DEFAULT_CURRENCY
+  ): Promise<GroupRow> {
     const group: GroupRow = {
       id: `demo-group-${state.groups.length + 1}-${Date.now()}`,
       name,
@@ -494,6 +511,7 @@ export const demo = {
       avatar_url: null,
       created_by: DEMO_USER_ID,
       invite_code: randomCode(),
+      currency,
       created_at: new Date().toISOString(),
     };
     state.groups.push(group);
@@ -942,6 +960,36 @@ export const demo = {
     };
   },
 
+  async fetchMyTotalsByCurrency(): Promise<CurrencyTotal[]> {
+    const byCurrency = new Map<string, { won: number; lost: number }>();
+
+    for (const entry of state.ledger.filter((e) => e.user_id === DEMO_USER_ID)) {
+      const bet = state.bets.find((b) => b.id === entry.bet_id);
+      const group = bet ? state.groups.find((g) => g.id === bet.group_id) : undefined;
+      const code = asCurrency(group?.currency);
+
+      const totals = byCurrency.get(code) ?? { won: 0, lost: 0 };
+      if (entry.amount_agorot > 0) totals.won += entry.amount_agorot;
+      else totals.lost += -entry.amount_agorot;
+      byCurrency.set(code, totals);
+    }
+
+    // Same order as the RPC: the currency with the most movement first, ties
+    // broken by name, so the demo cannot show an order the backend will not.
+    return [...byCurrency.entries()]
+      .map(([currency, t]) => ({
+        currency: asCurrency(currency),
+        wonAgorot: t.won,
+        lostAgorot: t.lost,
+        netAgorot: t.won - t.lost,
+      }))
+      .sort(
+        (a, b) =>
+          b.wonAgorot + b.lostAgorot - (a.wonAgorot + a.lostAgorot) ||
+          a.currency.localeCompare(b.currency)
+      );
+  },
+
   async updateProfile(patch: Partial<UserRow>): Promise<UserRow> {
     state.profile = { ...state.profile, ...patch };
     return clone(state.profile);
@@ -964,6 +1012,32 @@ export const demo = {
       username: match.username ?? '',
       avatar_url: match.avatar_url,
     });
+  },
+
+  async searchUsersByUsername(query: string): Promise<UserLookup[]> {
+    const prefix = query.trim().replace(/^@/, '').toLowerCase();
+    if (prefix.length < 2) return [];
+
+    // The same shape the RPC has, so the demo cannot teach the screen a
+    // behaviour the real backend does not have: prefix rather than contains,
+    // self and deleted rows out, shortest handle first, ten at most.
+    return clone(
+      Object.values(USERS)
+        .filter(
+          (u) =>
+            u.id !== DEMO_USER_ID &&
+            !!u.username &&
+            u.username.toLowerCase().startsWith(prefix)
+        )
+        .sort((a, b) => (a.username ?? '').length - (b.username ?? '').length)
+        .slice(0, 10)
+        .map((u) => ({
+          id: u.id,
+          display_name: u.display_name,
+          username: u.username ?? '',
+          avatar_url: u.avatar_url,
+        }))
+    );
   },
 
   async createDuel(username: string): Promise<GroupRow> {
@@ -1038,6 +1112,7 @@ export const demo = {
       .map((group) => ({
         groupId: group.id,
         groupName: group.kind === 'duel' ? 'Just the two of you' : group.name,
+        currency: group.currency ?? null,
         balances: state.members
           .filter((m) => m.group_id === group.id)
           .map((m) => ({
@@ -1060,6 +1135,7 @@ export const demo = {
     return personBalances(ledgers, userId).map((total) => ({
       user: USERS[total.userId] ?? { id: total.userId, display_name: 'Someone', avatar_url: null },
       amountAgorot: total.amountAgorot,
+      currency: total.currency,
       groupNames: total.groupNames,
     }));
   },

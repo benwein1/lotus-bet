@@ -19,7 +19,7 @@ import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
 import { PaymentSheet, type PendingPayment } from '@/components/payment-sheet';
 import { useSettlement } from '@/hooks/use-settlement';
-import { formatAgorot } from '@/lib/format';
+import { formatMoney } from '@/lib/currency';
 import {
   confirmSettlement,
   fetchGroup,
@@ -67,6 +67,8 @@ export default function SettleUpScreen() {
 
   // `group_balances` already nets confirmed payments in, so nothing extra is
   // layered on here — the second argument is for optimistic rows only.
+  // Every figure on this screen is in the group's own minor units.
+  const currency = group.data?.currency;
   const settlement = useSettlement(balances.data, group.data?.members ?? null, [], userId);
 
   /**
@@ -129,7 +131,7 @@ export default function SettleUpScreen() {
                     <Text className="mt-2 text-4xl font-bold text-primary">Square</Text>
                   ) : (
                     <View className="mt-2">
-                      <Money agorot={myBalance} size="hero" sign />
+                      <Money agorot={myBalance} currency={currency} size="hero" sign />
                     </View>
                   )}
                   <Text className="mt-3 max-w-[280px] text-center text-subhead leading-5 text-secondary">
@@ -194,6 +196,7 @@ export default function SettleUpScreen() {
                               <View className="mt-0.5">
                                 <Money
                                   agorot={txn.amountAgorot}
+                                  currency={currency}
                                   size="md"
                                   tone={iPay ? 'negative' : involvesMe ? 'positive' : 'neutral'}
                                 />
@@ -265,7 +268,7 @@ export default function SettleUpScreen() {
                       >
                         {balance.amountAgorot === 0
                           ? 'square'
-                          : formatAgorot(balance.amountAgorot, { sign: true })}
+                          : formatMoney(balance.amountAgorot, currency, { sign: true })}
                       </Text>
                     </View>
                   ))}
@@ -282,6 +285,7 @@ export default function SettleUpScreen() {
       </ScrollView>
       <PaymentSheet
         payment={pending}
+        currency={currency}
         saving={pendingKey !== null}
         onCancel={() => setPending(null)}
         onConfirm={(amountAgorot) => void markPaid(amountAgorot)}

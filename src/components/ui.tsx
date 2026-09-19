@@ -26,7 +26,8 @@ import Animated, {
 } from '@/components/animated';
 
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { formatAgorot, initials } from '@/lib/format';
+import { formatMoney } from '@/lib/currency';
+import { initials } from '@/lib/format';
 import { useColors, useScheme } from '@/providers/theme-provider';
 import { avatarColors, elevation, motion, tabular } from '@/theme';
 
@@ -284,15 +285,23 @@ export function Overline({ className = '', ...props }: TextProps & { className?:
 /**
  * A figure. Always tabular so digits do not shift as a value changes, and
  * coloured by direction unless told otherwise.
+ *
+ * `agorot` kept its name along with the columns it reads: the integer is minor
+ * units of whichever currency the group keeps its books in, and the maths
+ * never cared which. Pass `currency` wherever a group is in scope; omitting it
+ * prints the default rather than throwing, because a row fetched before
+ * `…_group_currency.sql` has no column to read.
  */
 export function Money({
   agorot,
+  currency,
   size = 'md',
   tone,
   sign = false,
   className = '',
 }: {
   agorot: number;
+  currency?: string | null;
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'hero';
   /** Omit to colour by direction. */
   tone?: 'neutral' | 'positive' | 'negative' | 'accent' | 'onMedia';
@@ -323,7 +332,7 @@ export function Money({
       adjustsFontSizeToFit
       className={`font-bold ${sizes[size]} ${tones[resolved]} ${className}`}
     >
-      {formatAgorot(agorot, { sign })}
+      {formatMoney(agorot, currency, { sign })}
     </Text>
   );
 }

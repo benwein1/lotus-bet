@@ -33,14 +33,36 @@ Other standing scope boundaries:
 - **No public or global discovery.** Bets are always scoped to a group; the
   Home feed shows only bets from groups you are in. A one-on-one challenge is
   no exception — it creates a real two-person group (`groups.kind = 'duel'`)
-  that the Groups tab hides. **Looking somebody up is exact-handle only**, and
-  that is a security property, not a missing feature: a prefix or fuzzy search
-  over `users` is an endpoint anyone could walk to harvest every account.
+  that the Groups tab hides. **Looking somebody up is a prefix search over
+  handles and nothing more** — `search_users_by_username`, which refuses a
+  query under two characters, matches `'bar%'` and never `'%bar%'`, returns at
+  most ten rows, and hands back only the handle, display name and avatar.
+  This reversed a stricter rule (exact handle only) on the owner's call,
+  because a field you can only use if you can already spell somebody's handle
+  is a field most people cannot use. It is still a user-enumeration surface
+  and the narrowness is what keeps it small; there is **no rate limit on it
+  yet**, which the head of `…_username_search.sql` records as the open part.
+  Do not widen it to `contains`, to a search over display names, or to a
+  one-character query.
 - **A bet can be private to some of its group.** `bets.visibility = 'private'`
   plus a `bet_invitees` list. It narrows an audience; it never reaches outside
   the group.
 - **No editing a bet after creation.** The creator can lock, resolve or
   cancel. That's the whole surface.
+- **A group picks its currency once, at creation, and keeps it.** `groups.
+  currency` is one of USD, EUR, GBP or ILS; existing groups are ILS and new
+  ones default to USD. The integers did not change — `total_pot_agorot` and
+  `amount_agorot` are minor units of *that* currency, cents in a dollar group,
+  and `payout.ts` never cared what they counted. **There is no exchange rate
+  anywhere in this app and there must not be one**: a rate would make a debt
+  two friends agreed on drift between the day it was recorded and the day it is
+  paid. Anything that spans groups therefore reports per currency rather than
+  summing — `personBalances` keys on (person, currency), and the profile's
+  lifetime figures come from `my_totals_by_currency`, not from `my_stats`'s two
+  money columns, which still add everything together and are only correct for
+  an account whose groups all agree. Money is formatted by `lib/currency.ts`;
+  `formatAgorot` is gone, because two formatters is how one figure ends up
+  printed two ways.
 
 ---
 
@@ -54,7 +76,7 @@ npm start                 # Expo dev server; press "i" for iOS simulator
 npm run web               # fastest loop for design work — no Xcode needed
 npm run ios / android
 
-npm test                  # jest — 400 tests, pure logic + a theme drift check
+npm test                  # jest — 437 tests, pure logic + a theme drift check
 npm run typecheck         # tsc --noEmit
 npm run lint
 npm run theme             # regenerate global.css from theme-colors.json
@@ -128,6 +150,7 @@ src/
   components/bet-grid.tsx     the bets you started, as a grid on Profile
   components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
   components/payment-sheet.tsx amount entry for a part payment
+  components/bet-cover.tsx  the generated background a bet with no photo gets
   components/legal-document.tsx  the terms, the policy and the support page
   components/app-mark.tsx  the app mark, wherever the app shows its own face
   components/animated-splash.tsx  the hand-off out of the native splash,
@@ -145,14 +168,17 @@ src/
   lib/queries.ts            every Supabase read/write the app makes
   lib/media.ts              picking, uploading and signing bet media
   lib/media-rules.ts        …and its pure half, which is what the tests hold
-  lib/format.ts             agorot ↔ shekels, countdowns, initials, email
+  lib/currency.ts           minor units ↔ a string, per group; the picker's list
+  lib/format.ts             countdowns, initials, email — NOT money any more
+  lib/feed-order.ts         pure: live above closed, newest first inside each
+  lib/bet-cover.ts          pure: which generated cover a bet gets, and the six
   lib/database.types.ts     hand-written row types
   lib/supabase.ts           client; `isSupabaseConfigured` guard
   lib/notifications.ts      push registration + the three server announcements
   lib/reminders.ts          local deadline reminders (the device half)
   lib/reminder-rules.ts     …and the pure half, which is what the tests hold
   lib/odds.ts               percentages that always total exactly 100
-  lib/postgrest.ts          reading PostgREST's "column does not exist"
+  lib/postgrest.ts          reading PostgREST's "column/function does not exist"
   hooks/                    use-async · use-group-realtime · use-settlement ·
                             use-reduced-motion · use-tab-bar-inset ·
                             use-bet-comments (one thread, two surfaces)
@@ -176,7 +202,8 @@ supabase/
                             bets by creator · anon RPC lockdown ·
                             social sign-in · anon execute relock · feed index ·
                             minimum age · invite token search path ·
-                            grandfather existing accounts (31)
+                            grandfather existing accounts · group currency ·
+                            username search · stats by currency (34)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
   functions/sweep-media/    scheduled retention for cancelled bets' media
@@ -187,7 +214,7 @@ supabase/admin/             review_queue.sql — the moderation queue as things
 __tests__/                  payout · settlement · format · theme · odds · oauth-rules · age ·
                             postgrest · reminders · invite-links · media-split ·
                             auth-links · coalesce · content-rules · errors ·
-                            suggestions · legal
+                            suggestions · legal · feed-and-money
 ```
 
 **All Supabase access goes through `src/lib/queries.ts`.** Screens never

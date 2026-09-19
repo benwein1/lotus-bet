@@ -272,6 +272,7 @@ function FeedCardImpl({
                 <View className="flex-row items-baseline gap-1.5">
                   <Money
                     agorot={bet.total_pot_agorot}
+                    currency={bet.group?.currency}
                     size="md"
                     tone="onMedia"
                   />
@@ -549,7 +550,7 @@ export function BetCard({
 
             <View className="mt-2.5 flex-row items-center gap-4">
               <View className="flex-row items-baseline gap-1.5">
-                <Money agorot={bet.total_pot_agorot} size="sm" tone="accent" />
+                <Money agorot={bet.total_pot_agorot} currency={bet.group?.currency} size="sm" tone="accent" />
                 <Text className="text-sm text-secondary">pot</Text>
               </View>
 

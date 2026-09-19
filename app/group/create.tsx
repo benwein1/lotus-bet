@@ -4,7 +4,21 @@ import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-na
 
 import { AvatarPicker } from '@/components/avatar-picker';
 import { ContentWidth, Screen } from '@/components/screen';
-import { BlockField, Button, ErrorNotice, PressableScale, SectionTitle } from '@/components/ui';
+import {
+  BlockField,
+  Button,
+  ErrorNotice,
+  PressableScale,
+  SectionTitle,
+  Segmented,
+} from '@/components/ui';
+import {
+  CURRENCIES,
+  DEFAULT_CURRENCY,
+  currencyLabel,
+  currencySymbol,
+  type Currency,
+} from '@/lib/currency';
 import { uploadAvatar, type PickedMedia } from '@/lib/media';
 import { createGroup, updateGroupAvatar } from '@/lib/queries';
 
@@ -31,6 +45,7 @@ export default function CreateGroupScreen() {
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState<string>('🎲');
   const [photo, setPhoto] = useState<PickedMedia | null>(null);
+  const [currency, setCurrency] = useState<Currency>(DEFAULT_CURRENCY);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -40,7 +55,7 @@ export default function CreateGroupScreen() {
     setError(null);
     setBusy(true);
     try {
-      const group = await createGroup(trimmed, emoji);
+      const group = await createGroup(trimmed, emoji, currency);
 
       // The upload path contains the group id, so the photo can only go up
       // once the row exists. A failure here loses the picture, not the group —
@@ -125,6 +140,25 @@ export default function CreateGroupScreen() {
               </PressableScale>
             ))}
           </View>
+
+          <SectionTitle>Currency</SectionTitle>
+          <Text className="mb-3 mt-1 text-sm leading-[18px] text-secondary">
+            Every pot and every balance in this group is counted in it. It can&apos;t be changed
+            afterwards, because the running totals would stop adding up.
+          </Text>
+          <Segmented
+            className="mb-2"
+            value={currency}
+            onChange={setCurrency}
+            options={CURRENCIES.map((code) => ({
+              value: code,
+              label: `${currencySymbol(code)} ${code}`,
+            }))}
+          />
+          <Text className="mb-8 px-1 text-sm text-tertiary">
+            {currencyLabel(currency)}. Betta never handles the money — you settle up between
+            yourselves.
+          </Text>
 
           {error && <ErrorNotice message={error} />}
 

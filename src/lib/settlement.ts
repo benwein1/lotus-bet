@@ -8,6 +8,8 @@
  * row (see `settlement_confirmations`), and that row feeds back in as a
  * balance adjustment via `netBalances`.
  */
+import { asCurrency, type Currency } from './currency';
+
 
 export interface BalanceLine {
   userId: string;
@@ -125,13 +127,30 @@ export interface GroupLedger {
   groupId: string;
   groupName: string;
   balances: readonly BalanceLine[];
+  /**
+   * What this group's integers denominate. Absent reads as the default — a
+   * group row fetched before `…_group_currency.sql` has no column to read.
+   */
+  currency?: string | null;
 }
 
-/** What one counterparty owes you, or you them, across every group you share. */
+/**
+ * What one counterparty owes you, or you them, across every group you share
+ * **that keeps its books in one currency**.
+ *
+ * One person can appear more than once — once per currency you have a running
+ * total with them in. That is not a rough edge to smooth over: dollars and
+ * shekels are different quantities, and adding them would produce a number
+ * that is wrong in both. There is no exchange rate anywhere in this app and
+ * there must not be one, because a rate would make a recorded debt drift
+ * between the day it was agreed and the day it is paid.
+ */
 export interface PersonTotal {
   userId: string;
   /** Positive: they owe you. Negative: you owe them. */
   amountAgorot: number;
+  /** The currency `amountAgorot` is in minor units of. */
+  currency: Currency;
   /** Every group that contributed, in the order they were passed. */
   groupNames: string[];
 }
@@ -159,9 +178,13 @@ export function personBalances(
   ledgers: readonly GroupLedger[],
   myUserId: string
 ): PersonTotal[] {
-  const totals = new Map<string, { amount: number; groups: string[] }>();
+  const totals = new Map<
+    string,
+    { userId: string; currency: Currency; amount: number; groups: string[] }
+  >();
 
   for (const ledger of ledgers) {
+    const currency = asCurrency(ledger.currency);
     for (const txn of simplifyDebts(ledger.balances)) {
       // Only transactions with me on one side say anything about what I owe.
       const iPay = txn.fromUserId === myUserId;
@@ -171,19 +194,29 @@ export function personBalances(
       const other = iPay ? txn.toUserId : txn.fromUserId;
       const signed = iAmPaid ? txn.amountAgorot : -txn.amountAgorot;
 
-      const entry = totals.get(other) ?? { amount: 0, groups: [] };
+      // Keyed on the pair, not on the person: owing Dana $30 and being owed
+      // ₪30 by her are two separate running totals, and cancelling them
+      // against each other would invent an exchange rate.
+      const key = `${other}\u0000${currency}`;
+      const entry = totals.get(key) ?? { userId: other, currency, amount: 0, groups: [] };
       entry.amount += signed;
       if (!entry.groups.includes(ledger.groupName)) entry.groups.push(ledger.groupName);
-      totals.set(other, entry);
+      totals.set(key, entry);
     }
   }
 
-  return [...totals.entries()]
-    .filter(([, entry]) => entry.amount !== 0)
-    .map(([userId, entry]) => ({
-      userId,
+  return [...totals.values()]
+    .filter((entry) => entry.amount !== 0)
+    .map((entry) => ({
+      userId: entry.userId,
       amountAgorot: entry.amount,
+      currency: entry.currency,
       groupNames: entry.groups,
     }))
-    .sort((a, b) => b.amountAgorot - a.amountAgorot || cmp(a.userId, b.userId));
+    .sort(
+      (a, b) =>
+        b.amountAgorot - a.amountAgorot ||
+        cmp(a.userId, b.userId) ||
+        cmp(a.currency, b.currency)
+    );
 }

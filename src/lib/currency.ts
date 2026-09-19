@@ -14,8 +14,11 @@
  * currency and keeps it forever, which is what lets `group_balances` keep
  * summing one column into one meaningful number.
  *
- * `formatAgorot` in `format.ts` is the ILS-only ancestor of this. It stays,
- * because a caller with no group in scope has nothing to pass here.
+ * `formatAgorot` in `format.ts` was the ILS-only ancestor of this, and it is
+ * gone rather than kept alongside: a caller with no group in scope passes
+ * `undefined` and gets the default, so there was never a job left for a second
+ * implementation — only a way for two screens to print the same figure
+ * differently.
  */
 
 export const CURRENCIES = ['USD', 'EUR', 'GBP', 'ILS'] as const;
@@ -65,8 +68,8 @@ export function currencyLabel(value: string | null | undefined): string {
  * Minor units → a string with the symbol in front.
  *
  * Whole amounts lose their decimals, because "$40" is what somebody would say
- * out loud and "$40.00" is what a receipt says. The same rule `formatAgorot`
- * has always used.
+ * out loud and "$40.00" is what a receipt says — the rule the app has printed
+ * money by since there was only one currency to print.
  *
  * `Intl.NumberFormat` is deliberately not used: it would put the symbol where
  * the *device locale* wants it, so the same group's pot would read "$40" on one

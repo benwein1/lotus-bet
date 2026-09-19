@@ -2387,3 +2387,91 @@ begin;
      and p.proname in ('search_users_by_username', 'create_group', 'create_duel')
      and has_function_privilege('anon', p.oid, 'execute');
 rollback;
+
+\echo '--- 53. Lifetime totals are split by currency, never summed across them ---'
+begin;
+  -- Two groups, two currencies, one person with a result in each. The whole
+  -- point of the function is that these two numbers never meet.
+  insert into public.groups (id, name, emoji, created_by, invite_code, currency)
+  values
+    ('cc000000-0000-4000-8000-000000000001', 'Dollar Room', '💵',
+     'aaaaaaaa-0000-4000-8000-000000000000', 'CURA01', 'USD'),
+    ('cc000000-0000-4000-8000-000000000002', 'Shekel Room', '🪙',
+     'aaaaaaaa-0000-4000-8000-000000000000', 'CURA02', 'ILS')
+  on conflict (id) do nothing;
+
+  insert into public.group_members (group_id, user_id, role)
+  values
+    ('cc000000-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000000', 'admin'),
+    ('cc000000-0000-4000-8000-000000000002', 'aaaaaaaa-0000-4000-8000-000000000000', 'admin')
+  on conflict do nothing;
+
+  -- Inserted open and resolved afterwards, rather than written straight in as
+  -- resolved. Two constraints forbid the shortcut: `bets_resolved_requires_
+  -- timestamp` wants `resolved_at`, and `bets_winner_matches_status` wants a
+  -- `winning_option_id` — and the options themselves only exist once the
+  -- insert's own trigger has mirrored the label columns into `bet_options`.
+  insert into public.bets (id, group_id, creator_id, title, option_a_label, option_b_label,
+                           total_pot_agorot, status)
+  values
+    ('cc000000-0000-4000-8000-00000000000a', 'cc000000-0000-4000-8000-000000000001',
+     'aaaaaaaa-0000-4000-8000-000000000000', 'Dollar bet', 'Yes', 'No', 5000, 'open'),
+    ('cc000000-0000-4000-8000-00000000000b', 'cc000000-0000-4000-8000-000000000002',
+     'aaaaaaaa-0000-4000-8000-000000000000', 'Shekel bet', 'Yes', 'No', 3000, 'open')
+  on conflict (id) do nothing;
+
+  update public.bets b
+     set status = 'resolved',
+         resolved_at = now(),
+         winning_option_id = (
+           select o.id from public.bet_options o
+            where o.bet_id = b.id
+            order by o.position
+            limit 1
+         )
+   where b.id in ('cc000000-0000-4000-8000-00000000000a',
+                  'cc000000-0000-4000-8000-00000000000b');
+
+  -- `group_id` is NOT NULL on the ledger, denormalised so a balance can be
+  -- read without joining back through the bet.
+  insert into public.bet_ledger_entries (bet_id, group_id, user_id, amount_agorot)
+  values
+    ('cc000000-0000-4000-8000-00000000000a', 'cc000000-0000-4000-8000-000000000001',
+     'aaaaaaaa-0000-4000-8000-000000000000', 5000),
+    ('cc000000-0000-4000-8000-00000000000b', 'cc000000-0000-4000-8000-000000000002',
+     'aaaaaaaa-0000-4000-8000-000000000000', -3000);
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (a) one row per currency, each with only its own money'
+  select 'USD row: +5000 won, 0 lost' as check, count(*) as rows
+    from public.my_totals_by_currency()
+   where currency = 'USD' and total_won_agorot = 5000 and total_lost_agorot = 0;
+
+  select 'ILS row: 0 won, 3000 lost' as check, count(*) as rows
+    from public.my_totals_by_currency()
+   where currency = 'ILS' and total_won_agorot = 0 and total_lost_agorot = 3000;
+
+  \echo '  (b) no row adds the two together'
+  -- 5000 - 3000 = 2000 is the number a currency-blind sum would produce, and
+  -- it is wrong in both currencies. Nothing may report it.
+  select 'summed across currencies' as check, count(*) as rows
+    from public.my_totals_by_currency()
+   where total_won_agorot - total_lost_agorot = 2000;
+
+  \echo '  (c) it only ever reports your own money'
+  set local request.jwt.claim.sub = 'bbbbbbbb-0000-4000-8000-000000000001';
+  select 'someone else sees my totals' as check, count(*) as rows
+    from public.my_totals_by_currency()
+   where total_won_agorot = 5000 or total_lost_agorot = 3000;
+rollback;
+
+\echo '--- 54. my_totals_by_currency is not callable by anon ---'
+begin;
+  select 'totals fn anon-callable' as check, count(*) as rows
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname = 'my_totals_by_currency'
+     and has_function_privilege('anon', p.oid, 'execute');
+rollback;

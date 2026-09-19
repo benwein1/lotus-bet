@@ -321,7 +321,7 @@ export interface BetWithPositions extends BetRow {
  * back and named its group and its status.
  */
 export interface BetDetail extends BetWithPositions {
-  group?: Pick<GroupRow, 'id' | 'name' | 'emoji' | 'avatar_url'> & {
+  group?: Pick<GroupRow, 'id' | 'name' | 'emoji' | 'avatar_url' | 'currency'> & {
     members?: (GroupMemberRow & { user: UserRow })[];
   };
   ledger?: BetLedgerEntryRow[];
@@ -339,6 +339,12 @@ export interface PersonBalance {
   user: Pick<UserRow, 'id' | 'display_name' | 'avatar_url'>;
   /** Positive: they owe you. Negative: you owe them. */
   amountAgorot: number;
+  /**
+   * The currency the figure is in minor units of. One person can have more
+   * than one row here — see `PersonTotal` in `settlement.ts` for why they are
+   * never added together.
+   */
+  currency: string;
   /** The groups the figure came from, for the secondary line. */
   groupNames: string[];
 }

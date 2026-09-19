@@ -16,7 +16,7 @@ import {
   FieldGroup,
   selectionTap,
 } from '@/components/ui';
-import { formatAgorot, parseIlsToAgorot } from '@/lib/format';
+import { currencySymbol, formatMoney, parseMoneyToMinor } from '@/lib/currency';
 import { captureMedia, pickMedia, MAX_ATTACHMENTS, type PickedMedia } from '@/lib/media';
 import { MAX_BET_OPTIONS, MIN_BET_OPTIONS, createBet, fetchGroup } from '@/lib/queries';
 import { useAsync } from '@/hooks/use-async';
@@ -82,7 +82,10 @@ export default function NewBetScreen() {
   const others = (group.data?.members ?? []).filter((m) => m.user_id !== session?.user.id);
   const isPrivate = invited.length > 0;
 
-  const potAgorot = parseIlsToAgorot(pot);
+  // The pot is denominated by the group, so the symbol beside the field and
+  // the parser behind it both come from there.
+  const currency = group.data?.currency;
+  const potAgorot = parseMoneyToMinor(pot, currency);
   const trimmed = options.map((label) => label.trim());
   const filled = trimmed.filter(Boolean);
   // Case-insensitive, because "Yes" and "yes" are the same answer and a bet
@@ -287,7 +290,7 @@ export default function NewBetScreen() {
             <SectionTitle>Total pot</SectionTitle>
             <FieldGroup>
               <TextField
-                label="₪"
+                label={currencySymbol(currency)}
                 value={pot}
                 onChangeText={setPot}
                 placeholder="100"
@@ -300,7 +303,7 @@ export default function NewBetScreen() {
               {POT_PRESETS.map((amount) => (
                 <Chip
                   key={amount}
-                  label={`₪${amount}`}
+                  label={`${currencySymbol(currency)}${amount}`}
                   selected={pot === String(amount)}
                   onPress={() => setPot(String(amount))}
                 />
@@ -309,7 +312,7 @@ export default function NewBetScreen() {
 
             <Text className="mb-7 px-1 text-sm leading-[18px] text-secondary">
               One fixed pot for the whole bet — it doesn&apos;t grow as more people join. The
-              winning side splits {potAgorot ? formatAgorot(potAgorot) : 'it'} between them; the
+              winning side splits {potAgorot ? formatMoney(potAgorot, currency) : 'it'} between them; the
               losing side covers the same amount between them.
             </Text>
 

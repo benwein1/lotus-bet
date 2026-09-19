@@ -1,26 +1,18 @@
-/** Money and time formatting. Everything money-shaped is agorot in, string out. */
+/** Time, names and validation. Money formatting lives in `currency.ts`. */
 
-export const AGOROT_PER_ILS = 100;
-
-/** `12345` -> `"₪123.45"`, `10000` -> `"₪100"`. */
-export function formatAgorot(agorot: number, options: { sign?: boolean } = {}): string {
-  const negative = agorot < 0;
-  const abs = Math.abs(agorot);
-  const ils = abs / AGOROT_PER_ILS;
-  const body = `₪${Number.isInteger(ils) ? ils.toFixed(0) : ils.toFixed(2)}`;
-
-  if (options.sign) return `${negative ? '−' : '+'}${body}`;
-  return negative ? `−${body}` : body;
-}
-
-/** Parses the pot field. Accepts "100", "100.5", "₪100" — returns agorot. */
-export function parseIlsToAgorot(input: string): number | null {
-  const cleaned = input.replace(/[₪,\s]/g, '');
-  if (!/^\d*\.?\d{0,2}$/.test(cleaned) || cleaned === '' || cleaned === '.') return null;
-
-  const agorot = Math.round(Number(cleaned) * AGOROT_PER_ILS);
-  return Number.isSafeInteger(agorot) && agorot > 0 ? agorot : null;
-}
+/**
+ * Money formatting moved to `currency.ts` when a group gained a currency.
+ *
+ * `formatAgorot` and `parseIlsToAgorot` lived here and hardcoded `₪`, which
+ * was right while every group kept its books in shekels and wrong the moment
+ * one could be created in dollars. `formatMoney` and `parseMoneyToMinor`
+ * replaced them everywhere and both are gone rather than deprecated: two
+ * implementations of the same formatting is how a figure ends up disagreeing
+ * with itself on two screens.
+ *
+ * What is left here is time, names and validation — none of which the currency
+ * touches.
+ */
 
 /** "in 2h 15m" / "closed" — used for the join deadline countdown. */
 export function formatCountdown(closeAt: string | null, now: number = Date.now()): string | null {
