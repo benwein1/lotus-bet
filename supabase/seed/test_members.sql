@@ -95,7 +95,10 @@ select
   crypt('betta-test-1234', gen_salt('bf')),
   now(),
   '{"provider":"email","providers":["email"]}'::jsonb,
-  jsonb_build_object('display_name', person.name),
+  -- A date of birth comfortably over the 16+ minimum, so these accounts go
+  -- through the real signup path in 20260919090000_minimum_age.sql rather than
+  -- around it. It is read, checked and discarded; nothing stores it.
+  jsonb_build_object('display_name', person.name, 'date_of_birth', '1995-06-12'),
   now(),
   now(),
   '', '', '', ''
@@ -111,9 +114,9 @@ on conflict (id) do nothing;
 -- Belt and braces: if the signup trigger is not installed on this project the
 -- insert above leaves no profile behind, and every join below would fail on a
 -- foreign key. This fills the gap and is a no-op when the trigger did its job.
-insert into public.users (id, email, display_name, profile_completed)
+insert into public.users (id, email, display_name, profile_completed, age_verified_at)
 select
-  person.id, person.email, person.name, true
+  person.id, person.email, person.name, true, now()
 from (values
   ('00000000-0000-4000-8000-000000000001'::uuid, 'dana.test@betta.local',    'Dana Peretz'),
   ('00000000-0000-4000-8000-000000000002'::uuid, 'yonatan.test@betta.local', 'Yonatan Adler'),

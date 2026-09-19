@@ -54,7 +54,7 @@ npm start                 # Expo dev server; press "i" for iOS simulator
 npm run web               # fastest loop for design work — no Xcode needed
 npm run ios / android
 
-npm test                  # jest — 374 tests, pure logic + a theme drift check
+npm test                  # jest — 400 tests, pure logic + a theme drift check
 npm run typecheck         # tsc --noEmit
 npm run lint
 npm run theme             # regenerate global.css from theme-colors.json
@@ -100,7 +100,8 @@ expo-image-picker for bet media.
 ```
 app/                        Expo Router routes
   _layout.tsx               root stack + the single auth redirect gate
-  (auth)/                   sign-in · sign-up · profile-setup · reset-password
+  (auth)/                   sign-in · sign-up · profile-setup · reset-password ·
+                            age-check (the one-time 16+ confirmation)
   (tabs)/                   index (the feed) · groups · profile
   legal/terms.tsx, privacy.tsx, support.tsx
   group/create.tsx, join.tsx
@@ -122,6 +123,7 @@ src/
                             rises over the feed, and the composer both share
   components/double-tap-like.tsx  double-tap a photo to like it
   components/auth-shell.tsx   the frame every pre-sign-in screen sits in
+  components/date-of-birth-field.tsx  three boxes, and the 16+ footnote
   components/social-auth.tsx  Continue with Apple / Google, and the divider
   components/bet-grid.tsx     the bets you started, as a grid on Profile
   components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
@@ -137,6 +139,7 @@ src/
   lib/invite-links.ts       pure: invite URL, share message, expiry wording
   lib/invites.ts            …and the device half — share sheet, pending token
   lib/legal.ts              URLs, support address, and the text, from one JSON
+  lib/age.ts                pure: the 16+ rule, shared with the SQL that enforces it
   lib/payout.ts             re-export ONLY — see §5
   lib/settlement.ts         balance netting + greedy debt simplification
   lib/queries.ts            every Supabase read/write the app makes
@@ -171,7 +174,8 @@ supabase/
                             abuse limits · position group_id · media limits ·
                             user devices · moderation review · media retention ·
                             bets by creator · anon RPC lockdown ·
-                            social sign-in · anon execute relock · feed index (28)
+                            social sign-in · anon execute relock · feed index ·
+                            minimum age · invite token search path (30)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
   functions/sweep-media/    scheduled retention for cancelled bets' media
@@ -179,7 +183,7 @@ supabase/seed/              test_members.sql · review_account.sql (the App
                             Review account; exercised by run.sh §37)
 supabase/admin/             review_queue.sql — the moderation queue as things
                             to paste; guideline 1.2's 24 hours in practice
-__tests__/                  payout · settlement · format · theme · odds · oauth-rules ·
+__tests__/                  payout · settlement · format · theme · odds · oauth-rules · age ·
                             postgrest · reminders · invite-links · media-split ·
                             auth-links · coalesce · content-rules · errors ·
                             suggestions · legal
@@ -767,6 +771,53 @@ under the old flow.
 If the project has email confirmation on, `signUp` returns no session and the
 sign-up screen shows a "check your inbox" state. Both configurations work.
 
+### The 16+ minimum
+
+Betta is a 16+ app and the database is what makes that true, not the sign-up
+screen. `…_minimum_age.sql` is the whole mechanism.
+
+**The date of birth is never stored.** Not as a column, not anywhere. It is
+passed in, compared against `current_date` in SQL, and discarded in the same
+statement; what survives is `users.age_verified_at`, a timestamp that proves
+the check happened and cannot be run backwards into a birthday. Holding the
+date as well would mean keeping identity data on every account forever to
+answer a question that was already answered — so if a future feature wants an
+age, it wants a new decision, not this column.
+
+Three layers, and only the last two are enforcement:
+
+- `src/lib/age.ts` is the pure rule, and the sign-up form's copy of it. It
+  exists to explain — to grey the button and say why — and is bypassed the
+  moment anybody calls PostgREST directly.
+- `handle_new_auth_user` reads `date_of_birth` out of `raw_user_meta_data`,
+  the same channel the display name and the terms version travel in, and
+  **raises** if it is under 16 or malformed. The raise aborts the insert into
+  `auth.users`, so no account exists at all. A malformed date is refused rather
+  than ignored, because ignoring it would make "send rubbish" the way past.
+- `require_age_verified()` is a `before insert` trigger on `bets`,
+  `bet_positions`, `bet_comments`, `bet_likes`, `groups` and `bet_media`. It
+  refuses every content write from an account with a null `age_verified_at`.
+
+**A trigger and not RLS, deliberately.** A policy on table X whose `using`
+clause re-queries X breaks `INSERT ... RETURNING`, which is how `queries.ts`
+writes — the trap the "Who can see a bet" section below records in full. A
+`before insert` trigger has no such interaction, touches no existing policy,
+and sits next to the rate-limit triggers already guarding the same tables.
+
+**Reads are untouched, and that is the design.** Apple and Google return no
+date of birth, so a social sign-in creates a real account with nothing to
+verify against; the same is true of every account predating the rule. Those
+people land on `app/(auth)/age-check.tsx`, can still see the app, and can post
+nothing until they answer. The root gate puts that screen *before* profile
+setup: an account that is about to be turned away should not first be asked
+for a name and a photo.
+
+`age_verified_at` is readable and absent from the UPDATE grant, so a client
+cannot stamp itself — section 45(e) of the policy checks asserts exactly that.
+Nothing deletes an account that never answers; it can write nothing, so it
+harms nobody, and putting it on a timer is a product decision the migration
+says is still open.
+
 ### Roles and who may write what
 
 - **Clients** (anon key + RLS): read anything in their groups; write their
@@ -1121,6 +1172,24 @@ privileges, set before the migrations run** — which is how Supabase actually
 does it. They used to be a blanket `GRANT` after them, which silently
 re-granted anything a migration revoked, so a function locked down to the
 service role tested as locked down while being callable by anyone.
+
+**A stub that is more forgiving than the platform asserts the bug is not
+there.** The same shape as the grants above, found a second time and worth
+stating as a rule. `00_supabase_stub.sql` used to install pgcrypto into
+`public`; Supabase installs it into `extensions`. `create_group_invite` mints
+its token with `gen_random_bytes` under `search_path = public`, so against the
+stub the name resolved and the check passed, while on a real project the
+function is not in `public` at all and **every tap on "Share invite" failed**
+with `function gen_random_bytes(integer) does not exist`. Nothing called the
+function in the harness either, so the whole path was untested twice over.
+Both halves are fixed: pgcrypto now lives where the platform puts it, and
+section 47 actually mints a link. `gen_random_uuid()` was never affected — it
+has been a core built-in since PostgreSQL 13 and needs no extension, which is
+precisely why that one call broke alone.
+
+When you model a piece of the platform, model it as it is, not as it would be
+convenient. A difference in the permissive direction is invisible until a user
+finds it.
 
 What it does **not** cover is anything the platform provides rather than this
 repo: real storage behaviour, GoTrue, and Edge Function deployment. The

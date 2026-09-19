@@ -23,7 +23,8 @@ values (
   '00000000-0000-0000-0000-000000000000',
   'aaaaaaaa-0000-4000-8000-000000000000',
   'authenticated', 'authenticated', 'owner@example.test', 'x',
-  now(), '{}'::jsonb, '{"display_name":"Group Owner"}'::jsonb, now(), now()
+  now(), '{}'::jsonb,
+  '{"display_name":"Group Owner","date_of_birth":"1990-01-01"}'::jsonb, now(), now()
 )
 on conflict (id) do nothing;
 
@@ -36,7 +37,8 @@ values (
   '00000000-0000-0000-0000-000000000000',
   'dddddddd-0000-4000-8000-000000000000',
   'authenticated', 'authenticated', 'outsider@example.test', 'x',
-  now(), '{}'::jsonb, '{"display_name":"Outsider"}'::jsonb, now(), now()
+  now(), '{}'::jsonb,
+  '{"display_name":"Outsider","date_of_birth":"1990-01-01"}'::jsonb, now(), now()
 )
 on conflict (id) do nothing;
 

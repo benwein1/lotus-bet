@@ -375,11 +375,29 @@ Answer the App Store Connect questionnaire honestly. "Contests" and
 | Gambling (the separate real-money question) | **No** | No money, no wallet, no payment processor. The same sentence as the review notes |
 | Unrestricted Web Access | **No** | The app opens no browser and renders no arbitrary URL |
 | User-Generated Content | **Yes** | Comments, bet titles, display names, photos. This is why §2.4 exists |
-| Age Assurance | **No** | |
+| Age Assurance | **Yes** | The app asks for a date of birth and refuses an account under 16 — see below. Answering "No" stopped being true with `…_minimum_age.sql` |
 
 That set lands at **12+**. Do not under-declare to chase a lower one:
 misrepresenting here is its own violation, and the UGC answer in particular is
 what makes the moderation work in §2.4 coherent rather than decorative.
+
+#### The 16+ minimum is a separate thing from the rating, and they disagree
+
+The questionnaire rates **content**; the terms set a **contractual minimum**.
+Betta's content rates 12+, and the terms require 16. That is legitimate — a
+higher floor than the content needs is a normal product decision — but the two
+numbers sitting side by side is the kind of thing a reviewer asks about.
+
+**What a reviewer will see:** an app rated 12+ that refuses to let a 15-year-old
+create an account. The consistent story is that the minimum is a product and
+data-protection choice (16 is the GDPR Article 8 ceiling for consent without a
+parent, which several EU member states sit at), not a claim about content.
+
+**Remaining decision, for you rather than for the code:** whether to raise the
+declared rating to match the 16+ minimum. Raising it is the conservative option
+and costs reach; leaving it at 12+ is defensible and accurate about content.
+Either way, the terms, the privacy policy and the sign-up screen all now say 16
+and the database enforces it, so nothing in the product contradicts itself.
 
 ### 2.9 The legal pages, and where they come from
 

@@ -11,7 +11,7 @@ import { registerForPushNotifications } from '@/lib/notifications';
 import { prepareContent } from '@/lib/content-rules';
 import { TERMS_VERSION } from '@/lib/legal';
 import { isUnknownWriteColumn } from '@/lib/postgrest';
-import { USER_COLUMNS } from '@/lib/queries';
+import { USER_COLUMNS, confirmMinimumAge } from '@/lib/queries';
 import { isRecoveryRedirect, recoveryTokens } from '@/lib/auth-links';
 import { signInWithProvider as startProviderSignIn } from '@/lib/oauth';
 import {
@@ -33,8 +33,29 @@ interface AuthContextValue {
   loading: boolean;
   /** A signed-in user who has not picked a display name yet. */
   needsProfileSetup: boolean;
+  /**
+   * True when this account has never confirmed it meets the 16+ minimum.
+   *
+   * Every account created through the sign-up form is already verified by the
+   * signup trigger, so in practice this is Apple and Google sign-ins — neither
+   * provider returns a date of birth — and accounts that predate the rule.
+   *
+   * False when the column is absent, which is a project that has not applied
+   * `…_minimum_age.sql`: there is nothing to ask about and no trigger to
+   * enforce it, so asking would strand the user on a screen whose RPC does not
+   * exist.
+   */
+  needsAgeCheck: boolean;
+  /** Confirm the minimum age, then reload the profile so the gate reopens. */
+  confirmAge: (dateOfBirth: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, displayName: string) => Promise<SignUpResult>;
+  signUp: (
+    email: string,
+    password: string,
+    displayName: string,
+    /** `YYYY-MM-DD`. Checked server-side against the 16+ minimum, then discarded. */
+    dateOfBirth: string
+  ) => Promise<SignUpResult>;
   /**
    * Sign in with Apple or Google.
    *
@@ -228,6 +249,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       demo: demoActive,
       needsProfileSetup:
         !demoActive && Boolean(session) && Boolean(profile) && !profileIsComplete(profile!),
+      needsAgeCheck:
+        !demoActive &&
+        Boolean(session) &&
+        Boolean(profile) &&
+        profile!.age_verified_at !== undefined &&
+        profile!.age_verified_at === null,
+
+      async confirmAge(dateOfBirth: string) {
+        if (demoActive) return;
+        await confirmMinimumAge(dateOfBirth);
+        // The gate reads `profile`, so it stays shut until this lands.
+        if (session) await loadProfile(session.user.id);
+      },
 
       enterDemo(fresh = false) {
         enableDemoMode(fresh);
@@ -245,7 +279,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (error) throw new Error(friendlyAuthError(error.message));
       },
 
-      async signUp(email: string, password: string, displayName: string) {
+      async signUp(
+        email: string,
+        password: string,
+        displayName: string,
+        dateOfBirth: string
+      ) {
         // The same check `updateProfile` applies, because this is the other way
         // a display name gets set. `handle_new_auth_user` copies this straight
         // into `public.users`, so an unchecked name here would walk past the
@@ -262,7 +301,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // call has a hole in the middle: a client that dies between them
           // leaves an account with no acceptance and nothing to fix it.
           options: {
-            data: { display_name: checked.text, terms_version: TERMS_VERSION },
+            // `date_of_birth` travels the same way and for the same reason.
+            // The trigger checks it against the 16+ minimum and throws if it
+            // fails, so an under-age signup aborts before any account exists —
+            // and it is never written to a column. See
+            // `…_minimum_age.sql`.
+            data: {
+              display_name: checked.text,
+              terms_version: TERMS_VERSION,
+              date_of_birth: dateOfBirth,
+            },
           },
         });
         if (error) throw new Error(friendlyAuthError(error.message));
