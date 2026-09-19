@@ -22,7 +22,7 @@
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://ckuyggihxeedkovswjhj.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_coNqIfqnS-Z5OfP-TrL4ag_dj5OordA",
-        "EXPO_PUBLIC_LEGAL_ORIGIN": "https://example.invalid",
+        "EXPO_PUBLIC_WEB_ORIGIN": "https://betta.weinsteinben2.workers.dev",
         "EXPO_PUBLIC_SUPPORT_EMAIL": "weinsteinben2@gmail.com"
       }
     }
