@@ -199,21 +199,25 @@ function reset(fresh = false): void {
  */
 function withOptions(seeded: SeededState): DemoState {
   const options: BetOptionRow[] = seeded.bets.flatMap((bet) =>
-    [bet.option_a_label, bet.option_b_label].map((label, position) => ({
-      id: `${bet.id}-opt-${position}`,
-      bet_id: bet.id,
-      position,
-      label,
-      created_at: bet.created_at,
-    }))
+    [bet.option_a_label, bet.option_b_label, ...(seeded.extraOptions[bet.id] ?? [])].map(
+      (label, position) => ({
+        id: `${bet.id}-opt-${position}`,
+        bet_id: bet.id,
+        position,
+        label,
+        created_at: bet.created_at,
+      })
+    )
   );
 
   return {
     ...seeded,
     options,
-    positions: seeded.positions.map((p) => ({
+    positions: seeded.positions.map(({ optionIndex, ...p }) => ({
       ...p,
-      option_id: `${p.bet_id}-opt-${p.side === 'a' ? 0 : 1}`,
+      // `side` names the first two options and nothing else, which is exactly
+      // the limit the real column has; past those the seed says which.
+      option_id: `${p.bet_id}-opt-${optionIndex ?? (p.side === 'a' ? 0 : 1)}`,
     })),
     bets: seeded.bets.map((bet) => ({
       ...bet,
@@ -244,7 +248,23 @@ function emptySeed(): DemoState {
 }
 
 type SeededState = Omit<DemoState, 'options' | 'positions'> & {
-  positions: { bet_id: string; user_id: string; side: BetSide }[];
+  positions: {
+    bet_id: string;
+    user_id: string;
+    side: BetSide;
+    /** Which option, when it is one the `side` letter cannot name. */
+    optionIndex?: number;
+  }[];
+  /**
+   * Options past the first two, by bet id.
+   *
+   * The label columns carry options one and two and `bet_options` is the real
+   * list — §1's rule, mirrored here. Without this the demo could only ever
+   * describe two-option bets, so the stacked bar and its legend, which is what
+   * the app draws past two, had no way to appear on any screen the design loop
+   * can open.
+   */
+  extraOptions: Record<string, string[]>;
 };
 
 function seed(): SeededState {
@@ -287,6 +307,7 @@ function seed(): SeededState {
       { group_id: 'demo-group-2', user_id: NOA, role: 'member', joined_at: iso(-24 * 11) },
     ],
     invites: [],
+    extraOptions: { 'demo-bet-5': ['Yossi'] },
     bets: [
       {
         id: 'demo-bet-1',
@@ -334,6 +355,24 @@ function seed(): SeededState {
         resolved_at: null,
       },
       {
+        id: 'demo-bet-5',
+        group_id: groupId,
+        creator_id: NOA,
+        // Three options, which is the branch two-option bets never reach: the
+        // bar becomes a stacked track with a legend instead of a figure at
+        // each end. Nothing else in the demo draws it.
+        title: 'Who pays for the pitch next week?',
+        description: null,
+        option_a_label: 'Dor',
+        option_b_label: 'Noa',
+        total_pot_agorot: 2000,
+        status: 'open',
+        winning_option: null,
+        close_at: iso(30),
+        created_at: iso(-4),
+        resolved_at: null,
+      },
+      {
         id: 'demo-bet-4',
         group_id: groupId,
         creator_id: DEMO_USER_ID,
@@ -360,6 +399,9 @@ function seed(): SeededState {
       { bet_id: 'demo-bet-2', user_id: DOR, side: 'a' },
       { bet_id: 'demo-bet-3', user_id: DEMO_USER_ID, side: 'b' },
       { bet_id: 'demo-bet-3', user_id: NOA, side: 'a' },
+      { bet_id: 'demo-bet-5', user_id: DOR, side: 'a' },
+      { bet_id: 'demo-bet-5', user_id: NOA, side: 'b' },
+      { bet_id: 'demo-bet-5', user_id: YOSSI, side: 'a', optionIndex: 2 },
       { bet_id: 'demo-bet-4', user_id: DEMO_USER_ID, side: 'a' },
       { bet_id: 'demo-bet-4', user_id: DOR, side: 'b' },
       { bet_id: 'demo-bet-4', user_id: NOA, side: 'b' },

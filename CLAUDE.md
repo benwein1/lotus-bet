@@ -478,6 +478,20 @@ without media gives the question the space the media would have had. Sides can
 be picked straight from the card. Only the card actually on screen plays its
 video (`active` prop, driven by `onViewableItemsChanged`).
 
+**The card is a glance, and the bet screen is the detail.** That split is the
+rule the card is built to, and it is what decides whether something belongs on
+it: group, creator, title, ground, amount, the bar, and the three actions. Not
+on it, and all still on the bet screen — the description, the word "pot", the
+"share of the N people who've picked" caption, and the headcount under each
+side. `OddsBar` carries that as a `compact` prop rather than a second
+component, since the two differ in density and nothing else.
+
+The one thing compact does **not** drop is the option labels. "65%  35%" with
+no names is unreadable on a bet that is locked or resolved, because the option
+buttons are gone from the card too and there is then no second copy anywhere —
+so compact sets each label beside its figure instead of above it, which costs a
+line of height rather than the meaning.
+
 Screens leave room for the floating tab bar with `useTabBarInset()`.
 
 ### Bets you started
@@ -509,12 +523,20 @@ became a hole with text floating in it.
 The interaction is shaped like the feeds people already use, because nobody
 should have to learn how to argue with their friends. What that means here:
 
-- **The feed card carries the icons and one line of text.** Heart with its
-  count, comment bubble without one, and underneath either "View all N
-  comments" or — when there are none — "Add a comment", which asks for the
-  first one instead of printing a zero. The count appears once, not twice.
+- **The feed card carries three icons and nothing else.** Heart with its count,
+  comment bubble with its count, share without one. There used to be a line of
+  text underneath — "View all N comments", or "Add a comment" when there were
+  none — and it is gone: the owner's call, on the grounds that the feed is a
+  glance and a card that talks is not. The count moved to the bubble where a
+  count belongs, which is also why `BetActions` lost its `showCommentCount`
+  prop: it existed only so the card could suppress the number while that line
+  printed it, and with the line gone nothing set it.
+
+  What that cost, recorded because it was a real property and not an accident:
+  an empty thread no longer *invites* the first comment, it just shows a bubble
+  with no number beside it. The bet screen still asks.
 - **From the feed the thread opens as a sheet, not as another screen.**
-  Pressing "Add a comment" on a card used to push the bet screen, which is the
+  Pressing the bubble on a card used to push the bet screen, which is the
   wrong trade: you lose the photo you were looking at, the feed's scroll
   position and the video that was playing, to read three sentences.
   `BetCommentsSheet` rises over the feed instead, dismissed by the scrim, the

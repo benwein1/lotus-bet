@@ -262,22 +262,23 @@ function FeedCardImpl({
                 {bet.title}
               </Text>
 
-              {!hasMedia && bet.description && (
-                <Text numberOfLines={2} className={`mt-2 text-callout leading-5 ${metaClass}`}>
-                  {bet.description}
-                </Text>
-              )}
+              {/* No description here. It is the one piece of a bet that is
+                  genuinely long-form, and a feed card that carries it stops
+                  being a glance — the bet screen shows it in full, two lines
+                  under the title, which is where somebody who wants it looks. */}
 
               <View className="mt-3 flex-row items-center gap-4">
-                <View className="flex-row items-baseline gap-1.5">
-                  <Money
-                    agorot={bet.total_pot_agorot}
-                    currency={bet.group?.currency}
-                    size="md"
-                    tone="onMedia"
-                  />
-                  <Text className={`text-sm ${metaClass}`}>pot</Text>
-                </View>
+                {/* The figure alone. An amount on a bet card is the pot and
+                    nothing else, so the word was carrying no information the
+                    position did not already carry — and it sat between the
+                    number and the countdown, which is the row's real content.
+                    "Total pot" is still spelled out on the bet screen. */}
+                <Money
+                  agorot={bet.total_pot_agorot}
+                  currency={bet.group?.currency}
+                  size="md"
+                  tone="onMedia"
+                />
 
                 {countdown && (
                   <View className="flex-row items-center gap-1.5">
@@ -302,8 +303,8 @@ function FeedCardImpl({
                 )}
               </View>
 
-              <View className="mt-5">
-                <OddsBar slices={slices} onMedia />
+              <View className="mt-4">
+                <OddsBar slices={slices} onMedia compact />
               </View>
             </View>
           </PressableScale>
@@ -313,7 +314,7 @@ function FeedCardImpl({
           // Two options sit side by side; more wrap onto as many rows as they
           // need. `flex-wrap` with a basis rather than a grid, because the
           // labels are user-written and a fixed column would truncate them.
-          <View className="mt-5 flex-row flex-wrap gap-2.5">
+          <View className="mt-4 flex-row flex-wrap gap-2.5">
             {slices.map((slice, index) => (
               <OptionPick
                 key={slice.id}
@@ -335,8 +336,25 @@ function FeedCardImpl({
         {/* Also a sibling of the Link, for the same reason the option row is:
             a pressable inside an anchor fires twice on the web, once as the
             button and once as the browser navigating. */}
+        {/*
+          Three icons and nothing else.
+
+          There used to be a second line under this row — "View all 4 comments",
+          or "Add a comment" when there were none. It was doing two jobs:
+          carrying the count, and inviting the first comment. The count now
+          sits against the bubble where a count belongs — `BetActions` had a
+          `showCommentCount` prop that existed only so this card could turn the
+          number off while that line printed it, and with the line gone the
+          prop had no callers left and went with it. The invitation is gone
+          too, and that is the trade: the row is a row of controls now rather
+          than a control and a sentence.
+
+          The thread is unchanged behind it. Pressing the bubble still raises
+          the sheet over the feed rather than pushing the bet screen, so the
+          composer is one tap away exactly as it was.
+        */}
         {onToggleLike && (
-          <View className="mt-5 gap-2">
+          <View className="mt-4">
             <BetActions
               liked={social.liked}
               likeCount={social.likeCount}
@@ -351,34 +369,7 @@ function FeedCardImpl({
                 void shareBet(bet.id, bet.title, bet.group?.name).catch(() => {});
               }}
               onMedia
-              showCommentCount={false}
             />
-
-            {/* The line every feed has under a post, and the one that turns a
-                count into an invitation. When there is nothing there yet it
-                asks for the first comment instead of printing a zero. */}
-            <PressableScale
-              scaleTo={1}
-              onPress={openThread}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={
-                social.commentCount > 0
-                  ? `View all ${social.commentCount} ${
-                      social.commentCount === 1 ? 'comment' : 'comments'
-                    }`
-                  : 'Add a comment'
-              }
-              className="self-start"
-            >
-              <Text className={`text-sm ${metaClass}`}>
-                {social.commentCount > 0
-                  ? `View all ${social.commentCount} ${
-                      social.commentCount === 1 ? 'comment' : 'comments'
-                    }`
-                  : 'Add a comment'}
-              </Text>
-            </PressableScale>
           </View>
         )}
       </View>

@@ -33,7 +33,6 @@ export function BetActions({
   onMedia = false,
   onPressShare,
   size = 'md',
-  showCommentCount = true,
 }: {
   liked: boolean;
   likeCount: number;
@@ -50,11 +49,6 @@ export function BetActions({
   /** Opens the OS share sheet. Omitted where a bet has no shareable link. */
   onPressShare?: () => void;
   size?: 'sm' | 'md';
-  /**
-   * False where a "View all N comments" line sits underneath and already
-   * carries the number. Printing it twice in the same corner reads as a bug.
-   */
-  showCommentCount?: boolean;
 }) {
   const colors = useColors();
   const reduced = useReducedMotion();
@@ -135,7 +129,7 @@ export function BetActions({
           className="flex-row items-center gap-1.5"
         >
           <CommentIcon size={iconSize} color={restingColor} />
-          {showCommentCount && commentCount > 0 ? (
+          {commentCount > 0 ? (
             <Text style={tabular} className={`text-sm ${label}`}>
               {commentCount}
             </Text>
