@@ -25,6 +25,10 @@
     --c-accent-strong: #0A5AAF;
     --c-accent-soft: #E8F2FF;
     --c-accent-ink: #FFFFFF;
+    --c-brand: #22B573;
+    --c-brand-strong: #1A9A60;
+    --c-brand-soft: #E3F7EC;
+    --c-brand-ink: #FFFFFF;
     --c-positive: #187E42;
     --c-positive-soft: #E4F6EB;
     --c-negative: #C7262C;
@@ -61,6 +65,10 @@
     --c-accent-strong: #8CC6FF;
     --c-accent-soft: #0D2136;
     --c-accent-ink: #00060F;
+    --c-brand: #4ADE80;
+    --c-brand-strong: #86EFAC;
+    --c-brand-soft: #0C2417;
+    --c-brand-ink: #04140B;
     --c-positive: #34D07A;
     --c-positive-soft: #0D2418;
     --c-negative: #FF5E63;

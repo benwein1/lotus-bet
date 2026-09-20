@@ -12,9 +12,14 @@ import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform, Share } from 'react-native';
 
-import { inviteShareText, type LinkTargets } from './invite-links';
+import {
+  betShareMessage,
+  betUrl,
+  inviteShareText,
+  type LinkTargets,
+} from './invite-links';
 
-export { INVITE_PATH, inviteExpiry, inviteMessage, inviteUrl } from './invite-links';
+export { INVITE_PATH, betUrl, inviteExpiry, inviteMessage, inviteUrl } from './invite-links';
 
 /** The app's own URL scheme, kept in step with `app.json`. */
 const SCHEME = (Constants.expoConfig?.scheme as string | undefined) ?? 'betta';
@@ -97,6 +102,60 @@ export async function shareInvite(
   const result = await Share.share(
     Platform.OS === 'ios' ? { message: text, url } : { message: `${text}\n\n${url}` },
     { subject: `Join ${groupName} on Betta`, dialogTitle: `Invite to ${groupName}` }
+  );
+
+  return { shared: result.action === Share.sharedAction };
+}
+
+/**
+ * Share one bet through the OS share sheet.
+ *
+ * The same three-platform shape as `shareInvite`, and for the same reasons:
+ * `navigator.share` on a phone browser is the native sheet, the clipboard is
+ * the honest desktop fallback, and iOS wants the message and the URL as two
+ * fields while Android has only one string to put them both in.
+ *
+ * Never a WhatsApp button. Which app a group actually lives in is not
+ * something to guess, and a hardcoded `whatsapp://` is a dead end on a phone
+ * without it with no way to find that out beforehand.
+ */
+export async function shareBet(
+  betId: string,
+  title: string,
+  groupName?: string | null
+): Promise<ShareResult> {
+  const url = betUrl(betId, linkTargets());
+  const text = betShareMessage(title, groupName);
+
+  if (Platform.OS === 'web') {
+    const nav = typeof navigator === 'undefined' ? undefined : navigator;
+    if (nav?.share) {
+      try {
+        await nav.share({ title: 'Betta', text, url });
+        return { shared: true };
+      } catch {
+        // Dismissing the sheet rejects, and that is not a failure worth
+        // reporting — the same call `shareInvite` makes.
+        return { shared: false };
+      }
+    }
+    if (nav?.clipboard) {
+      try {
+        await nav.clipboard.writeText(`${text}\n\n${url}`);
+        // Copying is the honest desktop outcome, and the caller only
+        // needs to know something happened — `ShareResult` carries one
+        // flag on purpose, and `shareInvite` reports the same way.
+        return { shared: true };
+      } catch {
+        return { shared: false };
+      }
+    }
+    return { shared: false };
+  }
+
+  const result = await Share.share(
+    Platform.OS === 'ios' ? { message: text, url } : { message: `${text}\n\n${url}` },
+    { subject: 'A bet on Betta', dialogTitle: 'Share this bet' }
   );
 
   return { shared: result.action === Share.sharedAction };

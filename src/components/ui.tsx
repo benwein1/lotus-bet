@@ -26,7 +26,8 @@ import Animated, {
 } from '@/components/animated';
 
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { formatAgorot, initials } from '@/lib/format';
+import { formatMoney } from '@/lib/currency';
+import { initials } from '@/lib/format';
 import { useColors, useScheme } from '@/providers/theme-provider';
 import { avatarColors, elevation, motion, tabular } from '@/theme';
 
@@ -284,15 +285,23 @@ export function Overline({ className = '', ...props }: TextProps & { className?:
 /**
  * A figure. Always tabular so digits do not shift as a value changes, and
  * coloured by direction unless told otherwise.
+ *
+ * `agorot` kept its name along with the columns it reads: the integer is minor
+ * units of whichever currency the group keeps its books in, and the maths
+ * never cared which. Pass `currency` wherever a group is in scope; omitting it
+ * prints the default rather than throwing, because a row fetched before
+ * `…_group_currency.sql` has no column to read.
  */
 export function Money({
   agorot,
+  currency,
   size = 'md',
   tone,
   sign = false,
   className = '',
 }: {
   agorot: number;
+  currency?: string | null;
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'hero';
   /** Omit to colour by direction. */
   tone?: 'neutral' | 'positive' | 'negative' | 'accent' | 'onMedia';
@@ -323,7 +332,7 @@ export function Money({
       adjustsFontSizeToFit
       className={`font-bold ${sizes[size]} ${tones[resolved]} ${className}`}
     >
-      {formatAgorot(agorot, { sign })}
+      {formatMoney(agorot, currency, { sign })}
     </Text>
   );
 }
@@ -458,11 +467,13 @@ export function Chip({
       accessibilityRole={multi ? 'checkbox' : 'radio'}
       accessibilityState={multi ? { checked: selected } : { selected }}
       className={`rounded-full border px-3.5 py-2 ${
-        selected ? 'border-accent bg-accent-soft' : 'border-hairline bg-surface2'
+        selected ? 'border-brand bg-brand-soft' : 'border-hairline bg-surface2'
       } ${className}`}
     >
       <Text
-        className={`text-subhead ${selected ? 'font-semibold text-accent' : 'text-secondary'}`}
+        className={`text-subhead ${
+          selected ? 'font-semibold text-brand-strong' : 'text-secondary'
+        }`}
       >
         {label}
       </Text>
@@ -547,7 +558,11 @@ type BadgeTone = 'neutral' | 'open' | 'locked' | 'resolved' | 'cancelled' | 'win
 
 const BADGE_TONE: Record<BadgeTone, { wrap: string; text: string; dot: string }> = {
   neutral: { wrap: 'bg-surface3', text: 'text-secondary', dot: 'bg-tertiary' },
-  open: { wrap: 'bg-accent-soft', text: 'text-accent', dot: 'bg-accent' },
+  // Brand green rather than accent blue. "Open" is a state the bet is in, not
+  // something to press — and it is the same state `LiveDot` reports two
+  // components down, so the two have to agree. See the `brand` note in
+  // tailwind.config.js for why this is never used for an amount or a side.
+  open: { wrap: 'bg-brand-soft', text: 'text-brand-strong', dot: 'bg-brand' },
   locked: { wrap: 'bg-surface3', text: 'text-primary', dot: 'bg-tertiary' },
   resolved: { wrap: 'bg-surface3', text: 'text-secondary', dot: 'bg-tertiary' },
   cancelled: { wrap: 'bg-surface3', text: 'text-tertiary', dot: 'bg-tertiary' },
@@ -573,7 +588,14 @@ export function Badge({
   );
 }
 
-/** A pulsing dot, for "this is live right now". */
+/**
+ * A pulsing dot, for "this is live right now".
+ *
+ * Brand green, not accent blue: blue is what you press, and this is not a
+ * control — it is the bet telling you it is still running. Green for "live" is
+ * the one colour convention people already arrive with. It sits eight degrees
+ * of hue from `positive`, so it is deliberately never used for an amount.
+ */
 export function LiveDot({ className = '' }: { className?: string }) {
   const colors = useColors();
   const pulse = useSharedValue(1);
@@ -595,7 +617,7 @@ export function LiveDot({ className = '' }: { className?: string }) {
 
   return (
     <Animated.View
-      style={[style, { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent }]}
+      style={[style, { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.brand }]}
       className={className}
     />
   );

@@ -1,5 +1,7 @@
 import {
   INVITE_PATH,
+  betShareMessage,
+  betUrl,
   inviteExpiry,
   inviteMessage,
   inviteShareText,
@@ -99,5 +101,57 @@ describe('inviteExpiry', () => {
 
   it('says nothing rather than NaN on a bad timestamp', () => {
     expect(inviteExpiry('not a date', now)).toBe('');
+  });
+});
+
+describe('betUrl', () => {
+  it('prefers an https origin, because a scheme link is dead text', () => {
+    expect(betUrl('abc-123', { webOrigin: 'https://betta.example.dev', scheme: 'betta' })).toBe(
+      'https://betta.example.dev/bet/abc-123'
+    );
+  });
+
+  it('falls back to the scheme when nothing is deployed', () => {
+    expect(betUrl('abc-123', { webOrigin: null, scheme: 'betta' })).toBe('betta://bet/abc-123');
+  });
+
+  it('strips a trailing slash rather than doubling it', () => {
+    expect(betUrl('x', { webOrigin: 'https://betta.example.dev/', scheme: 'betta' })).toBe(
+      'https://betta.example.dev/bet/x'
+    );
+  });
+
+  it('encodes the id', () => {
+    expect(betUrl('a b/c', { webOrigin: null, scheme: 'betta' })).toBe('betta://bet/a%20b%2Fc');
+  });
+});
+
+describe('betShareMessage', () => {
+  it('leads with the question, because that is the interesting part', () => {
+    expect(betShareMessage('Will it rain on Saturday?', 'Flat')).toContain(
+      '"Will it rain on Saturday?"'
+    );
+  });
+
+  it('names the group when there is one', () => {
+    expect(betShareMessage('Q', 'The Lads')).toContain('in The Lads');
+  });
+
+  it('omits the group cleanly when there is not', () => {
+    const text = betShareMessage('Q', null);
+    expect(text).not.toContain('in ');
+    expect(text).not.toContain('undefined');
+    expect(betShareMessage('Q', '   ')).not.toContain('in ');
+  });
+
+  it('truncates a very long question rather than pasting a wall into a chat', () => {
+    const long = 'x'.repeat(300);
+    const text = betShareMessage(long, null);
+    expect(text).toContain('…');
+    expect(text.length).toBeLessThan(200);
+  });
+
+  it('does not interpolate the URL — the share sheet takes it separately', () => {
+    expect(betShareMessage('Q', 'G')).not.toContain('http');
   });
 });

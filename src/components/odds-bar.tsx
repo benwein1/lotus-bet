@@ -30,12 +30,28 @@ export interface OddsSlice {
  * or flex. Animating a layout property re-lays-out the row every frame; a
  * transform is composited and costs nothing. This is the one value in the app
  * that changes while the user is watching.
+ *
+ * ---------------------------------------------------------------------------
+ * `compact` — the feed's version of the same bar
+ * ---------------------------------------------------------------------------
+ * The feed card is a glance and the bet screen is the detail, so the bar has
+ * two densities rather than two components. Compact drops the caption, drops
+ * the headcount, and sets each label beside its percentage instead of above
+ * it — three lines of type become one. Everything it drops is still on the bet
+ * screen, which is the only other caller and stays `full`.
+ *
+ * **The labels stay.** Dropping them too would leave "65%  35%" with nothing
+ * saying what either number is about, and on a bet that is locked or resolved
+ * the option buttons are gone from the card as well, so there would be no
+ * second copy anywhere. Beside the figure they cost no height and keep the
+ * bar readable on its own.
  */
 export function OddsBar({
   slices,
   winningId = null,
   size = 'md',
   onMedia = false,
+  compact = false,
 }: {
   slices: OddsSlice[];
   /** Once resolved, everything that lost falls back to a rule. */
@@ -43,6 +59,12 @@ export function OddsBar({
   size?: 'sm' | 'md' | 'lg';
   /** Over a photo or video, where the palette has to ignore the scheme. */
   onMedia?: boolean;
+  /**
+   * The feed's density: no caption, no headcount, labels beside the figures
+   * rather than above them. Defaults to false so the bet screen and the group
+   * screen keep the full bar without saying so.
+   */
+  compact?: boolean;
 }) {
   const colors = useColors();
   const scheme = useScheme();
@@ -63,13 +85,16 @@ export function OddsBar({
         : `Split of the ${total} people who've picked a side`;
 
   return (
-    <View className={size === 'sm' ? 'gap-2' : 'gap-2.5'}>
+    <View className={compact ? 'gap-2' : size === 'sm' ? 'gap-2' : 'gap-2.5'}>
       {/* Naming the denominator once is what stops a percentage being read as
           a probability. It is the share of the people who have picked, not how
-          likely anything is. */}
-      <Text numberOfLines={1} className={`text-xs ${muted}`}>
-        {caption}
-      </Text>
+          likely anything is. The feed drops it: there the bar is a glance, and
+          the bet screen one tap away still says it. */}
+      {!compact && (
+        <Text numberOfLines={1} className={`text-xs ${muted}`}>
+          {caption}
+        </Text>
+      )}
 
       {slices.length === 2 ? (
         <TwoUp
@@ -79,6 +104,7 @@ export function OddsBar({
           size={size}
           onMedia={onMedia}
           scheme={scheme}
+          compact={compact}
         />
       ) : null}
 
@@ -94,13 +120,17 @@ export function OddsBar({
       />
 
       {slices.length === 2 ? (
-        <View className="flex-row items-center justify-between">
-          {slices.map((slice) => (
-            <Text key={slice.id} style={tabular} className={`text-xs ${muted}`}>
-              {slice.count} {slice.count === 1 ? 'person' : 'people'}
-            </Text>
-          ))}
-        </View>
+        // How many people are on each side is detail, not glance — it is the
+        // roster on the bet screen, under the option it belongs to.
+        compact ? null : (
+          <View className="flex-row items-center justify-between">
+            {slices.map((slice) => (
+              <Text key={slice.id} style={tabular} className={`text-xs ${muted}`}>
+                {slice.count} {slice.count === 1 ? 'person' : 'people'}
+              </Text>
+            ))}
+          </View>
+        )
       ) : (
         <Legend
           slices={slices}
@@ -109,13 +139,25 @@ export function OddsBar({
           onMedia={onMedia}
           scheme={scheme}
           muted={muted}
+          compact={compact}
         />
       )}
     </View>
   );
 }
 
-/** The two-option layout: a figure at each end, facing outward. */
+/**
+ * The two-option layout: a figure at each end, facing outward.
+ *
+ * The percentage stays at the outer edge in both densities, because that is
+ * what ties it to its end of the bar underneath — the left figure and the left
+ * segment are the same option, and swapping them would break the only thing
+ * making the bar readable without a legend.
+ *
+ * Full stacks the label above the figure. Compact sets it beside, inboard of
+ * the figure, so the row costs one line instead of two and the percentages
+ * still sit over the segments they describe.
+ */
 function TwoUp({
   slices,
   shares,
@@ -123,6 +165,7 @@ function TwoUp({
   size,
   onMedia,
   scheme,
+  compact,
 }: {
   slices: OddsSlice[];
   shares: number[];
@@ -130,6 +173,7 @@ function TwoUp({
   size: 'sm' | 'md' | 'lg';
   onMedia: boolean;
   scheme: ColorScheme;
+  compact: boolean;
 }) {
   const pctClass = size === 'lg' ? 'text-2xl' : size === 'sm' ? 'text-lg' : 'text-xl';
   const label = onMedia ? 'text-on-media-soft' : 'text-secondary';
@@ -140,17 +184,50 @@ function TwoUp({
       {slices.map((slice, index) => {
         const lost = winningId !== null && winningId !== slice.id;
         const color = optionColor(index, slices.length, scheme, onMedia);
+        const figure = (
+          <Text
+            style={[tabular, lost ? null : { color }]}
+            className={`font-bold ${pctClass} ${lost ? muted : ''}`}
+          >
+            {shares[index]}%
+          </Text>
+        );
+        // `flex-shrink` on the label and not on the figure: a long option name
+        // truncates, a percentage never does. Three characters cannot be
+        // allowed to wrap or ellipsise on the narrowest iPhone.
+        const name = (
+          <Text numberOfLines={1} className={`shrink text-sm ${lost ? muted : label}`}>
+            {slice.label}
+          </Text>
+        );
+
+        if (compact) {
+          return (
+            <View
+              key={slice.id}
+              className={`flex-1 flex-row items-baseline gap-1.5 ${
+                index === 0 ? '' : 'justify-end'
+              }`}
+            >
+              {index === 0 ? (
+                <>
+                  {figure}
+                  {name}
+                </>
+              ) : (
+                <>
+                  {name}
+                  {figure}
+                </>
+              )}
+            </View>
+          );
+        }
+
         return (
           <View key={slice.id} className={index === 0 ? 'flex-1' : 'flex-1 items-end'}>
-            <Text numberOfLines={1} className={`text-sm ${lost ? muted : label}`}>
-              {slice.label}
-            </Text>
-            <Text
-              style={[tabular, lost ? null : { color }]}
-              className={`font-bold ${pctClass} ${lost ? muted : ''}`}
-            >
-              {shares[index]}%
-            </Text>
+            {name}
+            {figure}
           </View>
         );
       })}
@@ -256,7 +333,13 @@ function Segment({
   );
 }
 
-/** Past two options the figures move under the bar, one per line. */
+/**
+ * Past two options the figures move under the bar, one per line.
+ *
+ * Compact keeps the whole legend — with four options there is nowhere else the
+ * labels could go and the bar would be four anonymous bands — and drops only
+ * the headcount column, which is the same thing `compact` drops at two.
+ */
 function Legend({
   slices,
   shares,
@@ -264,6 +347,7 @@ function Legend({
   onMedia,
   scheme,
   muted,
+  compact,
 }: {
   slices: OddsSlice[];
   shares: number[];
@@ -271,6 +355,7 @@ function Legend({
   onMedia: boolean;
   scheme: ColorScheme;
   muted: string;
+  compact: boolean;
 }) {
   const label = onMedia ? 'text-on-media-soft' : 'text-secondary';
 
@@ -288,9 +373,11 @@ function Legend({
             <Text numberOfLines={1} className={`flex-1 text-sm ${lost ? muted : label}`}>
               {slice.label}
             </Text>
-            <Text style={tabular} className={`text-sm ${muted}`}>
-              {slice.count}
-            </Text>
+            {!compact && (
+              <Text style={tabular} className={`text-sm ${muted}`}>
+                {slice.count}
+              </Text>
+            )}
             <Text
               style={[tabular, lost ? null : { color }]}
               className={`w-11 text-right text-sm font-semibold ${lost ? muted : ''}`}

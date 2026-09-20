@@ -38,6 +38,16 @@ import { motion } from '@/theme';
 const SLIVER = 64;
 
 /**
+ * The seam between two posts.
+ *
+ * It is the only separator left: the cards have no border and no radius, so
+ * without this gap two bets would butt against each other and read as one. 16
+ * was the old value when the cards were also inset 20pt each side — edge to
+ * edge it has to do all the work alone, so it is wider.
+ */
+const CARD_GAP = 22;
+
+/**
  * Held outside the component because `FlatList` treats this as fixed after
  * mount — handing it a fresh object every render is both a warning in dev and
  * wasted work, since the value never actually changes.
@@ -209,7 +219,10 @@ export default function FeedScreen() {
   // as scrollable rather than as one screen.
   const available = listHeight ?? height - tabInset;
   const cardHeight = Math.max(360, available - tabInset - SLIVER);
-  const snapInterval = cardHeight + 16;
+  // The gap between posts, and the only thing separating them now that the
+  // cards have no border. Wide enough that two bets never visually merge,
+  // narrow enough that it reads as a seam rather than a margin.
+  const snapInterval = cardHeight + CARD_GAP;
 
   const bets = useMemo(() => {
     const all = feed.data ?? [];
@@ -349,7 +362,12 @@ export default function FeedScreen() {
   // never requested.
   const renderCard = useCallback(
     ({ item }: { item: BetWithPositions }) => (
-      <ContentWidth className="mb-4">
+      // The gap comes from the constant, not from a class, because
+      // `snapToInterval` is `cardHeight + CARD_GAP` and the two must be the
+      // same number. As `mb-4` they were 22 and 16, and a snap interval that
+      // does not match the real row height drifts a few pixels further out of
+      // alignment with every card you scroll past.
+      <ContentWidth style={{ marginBottom: CARD_GAP }}>
         <FeedCard
           bet={item}
           currentUserId={userId}
@@ -421,7 +439,12 @@ export default function FeedScreen() {
                 contentContainerStyle={{
                   paddingTop: 8,
                   paddingBottom: tabInset,
-                  paddingHorizontal: 20,
+                  // No horizontal padding. The cards used to be inset 20pt with
+                  // a border and a 28pt radius, which made each one a separate
+                  // object floating on the page. Edge to edge, the screen is
+                  // the only frame and the gap between posts is the only
+                  // separator — which is what makes a column of bets read as
+                  // one stream rather than a stack of cards.
                 }}
                 onViewableItemsChanged={onViewableItemsChanged.current}
                 viewabilityConfig={VIEWABILITY}

@@ -28,11 +28,13 @@ import type {
   UserRow,
 } from './database.types';
 import { demo, isDemoMode } from './demo';
+import { DEFAULT_CURRENCY, asCurrency, type Currency } from './currency';
+import { orderFeed } from './feed-order';
 import { discardUploads, signMedia, uploadBetMedia, type PickedMedia } from './media';
 import { announceBetResolved, announceGroupJoin, announceNewBet } from './notifications';
 import { computeBetPayouts } from './payout';
 import { prepareContent } from './content-rules';
-import { isMissingColumn } from './postgrest';
+import { isMissingColumn, isMissingFunction } from './postgrest';
 import { personBalances, type BalanceLine } from './settlement';
 import { supabase } from './supabase';
 
@@ -88,42 +90,79 @@ function unwrap<T>(result: { data: T | null; error: { message: string } | null }
 }
 
 /**
- * Whether this project has had `…_avatars.sql` applied.
+ * Which optional columns of `groups` this project actually has.
  *
  * Selecting a column Postgres does not have makes PostgREST reject the whole
  * request, so a single missing column took the entire feed down rather than
  * costing one picture — the same failure mode `profile_completed` had on the
- * sign-up screen. Every read that wants a group's photo asks for it once,
- * and if the column is not there, stops asking and re-runs without it.
+ * sign-up screen. Every read that wants one asks for it once, and if it is not
+ * there, stops asking and re-runs without it.
  *
- * Starts undecided rather than optimistic-per-call so one probe answers it
- * for the session.
+ * There are two now. `avatar_url` arrives with `…_avatars.sql` and `currency`
+ * with `…_group_currency.sql`, and a project can be behind on either
+ * independently, so they are tracked separately rather than as one "is this
+ * project up to date" flag — dropping the photo because the currency is
+ * missing would lose something the project does have.
+ *
+ * Each starts undecided rather than optimistic-per-call, so one probe answers
+ * it for the session.
  */
-let groupAvatars: 'unknown' | 'yes' | 'no' = 'unknown';
+type GroupColumn = 'avatar_url' | 'currency';
 
+const groupColumns: Record<GroupColumn, 'unknown' | 'yes' | 'no'> = {
+  avatar_url: 'unknown',
+  currency: 'unknown',
+};
+
+/** What a caller's select-builder is told to ask for. */
+export interface GroupExtras {
+  avatar: boolean;
+  currency: boolean;
+}
+
+function currentGroupExtras(): GroupExtras {
+  return {
+    avatar: groupColumns.avatar_url !== 'no',
+    currency: groupColumns.currency !== 'no',
+  };
+}
 
 /**
- * Runs a read, and retries it without the group photo if that is what the
- * project is missing. `build` is called again for the retry so the caller can
- * hand back a fresh query — a PostgREST builder cannot be re-awaited.
+ * Runs a read, dropping whichever optional group column the project turns out
+ * not to have and retrying. `build` is called again for each retry so the
+ * caller can hand back a fresh query — a PostgREST builder cannot be
+ * re-awaited.
+ *
+ * At most one retry per column, so a project missing both still converges, and
+ * a genuine error can never loop.
  */
-async function withGroupAvatarFallback<T>(
-  build: (withAvatar: boolean) => PromiseLike<{ data: T | null; error: { code?: string; message: string } | null }>
+async function withGroupColumnFallback<T>(
+  build: (
+    extras: GroupExtras
+  ) => PromiseLike<{ data: T | null; error: { code?: string; message: string } | null }>
 ): Promise<T> {
-  const first = await build(groupAvatars !== 'no');
+  const optional: GroupColumn[] = ['avatar_url', 'currency'];
 
-  if (first.error && groupAvatars !== 'no' && isMissingColumn(first.error, 'avatar_url')) {
-    groupAvatars = 'no';
-    const retry = await build(false);
-    if (retry.error) throw new Error(retry.error.message);
-    if (retry.data === null) throw new Error('No data returned');
-    return retry.data;
+  for (let attempt = 0; attempt <= optional.length; attempt += 1) {
+    const extras = currentGroupExtras();
+    const result = await build(extras);
+
+    if (!result.error) {
+      for (const column of optional) {
+        if (groupColumns[column] === 'unknown') groupColumns[column] = 'yes';
+      }
+      if (result.data === null) throw new Error('No data returned');
+      return result.data;
+    }
+
+    const culprit = optional.find(
+      (column) => groupColumns[column] !== 'no' && isMissingColumn(result.error!, column)
+    );
+    if (!culprit) throw new Error(result.error.message);
+    groupColumns[culprit] = 'no';
   }
 
-  if (first.error) throw new Error(first.error.message);
-  if (first.data === null) throw new Error('No data returned');
-  if (groupAvatars === 'unknown') groupAvatars = 'yes';
-  return first.data;
+  throw new Error('Could not read the group columns');
 }
 
 // --- Groups ----------------------------------------------------------------
@@ -180,16 +219,22 @@ export async function fetchGroup(groupId: string): Promise<GroupWithMembers> {
   ) as unknown as GroupWithMembers;
 }
 
-export async function createGroup(name: string, emoji: string | null): Promise<GroupRow> {
+export async function createGroup(
+  name: string,
+  emoji: string | null,
+  currency: Currency = DEFAULT_CURRENCY
+): Promise<GroupRow> {
   // `strict`: a group name is identity rather than speech. It appears on every
   // card, every feed row and every invite message, so the shouting and
   // repetition thresholds are lower than they are for a comment.
   const checked = prepareContent(name, { strict: true });
   if (!checked.ok) throw new Error(checked.message);
 
-  if (isDemoMode()) return demo.createGroup(checked.text, emoji);
+  if (isDemoMode()) return demo.createGroup(checked.text, emoji, currency);
   return unwrap(
-    await supabase.rpc('create_group', { p_name: checked.text, p_emoji: emoji }).single()
+    await supabase
+      .rpc('create_group', { p_name: checked.text, p_emoji: emoji, p_currency: currency })
+      .single()
   ) as GroupRow;
 }
 
@@ -214,7 +259,7 @@ export async function updateGroupAvatar(
   // Reads fall back silently, but a write cannot: the user asked for the
   // picture to be saved and it was not. Say what is actually wrong.
   if (error && isMissingColumn(error, 'avatar_url')) {
-    groupAvatars = 'no';
+    groupColumns.avatar_url = 'no';
     throw new Error(
       'Group photos need the avatars migration. Run supabase/migrations/20260906090000_avatars.sql on your project.'
     );
@@ -295,8 +340,23 @@ export async function leaveGroup(groupId: string, userId: string): Promise<void>
 // that also points at `bets` twice.
 const BET_SELECT =
   '*, options:bet_options!bet_options_bet_id_fkey(*), positions:bet_positions(user_id, side, option_id), media:bet_media(*), likes:bet_likes(user_id), comments:bet_comments(count)';
-const betSelectWithGroup = (withAvatar: boolean) =>
-  `${BET_SELECT}, group:groups(id, name, emoji${withAvatar ? ', avatar_url' : ''})`;
+/**
+ * `creator` names its foreign key even though `bets` has only one to `users`.
+ *
+ * The habit is the point: `bet_options` has two keys back to `bets`, and an
+ * unnamed embed there makes PostgREST refuse the *whole* select — so the feed
+ * comes back empty rather than merely without options. Naming it here costs
+ * nothing and means a second `bets → users` key added later cannot silently
+ * empty the feed.
+ *
+ * `currency` rides along because every amount on the card is denominated by the
+ * group, not the bet. One embed, no extra round trip.
+ */
+const betSelectWithGroup = (extras: GroupExtras) =>
+  `${BET_SELECT}, creator:users!bets_creator_id_fkey(id, display_name, username, avatar_url)` +
+  `, group:groups(id, name, emoji${extras.currency ? ', currency' : ''}${
+    extras.avatar ? ', avatar_url' : ''
+  })`;
 
 /**
  * The bet screen's select. Same as the feed's, plus the two things that screen
@@ -311,10 +371,12 @@ const betSelectWithGroup = (withAvatar: boolean) =>
  * Deliberately *not* folded into `BET_SELECT`: the feed reads a hundred bets
  * at once and would pay for a hundred copies of a member list it never renders.
  */
-const betDetailSelect = (withAvatar: boolean) =>
+const betDetailSelect = (extras: GroupExtras) =>
   `${BET_SELECT}, ledger:bet_ledger_entries(*), group:groups(id, name, emoji${
-    withAvatar ? ', avatar_url' : ''
-  }, members:group_members(*, user:users(${USER_PUBLIC_COLUMNS})))`;
+    extras.currency ? ', currency' : ''
+  }${extras.avatar ? ', avatar_url' : ''}, members:group_members(*, user:users(${
+    USER_PUBLIC_COLUMNS
+  })))`;
 
 /**
  * Media rows arrive as storage paths; the bucket is private, so they have to be
@@ -436,11 +498,15 @@ export async function fetchFeedBets(userId?: string): Promise<BetWithPositions[]
   // rather than before it. See `blockedIds` for why this filter lives here and
   // not in a policy.
   const [data, blocked] = await Promise.all([
-    withGroupAvatarFallback((withAvatar) =>
+    withGroupColumnFallback((extras) =>
       supabase
         .from('bets')
-        .select(betSelectWithGroup(withAvatar))
+        .select(betSelectWithGroup(extras))
         .in('status', ['open', 'locked'])
+        // Newest first here so the 100-row cap takes the most recent hundred.
+        // The *display* order is not this — `orderFeed` bands live above closed
+        // afterwards, because "live" depends on `close_at` against now and is
+        // not a column PostgREST can sort on.
         .order('created_at', { ascending: false })
         .limit(100)
     ),
@@ -454,13 +520,14 @@ export async function fetchFeedBets(userId?: string): Promise<BetWithPositions[]
       (bet.positions ?? []).some((p) => p.user_id === userId)
   );
 
-  return attachSignedMedia(bets);
+  // Live newest-first, then closed-but-uncalled newest-first. See `feed-order`.
+  return orderFeed(await attachSignedMedia(bets));
 }
 
 export async function fetchBet(betId: string): Promise<BetDetail> {
   if (isDemoMode()) return demo.fetchBet(betId) as unknown as Promise<BetDetail>;
-  const bet = (await withGroupAvatarFallback((withAvatar) =>
-    supabase.from('bets').select(betDetailSelect(withAvatar)).eq('id', betId).single()
+  const bet = (await withGroupColumnFallback((extras) =>
+    supabase.from('bets').select(betDetailSelect(extras)).eq('id', betId).single()
   )) as unknown as BetDetail;
 
   const [withMedia] = await attachSignedMedia([bet]);
@@ -816,9 +883,10 @@ export async function undoSettlement(confirmationId: string): Promise<void> {
 /**
  * Find somebody by their exact handle.
  *
- * Exact only, and that is the design rather than a limitation: a prefix or
- * fuzzy search over the user table is a user-enumeration endpoint that anyone
- * could walk to harvest every account. You type a handle you already know.
+ * Still exact, and still the call `createDuel` is checked against. The
+ * autocomplete below is a separate, deliberately narrower endpoint — this one
+ * answers "is this handle real", which is a different question from "who
+ * starts with these letters".
  *
  * Returns null when nobody has it, which the screen shows as "no one is using
  * that username" — the same answer whether the handle is free or simply not
@@ -836,6 +904,31 @@ export async function findUserByUsername(username: string): Promise<UserLookup |
 
   if (error) throw new Error(error.message);
   return (data as UserLookup | null) ?? null;
+}
+
+/**
+ * Prefix autocomplete over handles, for the challenge screen.
+ *
+ * This reverses what CLAUDE.md §1 said, on the owner's call, and the reversal
+ * is narrow on purpose. `search_users_by_username` is prefix-only, refuses a
+ * query under two characters, returns ten rows at most, and hands back only
+ * the handle, the display name and the avatar — the head of
+ * `…_username_search.sql` has the whole reasoning, including what it does not
+ * protect against (there is no rate limit on it yet).
+ *
+ * The floor is enforced in SQL, not here; this copy of it only avoids a round
+ * trip that is certain to come back empty.
+ */
+export async function searchUsersByUsername(query: string): Promise<UserLookup[]> {
+  const handle = query.trim().replace(/^@/, '');
+  if (handle.length < 2) return [];
+
+  if (isDemoMode()) return demo.searchUsersByUsername(handle);
+
+  const { data, error } = await supabase.rpc('search_users_by_username', { p_query: handle });
+
+  if (error) throw new Error(error.message);
+  return (data as UserLookup[] | null) ?? [];
 }
 
 /**
@@ -964,6 +1057,8 @@ export async function fetchMyPersonBalances(userId: string): Promise<PersonBalan
     ])
   );
 
+  const currencyByGroup = new Map(groups.map((g) => [g.id, g.currency ?? null]));
+
   const byGroup = new Map<string, BalanceLine[]>();
   for (const row of rows) {
     const lines = byGroup.get(row.group_id) ?? [];
@@ -977,6 +1072,9 @@ export async function fetchMyPersonBalances(userId: string): Promise<PersonBalan
     [...byGroup.entries()].map(([groupId, balances]) => ({
       groupId,
       groupName: nameByGroup.get(groupId) ?? 'A group',
+      // Without this every group nets as the default and a dollar group's
+      // figure is added to a shekel one. `personBalances` keys on it.
+      currency: currencyByGroup.get(groupId) ?? null,
       balances,
     })),
     userId
@@ -998,6 +1096,7 @@ export async function fetchMyPersonBalances(userId: string): Promise<PersonBalan
       avatar_url: null,
     },
     amountAgorot: total.amountAgorot,
+    currency: total.currency,
     groupNames: total.groupNames,
   }));
 }
@@ -1007,17 +1106,19 @@ export interface HistoryEntry {
   amount_agorot: number;
   created_at: string;
   bet: Pick<BetRow, 'id' | 'title' | 'winning_option' | 'option_a_label' | 'option_b_label' | 'resolved_at'>;
-  group: Pick<GroupRow, 'id' | 'name' | 'emoji' | 'avatar_url'>;
+  group: Pick<GroupRow, 'id' | 'name' | 'emoji' | 'avatar_url' | 'currency'>;
 }
 
 export async function fetchMyHistory(userId: string): Promise<HistoryEntry[]> {
   if (isDemoMode()) return demo.fetchMyHistory(userId);
-  const data = await withGroupAvatarFallback((withAvatar) =>
+  const data = await withGroupColumnFallback((extras) =>
     supabase
       .from('bet_ledger_entries')
       .select(
         'id, amount_agorot, created_at, bet:bets(id, title, winning_option, option_a_label, option_b_label, resolved_at), ' +
-          `group:groups(id, name, emoji${withAvatar ? ', avatar_url' : ''})`
+          `group:groups(id, name, emoji${extras.currency ? ', currency' : ''}${
+            extras.avatar ? ', avatar_url' : ''
+          })`
       )
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
@@ -1065,6 +1166,53 @@ export async function fetchMyStats(): Promise<MyStatsRow | null> {
 
   const rows = (data ?? []) as MyStatsRow[];
   return rows[0] ?? null;
+}
+
+/** Won and lost, per currency. Normally one row. */
+export interface CurrencyTotal {
+  currency: Currency;
+  wonAgorot: number;
+  lostAgorot: number;
+  /** Won minus lost, in the same minor units. */
+  netAgorot: number;
+}
+
+/**
+ * Lifetime money, split by what it is denominated in.
+ *
+ * `my_stats`'s own `total_won_agorot` / `total_lost_agorot` sum across every
+ * group regardless of currency, which stopped being a true number the moment a
+ * group could be created in dollars. Its *counts* are still read from there,
+ * because a bet won is a bet won in any currency — see the head of
+ * `…_stats_by_currency.sql`.
+ *
+ * A project that has not applied that migration has no such function, and this
+ * returns an empty list rather than throwing: the profile falls back to
+ * `my_stats`, which is exactly right for the all-ILS account such a project
+ * necessarily has.
+ */
+export async function fetchMyTotalsByCurrency(): Promise<CurrencyTotal[]> {
+  if (isDemoMode()) return demo.fetchMyTotalsByCurrency();
+
+  const { data, error } = await supabase.rpc('my_totals_by_currency');
+  if (error) {
+    if (isMissingFunction(error)) return [];
+    throw new Error(error.message);
+  }
+
+  const rows = (data ?? []) as {
+    currency: string;
+    total_won_agorot: number;
+    total_lost_agorot: number;
+  }[];
+
+  // `bigint` arrives as a string from PostgREST often enough that every read
+  // site coerces it. Keep doing that.
+  return rows.map((row) => {
+    const won = Number(row.total_won_agorot);
+    const lost = Number(row.total_lost_agorot);
+    return { currency: asCurrency(row.currency), wonAgorot: won, lostAgorot: lost, netAgorot: won - lost };
+  });
 }
 
 /** The signed results the resolve-bet function wrote for one bet. */

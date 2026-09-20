@@ -236,7 +236,7 @@ describe('personBalances', () => {
       ME
     );
     expect(totals).toEqual([
-      { userId: DANA, amountAgorot: 4000, groupNames: ['Flat 4B'] },
+      { userId: DANA, amountAgorot: 4000, currency: 'USD', groupNames: ['Flat 4B'] },
     ]);
   });
 
@@ -248,7 +248,12 @@ describe('personBalances', () => {
       ] }],
       ME
     );
-    expect(totals[0]).toEqual({ userId: DANA, amountAgorot: -2500, groupNames: ['Flat 4B'] });
+    expect(totals[0]).toEqual({
+      userId: DANA,
+      amountAgorot: -2500,
+      currency: 'USD',
+      groupNames: ['Flat 4B'],
+    });
   });
 
   it('cancels the same person across two groups, and names both', () => {
@@ -266,7 +271,12 @@ describe('personBalances', () => {
       ME
     );
     expect(totals).toEqual([
-      { userId: DANA, amountAgorot: 2000, groupNames: ['Flat 4B', 'Sunday League'] },
+      {
+        userId: DANA,
+        amountAgorot: 2000,
+        currency: 'USD',
+        groupNames: ['Flat 4B', 'Sunday League'],
+      },
     ]);
   });
 
@@ -323,5 +333,160 @@ describe('personBalances', () => {
       ME
     );
     expect(totals.reduce((sum, t) => sum + t.amountAgorot, 0)).toBe(-9000);
+  });
+});
+
+describe('personBalances across currencies', () => {
+  const ME = 'user-me';
+  const DANA = 'user-dana';
+
+  it('keeps a dollar debt and a shekel debt apart', () => {
+    const totals = personBalances(
+      [
+        {
+          groupId: 'g1',
+          groupName: 'Flat 4B',
+          currency: 'USD',
+          balances: [
+            { userId: ME, amountAgorot: 3000 },
+            { userId: DANA, amountAgorot: -3000 },
+          ],
+        },
+        {
+          groupId: 'g2',
+          groupName: 'Sunday League',
+          currency: 'ILS',
+          balances: [
+            { userId: ME, amountAgorot: -3000 },
+            { userId: DANA, amountAgorot: 3000 },
+          ],
+        },
+      ],
+      ME
+    );
+
+    // The same person, twice, because +$30 and −₪30 are not the same quantity
+    // and cancelling them would invent an exchange rate.
+    expect(totals).toHaveLength(2);
+    expect(totals).toContainEqual({
+      userId: DANA,
+      amountAgorot: 3000,
+      currency: 'USD',
+      groupNames: ['Flat 4B'],
+    });
+    expect(totals).toContainEqual({
+      userId: DANA,
+      amountAgorot: -3000,
+      currency: 'ILS',
+      groupNames: ['Sunday League'],
+    });
+  });
+
+  it('still nets two groups that share a currency', () => {
+    const totals = personBalances(
+      [
+        {
+          groupId: 'g1',
+          groupName: 'Flat 4B',
+          currency: 'ILS',
+          balances: [
+            { userId: ME, amountAgorot: 3000 },
+            { userId: DANA, amountAgorot: -3000 },
+          ],
+        },
+        {
+          groupId: 'g2',
+          groupName: 'Sunday League',
+          currency: 'ILS',
+          balances: [
+            { userId: ME, amountAgorot: -1000 },
+            { userId: DANA, amountAgorot: 1000 },
+          ],
+        },
+      ],
+      ME
+    );
+
+    expect(totals).toEqual([
+      {
+        userId: DANA,
+        amountAgorot: 2000,
+        currency: 'ILS',
+        groupNames: ['Flat 4B', 'Sunday League'],
+      },
+    ]);
+  });
+
+  it('treats a group with no currency column as the default rather than its own bucket', () => {
+    const totals = personBalances(
+      [
+        {
+          groupId: 'g1',
+          groupName: 'Flat 4B',
+          balances: [
+            { userId: ME, amountAgorot: 1000 },
+            { userId: DANA, amountAgorot: -1000 },
+          ],
+        },
+        {
+          groupId: 'g2',
+          groupName: 'Sunday League',
+          currency: 'USD',
+          balances: [
+            { userId: ME, amountAgorot: 500 },
+            { userId: DANA, amountAgorot: -500 },
+          ],
+        },
+      ],
+      ME
+    );
+
+    expect(totals).toEqual([
+      {
+        userId: DANA,
+        amountAgorot: 1500,
+        currency: 'USD',
+        groupNames: ['Flat 4B', 'Sunday League'],
+      },
+    ]);
+  });
+
+  it('drops a person who is square in one currency but not another', () => {
+    const totals = personBalances(
+      [
+        {
+          groupId: 'g1',
+          groupName: 'Flat 4B',
+          currency: 'USD',
+          balances: [
+            { userId: ME, amountAgorot: 1000 },
+            { userId: DANA, amountAgorot: -1000 },
+          ],
+        },
+        {
+          groupId: 'g2',
+          groupName: 'Sunday League',
+          currency: 'USD',
+          balances: [
+            { userId: ME, amountAgorot: -1000 },
+            { userId: DANA, amountAgorot: 1000 },
+          ],
+        },
+        {
+          groupId: 'g3',
+          groupName: 'The Lads',
+          currency: 'GBP',
+          balances: [
+            { userId: ME, amountAgorot: -700 },
+            { userId: DANA, amountAgorot: 700 },
+          ],
+        },
+      ],
+      ME
+    );
+
+    expect(totals).toEqual([
+      { userId: DANA, amountAgorot: -700, currency: 'GBP', groupNames: ['The Lads'] },
+    ]);
   });
 });

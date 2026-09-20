@@ -15,6 +15,7 @@
  * - The entry point only renders in development (see `DEMO_AVAILABLE`).
  */
 import type { PickedMedia } from './media';
+import { DEFAULT_CURRENCY, asCurrency } from './currency';
 import { computeBetPayouts } from './payout';
 import { personBalances } from './settlement';
 import type {
@@ -39,7 +40,13 @@ import type {
   SettlementConfirmationRow,
   UserRow,
 } from './database.types';
-import type { GroupWithMembers, HistoryEntry, NewBetInput, ResolveBetResult } from './queries';
+import type {
+  CurrencyTotal,
+  GroupWithMembers,
+  HistoryEntry,
+  NewBetInput,
+  ResolveBetResult,
+} from './queries';
 
 /**
  * The demo entry point is development-only. `__DEV__` is false in any
@@ -192,21 +199,25 @@ function reset(fresh = false): void {
  */
 function withOptions(seeded: SeededState): DemoState {
   const options: BetOptionRow[] = seeded.bets.flatMap((bet) =>
-    [bet.option_a_label, bet.option_b_label].map((label, position) => ({
-      id: `${bet.id}-opt-${position}`,
-      bet_id: bet.id,
-      position,
-      label,
-      created_at: bet.created_at,
-    }))
+    [bet.option_a_label, bet.option_b_label, ...(seeded.extraOptions[bet.id] ?? [])].map(
+      (label, position) => ({
+        id: `${bet.id}-opt-${position}`,
+        bet_id: bet.id,
+        position,
+        label,
+        created_at: bet.created_at,
+      })
+    )
   );
 
   return {
     ...seeded,
     options,
-    positions: seeded.positions.map((p) => ({
+    positions: seeded.positions.map(({ optionIndex, ...p }) => ({
       ...p,
-      option_id: `${p.bet_id}-opt-${p.side === 'a' ? 0 : 1}`,
+      // `side` names the first two options and nothing else, which is exactly
+      // the limit the real column has; past those the seed says which.
+      option_id: `${p.bet_id}-opt-${optionIndex ?? (p.side === 'a' ? 0 : 1)}`,
     })),
     bets: seeded.bets.map((bet) => ({
       ...bet,
@@ -237,7 +248,23 @@ function emptySeed(): DemoState {
 }
 
 type SeededState = Omit<DemoState, 'options' | 'positions'> & {
-  positions: { bet_id: string; user_id: string; side: BetSide }[];
+  positions: {
+    bet_id: string;
+    user_id: string;
+    side: BetSide;
+    /** Which option, when it is one the `side` letter cannot name. */
+    optionIndex?: number;
+  }[];
+  /**
+   * Options past the first two, by bet id.
+   *
+   * The label columns carry options one and two and `bet_options` is the real
+   * list — §1's rule, mirrored here. Without this the demo could only ever
+   * describe two-option bets, so the stacked bar and its legend, which is what
+   * the app draws past two, had no way to appear on any screen the design loop
+   * can open.
+   */
+  extraOptions: Record<string, string[]>;
 };
 
 function seed(): SeededState {
@@ -254,6 +281,7 @@ function seed(): SeededState {
         emoji: '⚽️',
         created_by: DOR,
         invite_code: 'K7QM2X',
+        currency: 'USD',
         created_at: iso(-24 * 30),
       },
       {
@@ -262,6 +290,11 @@ function seed(): SeededState {
         emoji: '🏠',
         created_by: DEMO_USER_ID,
         invite_code: 'PL9WTZ',
+        // Deliberately not the same as the other group's. Two currencies is
+        // the case nothing else in the design loop can show — the profile
+        // stacking one lifetime figure per currency, and a person appearing in
+        // "who owes who" once per currency, only exist when they differ.
+        currency: 'ILS',
         created_at: iso(-24 * 12),
       },
     ],
@@ -274,6 +307,7 @@ function seed(): SeededState {
       { group_id: 'demo-group-2', user_id: NOA, role: 'member', joined_at: iso(-24 * 11) },
     ],
     invites: [],
+    extraOptions: { 'demo-bet-5': ['Yossi'] },
     bets: [
       {
         id: 'demo-bet-1',
@@ -321,6 +355,24 @@ function seed(): SeededState {
         resolved_at: null,
       },
       {
+        id: 'demo-bet-5',
+        group_id: groupId,
+        creator_id: NOA,
+        // Three options, which is the branch two-option bets never reach: the
+        // bar becomes a stacked track with a legend instead of a figure at
+        // each end. Nothing else in the demo draws it.
+        title: 'Who pays for the pitch next week?',
+        description: null,
+        option_a_label: 'Dor',
+        option_b_label: 'Noa',
+        total_pot_agorot: 2000,
+        status: 'open',
+        winning_option: null,
+        close_at: iso(30),
+        created_at: iso(-4),
+        resolved_at: null,
+      },
+      {
         id: 'demo-bet-4',
         group_id: groupId,
         creator_id: DEMO_USER_ID,
@@ -347,6 +399,9 @@ function seed(): SeededState {
       { bet_id: 'demo-bet-2', user_id: DOR, side: 'a' },
       { bet_id: 'demo-bet-3', user_id: DEMO_USER_ID, side: 'b' },
       { bet_id: 'demo-bet-3', user_id: NOA, side: 'a' },
+      { bet_id: 'demo-bet-5', user_id: DOR, side: 'a' },
+      { bet_id: 'demo-bet-5', user_id: NOA, side: 'b' },
+      { bet_id: 'demo-bet-5', user_id: YOSSI, side: 'a', optionIndex: 2 },
       { bet_id: 'demo-bet-4', user_id: DEMO_USER_ID, side: 'a' },
       { bet_id: 'demo-bet-4', user_id: DOR, side: 'b' },
       { bet_id: 'demo-bet-4', user_id: NOA, side: 'b' },
@@ -436,8 +491,30 @@ function withPositions(bet: BetRow, includeGroup = false): BetWithPositions {
       .filter((l) => l.bet_id === bet.id)
       .map((l) => ({ user_id: l.user_id })),
     comments: [{ count: state.comments.filter((c) => c.bet_id === bet.id).length }],
+    // The creator, so the demo exercises the same card path real data does.
+    // Without it the credit line under the group name simply never renders
+    // here and the one surface the design loop can actually look at is the one
+    // surface that cannot show the feature.
+    creator: (() => {
+      const u: UserRow | undefined = USERS[bet.creator_id];
+      return u
+        ? {
+            id: u.id,
+            display_name: u.display_name,
+            username: u.username ?? null,
+            avatar_url: u.avatar_url,
+          }
+        : null;
+    })(),
     ...(includeGroup && group
-      ? { group: { id: group.id, name: group.name, emoji: group.emoji } }
+      ? {
+          group: {
+            id: group.id,
+            name: group.name,
+            emoji: group.emoji,
+            currency: group.currency ?? 'USD',
+          },
+        }
       : {}),
   };
 }
@@ -464,7 +541,11 @@ export const demo = {
     return clone(withMembers(group));
   },
 
-  async createGroup(name: string, emoji: string | null): Promise<GroupRow> {
+  async createGroup(
+    name: string,
+    emoji: string | null,
+    currency: string = DEFAULT_CURRENCY
+  ): Promise<GroupRow> {
     const group: GroupRow = {
       id: `demo-group-${state.groups.length + 1}-${Date.now()}`,
       name,
@@ -472,6 +553,7 @@ export const demo = {
       avatar_url: null,
       created_by: DEMO_USER_ID,
       invite_code: randomCode(),
+      currency,
       created_at: new Date().toISOString(),
     };
     state.groups.push(group);
@@ -920,6 +1002,36 @@ export const demo = {
     };
   },
 
+  async fetchMyTotalsByCurrency(): Promise<CurrencyTotal[]> {
+    const byCurrency = new Map<string, { won: number; lost: number }>();
+
+    for (const entry of state.ledger.filter((e) => e.user_id === DEMO_USER_ID)) {
+      const bet = state.bets.find((b) => b.id === entry.bet_id);
+      const group = bet ? state.groups.find((g) => g.id === bet.group_id) : undefined;
+      const code = asCurrency(group?.currency);
+
+      const totals = byCurrency.get(code) ?? { won: 0, lost: 0 };
+      if (entry.amount_agorot > 0) totals.won += entry.amount_agorot;
+      else totals.lost += -entry.amount_agorot;
+      byCurrency.set(code, totals);
+    }
+
+    // Same order as the RPC: the currency with the most movement first, ties
+    // broken by name, so the demo cannot show an order the backend will not.
+    return [...byCurrency.entries()]
+      .map(([currency, t]) => ({
+        currency: asCurrency(currency),
+        wonAgorot: t.won,
+        lostAgorot: t.lost,
+        netAgorot: t.won - t.lost,
+      }))
+      .sort(
+        (a, b) =>
+          b.wonAgorot + b.lostAgorot - (a.wonAgorot + a.lostAgorot) ||
+          a.currency.localeCompare(b.currency)
+      );
+  },
+
   async updateProfile(patch: Partial<UserRow>): Promise<UserRow> {
     state.profile = { ...state.profile, ...patch };
     return clone(state.profile);
@@ -942,6 +1054,32 @@ export const demo = {
       username: match.username ?? '',
       avatar_url: match.avatar_url,
     });
+  },
+
+  async searchUsersByUsername(query: string): Promise<UserLookup[]> {
+    const prefix = query.trim().replace(/^@/, '').toLowerCase();
+    if (prefix.length < 2) return [];
+
+    // The same shape the RPC has, so the demo cannot teach the screen a
+    // behaviour the real backend does not have: prefix rather than contains,
+    // self and deleted rows out, shortest handle first, ten at most.
+    return clone(
+      Object.values(USERS)
+        .filter(
+          (u) =>
+            u.id !== DEMO_USER_ID &&
+            !!u.username &&
+            u.username.toLowerCase().startsWith(prefix)
+        )
+        .sort((a, b) => (a.username ?? '').length - (b.username ?? '').length)
+        .slice(0, 10)
+        .map((u) => ({
+          id: u.id,
+          display_name: u.display_name,
+          username: u.username ?? '',
+          avatar_url: u.avatar_url,
+        }))
+    );
   },
 
   async createDuel(username: string): Promise<GroupRow> {
@@ -1016,6 +1154,7 @@ export const demo = {
       .map((group) => ({
         groupId: group.id,
         groupName: group.kind === 'duel' ? 'Just the two of you' : group.name,
+        currency: group.currency ?? null,
         balances: state.members
           .filter((m) => m.group_id === group.id)
           .map((m) => ({
@@ -1038,6 +1177,7 @@ export const demo = {
     return personBalances(ledgers, userId).map((total) => ({
       user: USERS[total.userId] ?? { id: total.userId, display_name: 'Someone', avatar_url: null },
       amountAgorot: total.amountAgorot,
+      currency: total.currency,
       groupNames: total.groupNames,
     }));
   },

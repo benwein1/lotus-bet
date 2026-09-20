@@ -2282,3 +2282,196 @@ begin;
   select 'under-age account created' as check, count(*) as rows
     from public.users where id = 'f0f0f0f0-0000-4000-8000-000000000003';
 rollback;
+
+\echo '--- 50. Currency lives on the group, and cannot be mixed inside one ---'
+begin;
+  \echo '  (a) groups that predate the column are ILS, which is what they were'
+  select 'existing groups ILS' as check, count(*) as rows
+    from public.groups where currency = 'ILS';
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (b) a new group defaults to USD'
+  select 'new group USD' as check, count(*) as rows
+    from public.create_group('Dollar Group', null) g where g.currency = 'USD';
+
+  \echo '  (c) ...and an explicit currency is honoured'
+  select 'explicit GBP' as check, count(*) as rows
+    from public.create_group('Pound Group', null, 'GBP') g where g.currency = 'GBP';
+
+  \echo '  (d) the old two-argument call still resolves (must NOT be ambiguous)'
+  -- The overload trap: if both a 2-arg and a 3-arg form existed with defaults,
+  -- this call would fail with "is not unique" and every existing client with it.
+  select 'two-arg call works' as check, count(*) as rows
+    from public.create_group('Legacy Call') g where g.currency = 'USD';
+
+  \echo '  (e) an unsupported currency is refused (must fail)'
+  savepoint s1;
+  select public.create_group('Bad Money', null, 'XYZ');
+  rollback to s1;
+
+  \echo '  (f) the column constraint refuses it too, not just the RPC (must fail)'
+  savepoint s2;
+  reset role;
+  update public.groups set currency = 'XYZ'
+   where id = 'bbbbbbbb-0000-4000-8000-000000000000';
+  rollback to s2;
+rollback;
+
+\echo '--- 51. Username prefix search gives away as little as it can ---'
+begin;
+  -- Known handles, created here rather than relying on whatever
+  -- `suggest_username` generated for the seed accounts. Twelve sharing a
+  -- prefix, so the ten-row cap is actually exercised rather than vacuously
+  -- true.
+  insert into public.users (id, display_name, username, age_verified_at)
+  select ('f1f1f1f1-0000-4000-8000-0000000000' || lpad(i::text, 2, '0'))::uuid,
+         'Bar Person ' || i, 'barsearch' || i, now()
+  from generate_series(1, 12) i
+  on conflict (id) do nothing;
+
+  insert into public.users (id, display_name, username, age_verified_at)
+  values ('f2f2f2f2-0000-4000-8000-000000000001', 'Dana Search', 'danasearch', now())
+  on conflict (id) do nothing;
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (a) a two-character prefix finds people'
+  select 'prefix da finds Dana' as check, count(*) as rows
+    from public.search_users_by_username('da') where username = 'danasearch';
+
+  \echo '  (b) one character returns nothing — the namespace cannot be walked'
+  select 'single char leaks' as check, count(*) as rows
+    from public.search_users_by_username('d');
+
+  \echo '  (c) empty and null return nothing'
+  select 'empty leaks' as check, count(*) as rows
+    from public.search_users_by_username('');
+  select 'null leaks' as check, count(*) as rows
+    from public.search_users_by_username(null);
+
+  \echo '  (d) it is a PREFIX search, not contains'
+  -- "anasearch" is inside "danasearch". A contains-search would match it, and
+  -- would let two characters enumerate most of the table.
+  select 'contains matched' as check, count(*) as rows
+    from public.search_users_by_username('anasear');
+
+  \echo '  (e) you never appear in your own results'
+  reset role;
+  update public.users set username = 'selftest'
+   where id = 'aaaaaaaa-0000-4000-8000-000000000000';
+  set local role authenticated;
+  select 'self in results' as check, count(*) as rows
+    from public.search_users_by_username('selfte') where id = auth.uid();
+
+  \echo '  (f) capped at ten rows even though twelve match'
+  select 'rows returned (must be 10)' as check, count(*) as rows
+    from public.search_users_by_username('barsearch');
+
+  \echo '  (g) a deleted account cannot be found'
+  reset role;
+  update public.users set deleted_at = now()
+   where id = 'f2f2f2f2-0000-4000-8000-000000000001';
+  set local role authenticated;
+  select 'tombstone found' as check, count(*) as rows
+    from public.search_users_by_username('danasearch');
+rollback;
+
+\echo '--- 52. The new functions are not callable by anon ---'
+begin;
+  select 'new functions anon-callable' as check, count(*) as rows
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('search_users_by_username', 'create_group', 'create_duel')
+     and has_function_privilege('anon', p.oid, 'execute');
+rollback;
+
+\echo '--- 53. Lifetime totals are split by currency, never summed across them ---'
+begin;
+  -- Two groups, two currencies, one person with a result in each. The whole
+  -- point of the function is that these two numbers never meet.
+  insert into public.groups (id, name, emoji, created_by, invite_code, currency)
+  values
+    ('cc000000-0000-4000-8000-000000000001', 'Dollar Room', '💵',
+     'aaaaaaaa-0000-4000-8000-000000000000', 'CURA01', 'USD'),
+    ('cc000000-0000-4000-8000-000000000002', 'Shekel Room', '🪙',
+     'aaaaaaaa-0000-4000-8000-000000000000', 'CURA02', 'ILS')
+  on conflict (id) do nothing;
+
+  insert into public.group_members (group_id, user_id, role)
+  values
+    ('cc000000-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000000', 'admin'),
+    ('cc000000-0000-4000-8000-000000000002', 'aaaaaaaa-0000-4000-8000-000000000000', 'admin')
+  on conflict do nothing;
+
+  -- Inserted open and resolved afterwards, rather than written straight in as
+  -- resolved. Two constraints forbid the shortcut: `bets_resolved_requires_
+  -- timestamp` wants `resolved_at`, and `bets_winner_matches_status` wants a
+  -- `winning_option_id` — and the options themselves only exist once the
+  -- insert's own trigger has mirrored the label columns into `bet_options`.
+  insert into public.bets (id, group_id, creator_id, title, option_a_label, option_b_label,
+                           total_pot_agorot, status)
+  values
+    ('cc000000-0000-4000-8000-00000000000a', 'cc000000-0000-4000-8000-000000000001',
+     'aaaaaaaa-0000-4000-8000-000000000000', 'Dollar bet', 'Yes', 'No', 5000, 'open'),
+    ('cc000000-0000-4000-8000-00000000000b', 'cc000000-0000-4000-8000-000000000002',
+     'aaaaaaaa-0000-4000-8000-000000000000', 'Shekel bet', 'Yes', 'No', 3000, 'open')
+  on conflict (id) do nothing;
+
+  update public.bets b
+     set status = 'resolved',
+         resolved_at = now(),
+         winning_option_id = (
+           select o.id from public.bet_options o
+            where o.bet_id = b.id
+            order by o.position
+            limit 1
+         )
+   where b.id in ('cc000000-0000-4000-8000-00000000000a',
+                  'cc000000-0000-4000-8000-00000000000b');
+
+  -- `group_id` is NOT NULL on the ledger, denormalised so a balance can be
+  -- read without joining back through the bet.
+  insert into public.bet_ledger_entries (bet_id, group_id, user_id, amount_agorot)
+  values
+    ('cc000000-0000-4000-8000-00000000000a', 'cc000000-0000-4000-8000-000000000001',
+     'aaaaaaaa-0000-4000-8000-000000000000', 5000),
+    ('cc000000-0000-4000-8000-00000000000b', 'cc000000-0000-4000-8000-000000000002',
+     'aaaaaaaa-0000-4000-8000-000000000000', -3000);
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  \echo '  (a) one row per currency, each with only its own money'
+  select 'USD row: +5000 won, 0 lost' as check, count(*) as rows
+    from public.my_totals_by_currency()
+   where currency = 'USD' and total_won_agorot = 5000 and total_lost_agorot = 0;
+
+  select 'ILS row: 0 won, 3000 lost' as check, count(*) as rows
+    from public.my_totals_by_currency()
+   where currency = 'ILS' and total_won_agorot = 0 and total_lost_agorot = 3000;
+
+  \echo '  (b) no row adds the two together'
+  -- 5000 - 3000 = 2000 is the number a currency-blind sum would produce, and
+  -- it is wrong in both currencies. Nothing may report it.
+  select 'summed across currencies' as check, count(*) as rows
+    from public.my_totals_by_currency()
+   where total_won_agorot - total_lost_agorot = 2000;
+
+  \echo '  (c) it only ever reports your own money'
+  set local request.jwt.claim.sub = 'bbbbbbbb-0000-4000-8000-000000000001';
+  select 'someone else sees my totals' as check, count(*) as rows
+    from public.my_totals_by_currency()
+   where total_won_agorot = 5000 or total_lost_agorot = 3000;
+rollback;
+
+\echo '--- 54. my_totals_by_currency is not callable by anon ---'
+begin;
+  select 'totals fn anon-callable' as check, count(*) as rows
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname = 'my_totals_by_currency'
+     and has_function_privilege('anon', p.oid, 'execute');
+rollback;
