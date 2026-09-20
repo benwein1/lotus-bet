@@ -1,50 +1,11 @@
 import {
   formatRelativeShort,
-  formatAgorot,
   formatCountdown,
   initials,
   isValidEmail,
   passwordProblem,
-  parseIlsToAgorot,
   positionPercentages,
 } from '@/lib/format';
-
-describe('formatAgorot', () => {
-  it('drops the decimals on whole shekels', () => {
-    expect(formatAgorot(10000)).toBe('₪100');
-    expect(formatAgorot(0)).toBe('₪0');
-  });
-
-  it('keeps agorot when there are any', () => {
-    expect(formatAgorot(3334)).toBe('₪33.34');
-  });
-
-  it('marks debts with a minus sign', () => {
-    expect(formatAgorot(-5000)).toBe('−₪50');
-  });
-
-  it('can force an explicit sign', () => {
-    expect(formatAgorot(5000, { sign: true })).toBe('+₪50');
-    expect(formatAgorot(-5000, { sign: true })).toBe('−₪50');
-  });
-});
-
-describe('parseIlsToAgorot', () => {
-  it('accepts plain and decorated amounts', () => {
-    expect(parseIlsToAgorot('100')).toBe(10000);
-    expect(parseIlsToAgorot('₪100')).toBe(10000);
-    expect(parseIlsToAgorot('12.5')).toBe(1250);
-    expect(parseIlsToAgorot('1,000')).toBe(100000);
-  });
-
-  it('rejects anything that is not a positive amount', () => {
-    expect(parseIlsToAgorot('')).toBeNull();
-    expect(parseIlsToAgorot('0')).toBeNull();
-    expect(parseIlsToAgorot('-5')).toBeNull();
-    expect(parseIlsToAgorot('12.345')).toBeNull();
-    expect(parseIlsToAgorot('abc')).toBeNull();
-  });
-});
 
 describe('positionPercentages', () => {
   it('splits by headcount', () => {

@@ -33,14 +33,36 @@ Other standing scope boundaries:
 - **No public or global discovery.** Bets are always scoped to a group; the
   Home feed shows only bets from groups you are in. A one-on-one challenge is
   no exception — it creates a real two-person group (`groups.kind = 'duel'`)
-  that the Groups tab hides. **Looking somebody up is exact-handle only**, and
-  that is a security property, not a missing feature: a prefix or fuzzy search
-  over `users` is an endpoint anyone could walk to harvest every account.
+  that the Groups tab hides. **Looking somebody up is a prefix search over
+  handles and nothing more** — `search_users_by_username`, which refuses a
+  query under two characters, matches `'bar%'` and never `'%bar%'`, returns at
+  most ten rows, and hands back only the handle, display name and avatar.
+  This reversed a stricter rule (exact handle only) on the owner's call,
+  because a field you can only use if you can already spell somebody's handle
+  is a field most people cannot use. It is still a user-enumeration surface
+  and the narrowness is what keeps it small; there is **no rate limit on it
+  yet**, which the head of `…_username_search.sql` records as the open part.
+  Do not widen it to `contains`, to a search over display names, or to a
+  one-character query.
 - **A bet can be private to some of its group.** `bets.visibility = 'private'`
   plus a `bet_invitees` list. It narrows an audience; it never reaches outside
   the group.
 - **No editing a bet after creation.** The creator can lock, resolve or
   cancel. That's the whole surface.
+- **A group picks its currency once, at creation, and keeps it.** `groups.
+  currency` is one of USD, EUR, GBP or ILS; existing groups are ILS and new
+  ones default to USD. The integers did not change — `total_pot_agorot` and
+  `amount_agorot` are minor units of *that* currency, cents in a dollar group,
+  and `payout.ts` never cared what they counted. **There is no exchange rate
+  anywhere in this app and there must not be one**: a rate would make a debt
+  two friends agreed on drift between the day it was recorded and the day it is
+  paid. Anything that spans groups therefore reports per currency rather than
+  summing — `personBalances` keys on (person, currency), and the profile's
+  lifetime figures come from `my_totals_by_currency`, not from `my_stats`'s two
+  money columns, which still add everything together and are only correct for
+  an account whose groups all agree. Money is formatted by `lib/currency.ts`;
+  `formatAgorot` is gone, because two formatters is how one figure ends up
+  printed two ways.
 
 ---
 
@@ -54,7 +76,7 @@ npm start                 # Expo dev server; press "i" for iOS simulator
 npm run web               # fastest loop for design work — no Xcode needed
 npm run ios / android
 
-npm test                  # jest — 400 tests, pure logic + a theme drift check
+npm test                  # jest — 437 tests, pure logic + a theme drift check
 npm run typecheck         # tsc --noEmit
 npm run lint
 npm run theme             # regenerate global.css from theme-colors.json
@@ -128,6 +150,7 @@ src/
   components/bet-grid.tsx     the bets you started, as a grid on Profile
   components/bet-proof.tsx    proof-of-outcome gallery on a resolved bet
   components/payment-sheet.tsx amount entry for a part payment
+  components/bet-cover.tsx  the generated background a bet with no photo gets
   components/legal-document.tsx  the terms, the policy and the support page
   components/app-mark.tsx  the app mark, wherever the app shows its own face
   components/animated-splash.tsx  the hand-off out of the native splash,
@@ -145,14 +168,17 @@ src/
   lib/queries.ts            every Supabase read/write the app makes
   lib/media.ts              picking, uploading and signing bet media
   lib/media-rules.ts        …and its pure half, which is what the tests hold
-  lib/format.ts             agorot ↔ shekels, countdowns, initials, email
+  lib/currency.ts           minor units ↔ a string, per group; the picker's list
+  lib/format.ts             countdowns, initials, email — NOT money any more
+  lib/feed-order.ts         pure: live above closed, newest first inside each
+  lib/bet-cover.ts          pure: which generated cover a bet gets, and the six
   lib/database.types.ts     hand-written row types
   lib/supabase.ts           client; `isSupabaseConfigured` guard
   lib/notifications.ts      push registration + the three server announcements
   lib/reminders.ts          local deadline reminders (the device half)
   lib/reminder-rules.ts     …and the pure half, which is what the tests hold
   lib/odds.ts               percentages that always total exactly 100
-  lib/postgrest.ts          reading PostgREST's "column does not exist"
+  lib/postgrest.ts          reading PostgREST's "column/function does not exist"
   hooks/                    use-async · use-group-realtime · use-settlement ·
                             use-reduced-motion · use-tab-bar-inset ·
                             use-bet-comments (one thread, two surfaces)
@@ -164,7 +190,9 @@ global.css                  GENERATED from it by scripts/build-theme-css.js
 legal-text.json             SINGLE SOURCE OF TRUTH for terms, privacy, support
 public/legal/*.html         GENERATED from it by scripts/build-legal-html.js,
                             at build time, gitignored — see §11
-assets/logo/mark.svg       the mark; scripts/build-icons.mjs renders every size
+assets/logo/mark.svg       the mark — one green-to-blue ramp across the whole
+                            fan; scripts/build-icons.mjs renders every size, and
+                            animated-mark.tsx redraws the same petals and ramps
 supabase/
   migrations/               schema · RLS · RPCs · email auth · media · avatars ·
                             bet options · notification prefs · social ·
@@ -176,7 +204,8 @@ supabase/
                             bets by creator · anon RPC lockdown ·
                             social sign-in · anon execute relock · feed index ·
                             minimum age · invite token search path ·
-                            grandfather existing accounts (31)
+                            grandfather existing accounts · group currency ·
+                            username search · stats by currency (34)
   functions/_shared/        payout.ts (canonical), push.ts, supabase.ts
   functions/notify/         the single push fan-out for all three server events
   functions/sweep-media/    scheduled retention for cancelled bets' media
@@ -187,7 +216,7 @@ supabase/admin/             review_queue.sql — the moderation queue as things
 __tests__/                  payout · settlement · format · theme · odds · oauth-rules · age ·
                             postgrest · reminders · invite-links · media-split ·
                             auth-links · coalesce · content-rules · errors ·
-                            suggestions · legal
+                            suggestions · legal · feed-and-money
 ```
 
 **All Supabase access goes through `src/lib/queries.ts`.** Screens never
@@ -224,6 +253,7 @@ never need to be.
 | `primary` / `secondary` / `tertiary` | label → secondary label → placeholder |
 | `inverse` | text on an inverted surface |
 | `accent` (+ `-strong`, `-soft`, `-ink`) | the one decisive colour |
+| `brand` (+ `-strong`, `-soft`, `-ink`) | Spring Mint — status and selection only |
 | `positive` / `negative` (+ `-soft`) | money owed to you / that you owe |
 | `sideA` / `sideB` (+ `-soft`, `-onMedia`) | the two sides of a bet |
 | `chrome` / `chrome-edge` | translucent floating material and its lit edge |
@@ -319,9 +349,16 @@ thicker: the tab bar takes a much higher blur intensity than a chip would.
 - **No tracked ALL-CAPS eyebrows.** `SectionTitle` is sentence case at Title 3.
 - **No middle-dot meta strings** (`A · B · C`). Write the sentence.
 - **No near-black-as-grey.** The dark ramp is genuinely black-first.
-- **One accent, used with meaning** — blue carries every action; green and red
-  carry direction, both on the ledger and on the two sides of a bet. Nothing is
-  coloured for decoration.
+- **One accent, used with meaning** — blue carries every action; `positive` and
+  `negative` carry direction, both on the ledger and on the two sides of a bet.
+  Nothing is coloured for decoration.
+- **`brand` is the fourth colour and it has one job.** Spring Mint, the app's
+  secondary, marks *status and selection*: the live dot, the "open" badge, a
+  selected chip, the mark itself. It never carries a number and never carries a
+  side — that is `positive` and `sideA`, which sit only 8 degrees of hue away.
+  The separation is the job, not the distance, which is why a green live dot
+  labelled "Live" can sit on the same card as a green side button. The full
+  rule is in `tailwind.config.js` next to the token.
 - **Loading states are skeletons, not spinners**, anywhere the shape of the
   content is known.
 
@@ -441,6 +478,20 @@ without media gives the question the space the media would have had. Sides can
 be picked straight from the card. Only the card actually on screen plays its
 video (`active` prop, driven by `onViewableItemsChanged`).
 
+**The card is a glance, and the bet screen is the detail.** That split is the
+rule the card is built to, and it is what decides whether something belongs on
+it: group, creator, title, ground, amount, the bar, and the three actions. Not
+on it, and all still on the bet screen — the description, the word "pot", the
+"share of the N people who've picked" caption, and the headcount under each
+side. `OddsBar` carries that as a `compact` prop rather than a second
+component, since the two differ in density and nothing else.
+
+The one thing compact does **not** drop is the option labels. "65%  35%" with
+no names is unreadable on a bet that is locked or resolved, because the option
+buttons are gone from the card too and there is then no second copy anywhere —
+so compact sets each label beside its figure instead of above it, which costs a
+line of height rather than the meaning.
+
 Screens leave room for the floating tab bar with `useTabBarInset()`.
 
 ### Bets you started
@@ -472,12 +523,20 @@ became a hole with text floating in it.
 The interaction is shaped like the feeds people already use, because nobody
 should have to learn how to argue with their friends. What that means here:
 
-- **The feed card carries the icons and one line of text.** Heart with its
-  count, comment bubble without one, and underneath either "View all N
-  comments" or — when there are none — "Add a comment", which asks for the
-  first one instead of printing a zero. The count appears once, not twice.
+- **The feed card carries three icons and nothing else.** Heart with its count,
+  comment bubble with its count, share without one. There used to be a line of
+  text underneath — "View all N comments", or "Add a comment" when there were
+  none — and it is gone: the owner's call, on the grounds that the feed is a
+  glance and a card that talks is not. The count moved to the bubble where a
+  count belongs, which is also why `BetActions` lost its `showCommentCount`
+  prop: it existed only so the card could suppress the number while that line
+  printed it, and with the line gone nothing set it.
+
+  What that cost, recorded because it was a real property and not an accident:
+  an empty thread no longer *invites* the first comment, it just shows a bubble
+  with no number beside it. The bet screen still asks.
 - **From the feed the thread opens as a sheet, not as another screen.**
-  Pressing "Add a comment" on a card used to push the bet screen, which is the
+  Pressing the bubble on a card used to push the bet screen, which is the
   wrong trade: you lose the photo you were looking at, the feed's scroll
   position and the video that was playing, to read three sentences.
   `BetCommentsSheet` rises over the feed instead, dismissed by the scrim, the

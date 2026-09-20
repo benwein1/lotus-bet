@@ -38,7 +38,8 @@ import { useForegroundRefresh } from '@/hooks/use-foreground-refresh';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import type { BetSide, BetWithPositions, UserRow } from '@/lib/database.types';
-import { formatAgorot, formatCountdown, formatShortDate } from '@/lib/format';
+import { formatMoney } from '@/lib/currency';
+import { formatCountdown, formatShortDate } from '@/lib/format';
 import { previewShareAgorot } from '@/lib/payout';
 import {
   cancelBet,
@@ -204,7 +205,10 @@ export default function BetDetailScreen() {
       message:
         winners === 0
           ? 'Nobody backed that side, so nothing will change hands. This cannot be undone.'
-          : `${winners} ${winners === 1 ? 'person splits' : 'people split'} ${formatAgorot(data.total_pot_agorot)}. This cannot be undone.`,
+          : `${winners} ${winners === 1 ? 'person splits' : 'people split'} ${formatMoney(
+              data.total_pot_agorot,
+              data.group?.currency
+            )}. This cannot be undone.`,
       confirmLabel: 'Resolve',
       destructive: true,
       onConfirm: () =>
@@ -298,7 +302,7 @@ export default function BetDetailScreen() {
               <View className="rounded-3xl border border-hairline bg-surface p-4">
                 <View className="mb-5 flex-row items-end justify-between">
                   <Text className="text-subhead text-secondary">Total pot</Text>
-                  <Money agorot={data.total_pot_agorot} size="lg" tone="accent" />
+                  <Money agorot={data.total_pot_agorot} currency={data.group?.currency} size="lg" tone="accent" />
                 </View>
                 <OddsBar
                   slices={slices}
@@ -332,6 +336,7 @@ export default function BetDetailScreen() {
                   // Joining makes that option one bigger, so preview against
                   // n+1 unless you are already on it. No preview once the bet
                   // is closed — the number would be a promise nobody can take.
+                  currency={data.group?.currency}
                   shareAgorot={
                     canJoin
                       ? previewShareAgorot(
@@ -526,6 +531,7 @@ function OptionCard({
   pressable,
   disabled,
   shareAgorot,
+  currency,
   won,
   people,
   onPress,
@@ -539,6 +545,8 @@ function OptionCard({
   disabled: boolean;
   /** Null while the bet is still joinable — there is no payoff to preview. */
   shareAgorot: number | null;
+  /** The group's, since the pot is denominated by the group and not the bet. */
+  currency?: string | null;
   /** Null while unresolved; true/false once a winner is declared. */
   won: boolean | null;
   people: { id: string; name: string; avatarUrl?: string | null }[];
@@ -582,7 +590,7 @@ function OptionCard({
           the reason to choose, the number is the consequence of choosing. */}
       {shareAgorot !== null && (
         <Text className="mt-1 text-sm text-secondary">
-          {selected ? 'Tap to withdraw' : `Win ~${formatAgorot(shareAgorot)}`}
+          {selected ? 'Tap to withdraw' : `Win ~${formatMoney(shareAgorot, currency)}`}
         </Text>
       )}
     </>
@@ -758,7 +766,7 @@ function ResolvedSummary({
               }
               className="mt-0.5"
             >
-              <Money agorot={myAmountAgorot} size="xl" sign />
+              <Money agorot={myAmountAgorot} currency={bet.group?.currency} size="xl" sign />
             </Animated.View>
           </>
         )}

@@ -41,3 +41,22 @@ export function isUnknownWriteColumn(
   if (error.code === 'PGRST204') return true;
   return isMissingColumn(error, column) || error.message.includes(`'${column}' column`);
 }
+
+/**
+ * True when an RPC failed because the project does not have that function.
+ *
+ * The same class of problem `isMissingColumn` solves, one level up: a client
+ * that has shipped ahead of the database calls a function the project has not
+ * migrated yet, and the caller wants to fall back rather than show an error
+ * about a name the user has never heard of.
+ *
+ * Two shapes again. PostgREST answers PGRST202 — "Could not find the function
+ * public.x in the schema cache" — when the function is absent from its cached
+ * schema, which is the case that actually happens. 42883 is Postgres's own
+ * `undefined_function`, which surfaces when the call reaches the database and
+ * no overload matches.
+ */
+export function isMissingFunction(error: { code?: string; message: string }): boolean {
+  if (error.code === 'PGRST202' || error.code === '42883') return true;
+  return error.message.includes('function') && error.message.includes('does not exist');
+}

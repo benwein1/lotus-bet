@@ -228,7 +228,7 @@ function GroupRow({
           </View>
 
           <View className="items-end gap-1">
-            <BalancePreview balance={balance} />
+            <BalancePreview balance={balance} currency={group.currency} />
           </View>
 
           <ChevronRightIcon size={17} color={colors.textTertiary} />
@@ -253,7 +253,13 @@ function HowItWorks({ step, title, body }: { step: string; title: string; body: 
   );
 }
 
-function BalancePreview({ balance }: { balance: number | null }) {
+function BalancePreview({
+  balance,
+  currency,
+}: {
+  balance: number | null;
+  currency?: string | null;
+}) {
   if (balance === null) return null;
 
   if (balance === 0) {
@@ -268,7 +274,12 @@ function BalancePreview({ balance }: { balance: number | null }) {
   const owed = balance > 0;
   return (
     <>
-      <Money agorot={Math.abs(balance)} size="md" tone={owed ? 'positive' : 'negative'} />
+      <Money
+        agorot={Math.abs(balance)}
+        currency={currency}
+        size="md"
+        tone={owed ? 'positive' : 'negative'}
+      />
       <Text className="text-xs text-tertiary">{owed ? "you're owed" : 'you owe'}</Text>
     </>
   );

@@ -5,7 +5,7 @@ import { Text, View } from 'react-native';
 import { GroupGlyph } from '@/components/group-glyph';
 import { PlusIcon, SparkIcon } from '@/components/icons';
 import { Button, PressableScale, tap } from '@/components/ui';
-import { formatAgorot } from '@/lib/format';
+import { DEFAULT_CURRENCY, asCurrency, formatMoney } from '@/lib/currency';
 import type { GroupWithMembers } from '@/lib/queries';
 import { CATEGORY_LABEL, suggestBets, suggestionSeed, type BetSuggestion } from '@/lib/suggestions';
 import { useColors } from '@/providers/theme-provider';
@@ -41,6 +41,19 @@ export function BetSuggestions({
 
   // Seeded per half hour rather than per render: a card must not move under
   // the finger because the keyboard appeared or a refresh landed.
+  /**
+   * A suggestion is not in a group yet — you pick one after pressing it — so
+   * there is no single right currency to print. When every group you are in
+   * agrees, that is the answer; when they do not, the default is the least
+   * misleading guess, and the real symbol appears on the new-bet screen a tap
+   * later either way.
+   */
+  const currency = useMemo(() => {
+    const codes = new Set(groups.map((g) => asCurrency(g.currency)));
+    const only = [...codes];
+    return only.length === 1 ? only[0] ?? DEFAULT_CURRENCY : DEFAULT_CURRENCY;
+  }, [groups]);
+
   const seed = useMemo(() => suggestionSeed(), []);
   const suggestions = useMemo(() => suggestBets(count, seed), [count, seed]);
 
@@ -166,6 +179,7 @@ export function BetSuggestions({
           <SuggestionCard
             key={suggestion.id}
             suggestion={suggestion}
+            currency={currency}
             onPress={() => choose(suggestion)}
           />
         ))}
@@ -192,9 +206,11 @@ export function BetSuggestions({
 
 function SuggestionCard({
   suggestion,
+  currency,
   onPress,
 }: {
   suggestion: BetSuggestion;
+  currency: string;
   onPress: () => void;
 }) {
   return (
@@ -223,7 +239,7 @@ function SuggestionCard({
           </Text>
         </View>
         <Text className="ml-auto text-xs text-tertiary">
-          {formatAgorot(suggestion.potAgorot)} pot
+          {formatMoney(suggestion.potAgorot, currency)} pot
         </Text>
       </View>
     </PressableScale>

@@ -12,10 +12,36 @@
   live decision, not an oversight: see APP_STORE.md, where the 1024px icon is
   a listing requirement.
 
-  Flat and geometric on purpose. An app icon is seen at 60px on a home screen
-  far more often than at 1024, and strokes or gradients turn to mush there.
-  The three tones are flat fills; the depth comes from the overlap order, not
-  from a gradient.
+  ### Why there is a gradient here, when this file used to forbid one
+  This file used to argue for flat fills on the grounds that "strokes or
+  gradients turn to mush" at the 60px an icon is actually seen at. That is true
+  of *small* gradients — a highlight inside one petal, a bevel, a soft edge —
+  because downscaling averages them away. It is not true of one large sweep
+  across the whole mark, which is what this is: a single vertical ramp from
+  green at the fan's base to blue at its tips, spanning the full height. At
+  60px it still reads as green below and blue above, because there is nothing
+  fine about it to lose.
+
+  The gradient carries both of the app's colours — accent blue, and Spring Mint,
+  the secondary added with `brand`. The mark is the one place they belong
+  together.
+
+  ### Three layers, three ramps, and why it is painted through a clip
+  The depth still comes from the overlap order and the three tones, not from
+  the gradient: the outer pair is darkest and furthest back, the centre petal
+  brightest and on top. Each layer therefore gets its own ramp, darkest to
+  brightest, and the three are stacked in that order.
+
+  Each layer is painted as a full-bleed rect through a clipPath of that layer's
+  petals, rather than by filling the petals directly. That is the difference
+  between this and a per-petal gradient: a `use` carries its rotation into the
+  gradient's user space, so filling the petals would run each ramp along its
+  own petal and the outer pair would come out rotated ±54° from the rest. The
+  clip keeps every ramp vertical in the mark's own space, so the whole fan
+  shares one transition.
+
+  `src/components/animated-mark.tsx` redraws these same petals with the same
+  ramps for the splash. If this file changes, that one has to follow.
 
   Drawn on a 512 box with the mark optically centred — the fan is wider than
   it is tall, so centring it on the geometric middle leaves it looking low.
@@ -29,6 +55,36 @@
          C 206 292, 200 208, 256 122
          C 312 208, 306 292, 256 366 Z"
     />
+
+    <!--
+      y1 is the fan's base and y2 its highest point, so 0% is green at the
+      bottom and 100% blue at the top, in the mark's own coordinates.
+    -->
+    <clipPath id="clip-outer">
+      <use href="#petal" transform="rotate(-54 256 366)" />
+      <use href="#petal" transform="rotate(54 256 366)" />
+    </clipPath>
+    <linearGradient id="ramp-outer" gradientUnits="userSpaceOnUse" x1="256" y1="372" x2="256" y2="126">
+      <stop offset="0%" stop-color="#0E5B3A" />
+      <stop offset="100%" stop-color="#0A4E97" />
+    </linearGradient>
+
+    <clipPath id="clip-inner">
+      <use href="#petal" transform="rotate(-27 256 366)" />
+      <use href="#petal" transform="rotate(27 256 366)" />
+    </clipPath>
+    <linearGradient id="ramp-inner" gradientUnits="userSpaceOnUse" x1="256" y1="372" x2="256" y2="126">
+      <stop offset="0%" stop-color="#17864F" />
+      <stop offset="100%" stop-color="#0961BC" />
+    </linearGradient>
+
+    <clipPath id="clip-centre">
+      <use href="#petal" />
+    </clipPath>
+    <linearGradient id="ramp-centre" gradientUnits="userSpaceOnUse" x1="256" y1="372" x2="256" y2="126">
+      <stop offset="0%" stop-color="#22B573" />
+      <stop offset="100%" stop-color="#2E92FF" />
+    </linearGradient>
   </defs>
 
   <!--
@@ -38,14 +94,12 @@
   -->
   <g transform="translate(256 256) scale(1.16) translate(-256 -251)">
     <!-- Outer pair, laid down first and furthest back. -->
-    <use href="#petal" fill="#0A4E97" transform="rotate(-54 256 366)" />
-    <use href="#petal" fill="#0A4E97" transform="rotate(54 256 366)" />
+    <rect x="0" y="0" width="512" height="512" fill="url(#ramp-outer)" clip-path="url(#clip-outer)" />
 
     <!-- Inner pair. -->
-    <use href="#petal" fill="#0961BC" transform="rotate(-27 256 366)" />
-    <use href="#petal" fill="#0961BC" transform="rotate(27 256 366)" />
+    <rect x="0" y="0" width="512" height="512" fill="url(#ramp-inner)" clip-path="url(#clip-inner)" />
 
     <!-- The centre petal sits on top, at full strength. -->
-    <use href="#petal" fill="#2E92FF" />
+    <rect x="0" y="0" width="512" height="512" fill="url(#ramp-centre)" clip-path="url(#clip-centre)" />
   </g>
 </svg>

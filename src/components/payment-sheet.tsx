@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Modal, Text, TextInput, View } from 'react-native';
 
 import { Button, Money, PressableScale } from '@/components/ui';
-import { formatAgorot, parseIlsToAgorot } from '@/lib/format';
+import { currencyLabel, currencySymbol, formatMoney, parseMoneyToMinor } from '@/lib/currency';
 import { useColors } from '@/providers/theme-provider';
 import { elevation } from '@/theme';
 
@@ -34,11 +34,14 @@ export interface PendingPayment {
  */
 export function PaymentSheet({
   payment,
+  currency,
   saving,
   onCancel,
   onConfirm,
 }: {
   payment: PendingPayment | null;
+  /** The group's currency. Every figure in this sheet is in its minor units. */
+  currency?: string | null;
   saving: boolean;
   onCancel: () => void;
   onConfirm: (amountAgorot: number) => void;
@@ -48,14 +51,14 @@ export function PaymentSheet({
 
   // Re-prime whenever a different payment opens the sheet.
   useEffect(() => {
-    if (payment) setDraft(shekelsFor(payment.amountAgorot));
+    if (payment) setDraft(majorUnitsFor(payment.amountAgorot));
   }, [payment]);
 
   if (!payment) {
     return <Modal visible={false} transparent onRequestClose={onCancel} />;
   }
 
-  const parsed = parseIlsToAgorot(draft);
+  const parsed = parseMoneyToMinor(draft, currency);
   const amount = parsed ?? 0;
   const tooMuch = amount > payment.amountAgorot;
   const valid = parsed !== null && amount > 0 && !tooMuch;
@@ -83,11 +86,11 @@ export function PaymentSheet({
           <Text className="text-lg font-bold text-primary">How much was paid?</Text>
           <Text className="mt-2 text-subhead leading-5 text-secondary">
             {payer} owe{payment.iPay ? '' : 's'} {payee}{' '}
-            {formatAgorot(payment.amountAgorot)}. Record whatever actually changed hands.
+            {formatMoney(payment.amountAgorot, currency)}. Record whatever actually changed hands.
           </Text>
 
           <View className="mt-5 flex-row items-center gap-2 rounded-2xl border border-hairline bg-surface2 px-4">
-            <Text className="text-2xl font-bold text-secondary">₪</Text>
+            <Text className="text-2xl font-bold text-secondary">{currencySymbol(currency)}</Text>
             <TextInput
               value={draft}
               onChangeText={setDraft}
@@ -95,7 +98,7 @@ export function PaymentSheet({
               selectTextOnFocus
               autoFocus
               editable={!saving}
-              accessibilityLabel="Amount paid, in shekels"
+              accessibilityLabel={`Amount paid, in ${currencyLabel(currency)}`}
               placeholder="0"
               placeholderTextColor={colors.textTertiary}
               className="flex-1 py-3 text-2xl font-bold text-primary"
@@ -109,7 +112,7 @@ export function PaymentSheet({
             />
             {amount !== payment.amountAgorot && (
               <PressableScale
-                onPress={() => setDraft(shekelsFor(payment.amountAgorot))}
+                onPress={() => setDraft(majorUnitsFor(payment.amountAgorot))}
                 hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel="Fill in the full amount"
@@ -123,12 +126,12 @@ export function PaymentSheet({
           {tooMuch ? (
             <Text className="mt-2.5 px-1 text-sm text-negative">
               That is more than is outstanding. The most you can record here is{' '}
-              {formatAgorot(payment.amountAgorot)}.
+              {formatMoney(payment.amountAgorot, currency)}.
             </Text>
           ) : valid && remainder > 0 ? (
             <View className="mt-2.5 flex-row items-center gap-1.5 px-1">
               <Text className="text-sm text-secondary">Still outstanding after this:</Text>
-              <Money agorot={remainder} size="sm" tone="neutral" />
+              <Money agorot={remainder} currency={currency} size="sm" tone="neutral" />
             </View>
           ) : (
             <Text className="mt-2.5 px-1 text-sm text-tertiary">
@@ -163,6 +166,14 @@ export function PaymentSheet({
  * Agorot to an editable shekel string. Whole amounts lose the `.00` — most
  * settle-ups are round numbers and `40` is easier to edit than `40.00`.
  */
-function shekelsFor(agorot: number): string {
-  return agorot % 100 === 0 ? String(agorot / 100) : (agorot / 100).toFixed(2);
+/**
+ * Minor units → what goes in the box, with no symbol: the symbol is already
+ * printed beside the field, and typing it back in would double it.
+ *
+ * All four supported currencies have 100 minor units to the major one, so this
+ * is the same arithmetic it always was — it just no longer claims to be
+ * shekels in its name.
+ */
+function majorUnitsFor(minor: number): string {
+  return minor % 100 === 0 ? String(minor / 100) : (minor / 100).toFixed(2);
 }

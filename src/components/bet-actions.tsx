@@ -7,7 +7,7 @@ import Animated, {
   withSpring,
 } from '@/components/animated';
 
-import { CommentIcon, HeartIcon } from '@/components/icons';
+import { CommentIcon, HeartIcon, ShareIcon } from '@/components/icons';
 import { PressableScale, tap } from '@/components/ui';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useColors } from '@/providers/theme-provider';
@@ -31,8 +31,8 @@ export function BetActions({
   onToggleLike,
   onPressComments,
   onMedia = false,
+  onPressShare,
   size = 'md',
-  showCommentCount = true,
 }: {
   liked: boolean;
   likeCount: number;
@@ -46,12 +46,9 @@ export function BetActions({
   onPressComments?: () => void;
   /** Over a photo or video, where the palette has to ignore the scheme. */
   onMedia?: boolean;
+  /** Opens the OS share sheet. Omitted where a bet has no shareable link. */
+  onPressShare?: () => void;
   size?: 'sm' | 'md';
-  /**
-   * False where a "View all N comments" line sits underneath and already
-   * carries the number. Printing it twice in the same corner reads as a bug.
-   */
-  showCommentCount?: boolean;
 }) {
   const colors = useColors();
   const reduced = useReducedMotion();
@@ -132,11 +129,27 @@ export function BetActions({
           className="flex-row items-center gap-1.5"
         >
           <CommentIcon size={iconSize} color={restingColor} />
-          {showCommentCount && commentCount > 0 ? (
+          {commentCount > 0 ? (
             <Text style={tabular} className={`text-sm ${label}`}>
               {commentCount}
             </Text>
           ) : null}
+        </PressableScale>
+      )}
+
+      {/* Third and last, after the two that are about *this* group. Sharing
+          points outward, so it reads as the end of the row rather than
+          competing with the heart. No count — there is nothing to count, and a
+          zero next to it would invite one. */}
+      {onPressShare && (
+        <PressableScale
+          onPress={onPressShare}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Share this bet"
+          className="flex-row items-center gap-1.5"
+        >
+          <ShareIcon size={iconSize} color={restingColor} />
         </PressableScale>
       )}
     </View>

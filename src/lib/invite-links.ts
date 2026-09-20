@@ -43,6 +43,46 @@ export function inviteUrl(token: string, targets: LinkTargets): string {
 }
 
 /**
+ * The URL for one bet.
+ *
+ * Same reasoning as `inviteUrl`, and deliberately the same shape: `https://`
+ * wherever an origin is configured, because a `betta://` link is dead text in
+ * every chat app that has not heard of the scheme — and the friend you are
+ * sending a bet to is often exactly the person without the app. The scheme is
+ * the fallback for a build with no origin, where a link that works on your own
+ * phone still beats no link.
+ *
+ * `/bet/<id>` is the route the app already has, so a phone with Betta
+ * installed resolves it once the domain carries an
+ * apple-app-site-association file, and every other device opens the web build
+ * at the same place.
+ */
+export function betUrl(betId: string, targets: LinkTargets): string {
+  const clean = betId.trim();
+  if (targets.webOrigin) {
+    return `${stripTrailingSlash(targets.webOrigin)}/bet/${encodeURIComponent(clean)}`;
+  }
+  return `${targets.scheme}://bet/${encodeURIComponent(clean)}`;
+}
+
+/**
+ * The sentence above a shared bet.
+ *
+ * The question itself rather than "check out this bet", because the question
+ * is the interesting part and a share with no content is ignored. Trimmed to
+ * a length that survives a WhatsApp preview without becoming a wall.
+ *
+ * The URL is not interpolated here, for the same reason it is not in
+ * `inviteMessage`: iOS and Android take the message and the link separately
+ * and render the preview themselves.
+ */
+export function betShareMessage(title: string, groupName?: string | null): string {
+  const question = title.trim().length > 120 ? `${title.trim().slice(0, 117)}…` : title.trim();
+  const where = groupName?.trim() ? ` in ${groupName.trim()}` : '';
+  return `"${question}" — a bet${where} on Betta. What do you reckon?`;
+}
+
+/**
  * What goes in the message box above the link.
  *
  * Named, short, and it says what the app does — a bare URL in a group chat

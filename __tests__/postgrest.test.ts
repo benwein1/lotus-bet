@@ -1,4 +1,4 @@
-import { isMissingColumn, isUnknownWriteColumn } from '../src/lib/postgrest';
+import { isMissingColumn, isMissingFunction, isUnknownWriteColumn } from '../src/lib/postgrest';
 
 /**
  * A missing column makes PostgREST reject the *whole* request, so one column
@@ -61,5 +61,38 @@ describe('isUnknownWriteColumn', () => {
 
   it('does not swallow unrelated failures', () => {
     expect(isUnknownWriteColumn({ message: 'JWT expired' }, 'profile_completed')).toBe(false);
+  });
+});
+
+describe('isMissingFunction', () => {
+  it('reads PostgREST saying the function is not in its schema cache', () => {
+    expect(
+      isMissingFunction({
+        code: 'PGRST202',
+        message: 'Could not find the function public.my_totals_by_currency without parameters',
+      })
+    ).toBe(true);
+  });
+
+  it("reads Postgres's own undefined_function", () => {
+    expect(isMissingFunction({ code: '42883', message: 'function foo() does not exist' })).toBe(
+      true
+    );
+  });
+
+  it('falls back to the message when only a string survives', () => {
+    expect(isMissingFunction({ message: 'function public.bar(text) does not exist' })).toBe(true);
+  });
+
+  it('does not claim a missing column is a missing function', () => {
+    // The two get different fallbacks, so confusing them means retrying the
+    // wrong thing and failing twice.
+    expect(
+      isMissingFunction({ code: '42703', message: 'column groups_1.currency does not exist' })
+    ).toBe(false);
+  });
+
+  it('leaves a real error alone', () => {
+    expect(isMissingFunction({ code: '42501', message: 'permission denied' })).toBe(false);
   });
 });

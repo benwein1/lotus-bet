@@ -236,7 +236,7 @@ export default function GroupDetailScreen() {
                       {myBalance === 0 ? (
                         <Text className="text-2xl font-bold text-primary">Square</Text>
                       ) : (
-                        <Money agorot={myBalance} size="lg" sign />
+                        <Money agorot={myBalance} currency={group.data?.currency} size="lg" sign />
                       )}
                     </View>
                   </View>

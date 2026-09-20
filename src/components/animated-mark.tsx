@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useId } from 'react';
 import { View } from 'react-native';
-import Svg, { G, Path } from 'react-native-svg';
+import Svg, { Defs, G, LinearGradient, Path, Stop } from 'react-native-svg';
 import Animated, {
   useAnimatedProps,
   useSharedValue,
@@ -22,6 +22,25 @@ import Animated, {
  * symmetrical by construction rather than by eye. The group transform that
  * optically centres it is copied across too. If the SVG is ever edited, these
  * constants are what has to follow it.
+ *
+ * ---------------------------------------------------------------------------
+ * The gradient, and why each petal un-rotates its own
+ * ---------------------------------------------------------------------------
+ * The mark runs one vertical ramp — green at the fan's base, blue at its tips —
+ * across the whole shape. `mark.svg` gets that by painting each depth layer
+ * through a clip, which keeps the ramp vertical in the mark's space.
+ *
+ * That shape does not survive here, because these petals rotate at runtime: a
+ * clip whose children are animated is not something to rely on, and the rect
+ * being clipped would rotate with them anyway. So each petal fills with its own
+ * copy of its layer's ramp and cancels its own rotation through
+ * `gradientTransform`. At rest — which is every frame anybody actually looks
+ * at, and the frame the native splash hands off to — the result is identical to
+ * the PNG. The cancellation uses the petal's *final* angle rather than its
+ * animated one, so mid-flight the outer pair's ramp is a few degrees off
+ * vertical. That is four moving shapes for under 600ms, and it is invisible;
+ * animating the gradient to chase it would cost a driven prop per frame per
+ * petal to fix something nobody can see.
  *
  * ---------------------------------------------------------------------------
  * One `<Svg>`, five `<G>` — not five `<Svg>` in five Views
@@ -60,12 +79,26 @@ const BOX = 512;
  * petal is the last thing to land — the payoff frame.
  */
 const PETALS = [
-  { angle: -54, fill: '#0A4E97', delay: 0 },
-  { angle: 54, fill: '#0A4E97', delay: 40 },
-  { angle: -27, fill: '#0961BC', delay: 80 },
-  { angle: 27, fill: '#0961BC', delay: 120 },
-  { angle: 0, fill: '#2E92FF', delay: 160 },
+  { angle: -54, ramp: 'outer', delay: 0 },
+  { angle: 54, ramp: 'outer', delay: 40 },
+  { angle: -27, ramp: 'inner', delay: 80 },
+  { angle: 27, ramp: 'inner', delay: 120 },
+  { angle: 0, ramp: 'centre', delay: 160 },
 ] as const;
+
+/**
+ * The three ramps, verbatim from `mark.svg`: darkest and furthest back to
+ * brightest and on top, each running green at the base to blue at the tip.
+ */
+const RAMPS = {
+  outer: ['#0E5B3A', '#0A4E97'],
+  inner: ['#17864F', '#0961BC'],
+  centre: ['#22B573', '#2E92FF'],
+} as const;
+
+/** Where the ramp starts and ends, in viewBox units. Also from `mark.svg`. */
+const RAMP_FROM = 372;
+const RAMP_TO = 126;
 
 /**
  * How far the petals collapse toward the centre before opening.
@@ -92,6 +125,13 @@ interface Props {
 }
 
 export function AnimatedMark({ size = 180, still = false }: Props) {
+  // Gradient ids are global to the document on web, so two marks on one screen
+  // — the splash handing off to an auth screen, say — would have the second
+  // one's defs silently win. Same reason the realtime channels carry a
+  // `useId()` suffix.
+  const uid = useId().replace(/:/g, '');
+  const rampId = (angle: number) => `betta-ramp-${uid}-${angle < 0 ? 'n' : ''}${Math.abs(angle)}`;
+
   return (
     <View
       style={{ width: size, height: size }}
@@ -101,12 +141,36 @@ export function AnimatedMark({ size = 180, still = false }: Props) {
       importantForAccessibility="no"
     >
       <Svg width={size} height={size} viewBox={`0 0 ${BOX} ${BOX}`}>
+        <Defs>
+          {PETALS.map((petal) => {
+            const [from, to] = RAMPS[petal.ramp];
+            return (
+              <LinearGradient
+                key={petal.angle}
+                id={rampId(petal.angle)}
+                gradientUnits="userSpaceOnUse"
+                x1={256}
+                y1={RAMP_FROM}
+                x2={256}
+                y2={RAMP_TO}
+                // Cancels the petal's own rotation, so the ramp stays vertical
+                // in the mark's space rather than running along the petal. See
+                // the note at the top of this file.
+                gradientTransform={`rotate(${-petal.angle}, 256, 366)`}
+              >
+                <Stop offset="0" stopColor={from} />
+                <Stop offset="1" stopColor={to} />
+              </LinearGradient>
+            );
+          })}
+        </Defs>
+
         {/* The optical centring from `mark.svg`: the fan is wider than it is
             tall, so its bounding box is not the viewBox. Baked in rather than
             animated — it never changes. */}
         <G transform="translate(256 256) scale(1.16) translate(-256 -251)">
           {PETALS.map((petal) => (
-            <Petal key={petal.angle} petal={petal} still={still} />
+            <Petal key={petal.angle} petal={petal} fill={`url(#${rampId(petal.angle)})`} still={still} />
           ))}
         </G>
       </Svg>
@@ -114,7 +178,15 @@ export function AnimatedMark({ size = 180, still = false }: Props) {
   );
 }
 
-function Petal({ petal, still }: { petal: (typeof PETALS)[number]; still: boolean }) {
+function Petal({
+  petal,
+  fill,
+  still,
+}: {
+  petal: (typeof PETALS)[number];
+  fill: string;
+  still: boolean;
+}) {
   // Each petal carries its own clock so the fan can stagger. One shared value
   // would open all five together, which is a scale, not a fan.
   //
@@ -159,7 +231,7 @@ function Petal({ petal, still }: { petal: (typeof PETALS)[number]; still: boolea
       scale={still ? 1 : undefined}
       animatedProps={still ? undefined : animatedProps}
     >
-      <Path d={PETAL} fill={petal.fill} />
+      <Path d={PETAL} fill={fill} />
     </AnimatedG>
   );
 }

@@ -30,7 +30,8 @@ import { useAsync } from '@/hooks/use-async';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import type { PersonBalance } from '@/lib/database.types';
-import { formatAgorot, formatShortDate } from '@/lib/format';
+import { formatMoney } from '@/lib/currency';
+import { formatShortDate } from '@/lib/format';
 import {
   APP_NAME,
   SUPPORT_CONTACT_PUBLISHED,
@@ -46,7 +47,9 @@ import {
   fetchMyHistory,
   fetchMyPersonBalances,
   fetchMyStats,
+  fetchMyTotalsByCurrency,
   unblockUser,
+  type CurrencyTotal,
   type HistoryEntry,
 } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
@@ -77,6 +80,7 @@ export default function ProfileScreen() {
   const userId = session?.user.id ?? '';
 
   const stats = useAsync(fetchMyStats, [userId]);
+  const totals = useAsync(fetchMyTotalsByCurrency, [userId]);
   const history = useAsync(() => fetchMyHistory(userId), [userId]);
   const groups = useAsync(fetchMyGroups, [userId]);
   const owed = useAsync(() => fetchMyPersonBalances(userId), [userId]);
@@ -208,8 +212,30 @@ export default function ProfileScreen() {
   const decided = (s?.bets_won ?? 0) + (s?.bets_lost ?? 0);
   const winRate = decided > 0 ? Math.round(((s?.bets_won ?? 0) / decided) * 100) : null;
   const mostActive = (groups.data ?? []).find((g) => g.id === s?.most_active_group_id);
-  const net = Number(s?.total_won_agorot ?? 0) - Number(s?.total_lost_agorot ?? 0);
   const hasRecord = decided > 0 || Number(s?.bets_settled ?? 0) > 0;
+
+  /**
+   * Lifetime money, one line per currency.
+   *
+   * `my_stats`'s own two money columns add every group's integers together
+   * regardless of what they denominate, which stopped being a real number when
+   * a group could be created in dollars. `my_totals_by_currency` splits them;
+   * an empty result means the project has not applied that migration, and
+   * falling back to `my_stats` is exactly right there, because such a project
+   * has no currency column and every group in it is in shekels.
+   */
+  const byCurrency: CurrencyTotal[] =
+    totals.data && totals.data.length > 0
+      ? totals.data
+      : [
+          {
+            currency: 'ILS' as const,
+            wonAgorot: Number(s?.total_won_agorot ?? 0),
+            lostAgorot: Number(s?.total_lost_agorot ?? 0),
+            netAgorot: Number(s?.total_won_agorot ?? 0) - Number(s?.total_lost_agorot ?? 0),
+          },
+        ];
+  const squareEverywhere = byCurrency.every((t) => t.netAgorot === 0);
 
   const entering = (delay: number) =>
     reduced
@@ -275,10 +301,24 @@ export default function ProfileScreen() {
                     {!hasRecord ? (
                       // "Even" implies you have played and broken even.
                       <Text className="text-2xl font-bold text-tertiary">Not started</Text>
-                    ) : net === 0 ? (
+                    ) : squareEverywhere ? (
                       <Text className="text-4xl font-bold text-primary">Even</Text>
                     ) : (
-                      <Money agorot={net} size="xl" sign />
+                      // One line per currency. Normally there is one, and this
+                      // renders exactly as it always did; two means the account
+                      // plays in two, and stacking them is the only honest
+                      // answer — there is no rate to collapse them with.
+                      byCurrency
+                        .filter((t) => t.netAgorot !== 0)
+                        .map((t) => (
+                          <Money
+                            key={t.currency}
+                            agorot={t.netAgorot}
+                            currency={t.currency}
+                            size="xl"
+                            sign
+                          />
+                        ))
                     )}
                   </View>
                 </View>
@@ -302,19 +342,48 @@ export default function ProfileScreen() {
             ) : (
               <Animated.View entering={entering(60)} className="mb-7">
                 <SectionTitle>Your record</SectionTitle>
-                <View className="flex-row gap-3">
-                  <Stat
-                    label="Won"
-                    value={formatAgorot(Number(s?.total_won_agorot ?? 0))}
-                    tone="positive"
-                  />
-                  <Stat
-                    label="Lost"
-                    value={formatAgorot(Number(s?.total_lost_agorot ?? 0))}
-                    tone="negative"
-                  />
-                  <Stat label="Win rate" value={winRate === null ? '—' : `${winRate}%`} />
-                </View>
+                {/* Won and lost are money, so there is a pair per currency; the
+                    win rate is a count of events and means the same thing in
+                    all four, so there is one of it.
+
+                    One currency — which is nearly every account — keeps the
+                    three-across row this has always been. Only a genuinely
+                    mixed account pays a line per currency for it. */}
+                {byCurrency.length === 1 && byCurrency[0] ? (
+                  <View className="flex-row gap-3">
+                    <Stat
+                      label="Won"
+                      value={formatMoney(byCurrency[0].wonAgorot, byCurrency[0].currency)}
+                      tone="positive"
+                    />
+                    <Stat
+                      label="Lost"
+                      value={formatMoney(byCurrency[0].lostAgorot, byCurrency[0].currency)}
+                      tone="negative"
+                    />
+                    <Stat label="Win rate" value={winRate === null ? '—' : `${winRate}%`} />
+                  </View>
+                ) : (
+                  <>
+                    {byCurrency.map((t) => (
+                      <View key={t.currency} className="mb-3 flex-row gap-3">
+                        <Stat
+                          label={`Won (${t.currency})`}
+                          value={formatMoney(t.wonAgorot, t.currency)}
+                          tone="positive"
+                        />
+                        <Stat
+                          label={`Lost (${t.currency})`}
+                          value={formatMoney(t.lostAgorot, t.currency)}
+                          tone="negative"
+                        />
+                      </View>
+                    ))}
+                    <View className="flex-row gap-3">
+                      <Stat label="Win rate" value={winRate === null ? '—' : `${winRate}%`} />
+                    </View>
+                  </>
+                )}
 
                 <ListGroup className="mt-3">
                   <Row label="Bets settled" value={String(s?.bets_settled ?? 0)} />
@@ -655,7 +724,11 @@ function PersonRow({ person, last }: { person: PersonBalance; last: boolean }) {
           {person.groupNames.join(', ')}
         </Text>
       </View>
-      <Money agorot={Math.abs(person.amountAgorot)} tone={person.amountAgorot > 0 ? 'positive' : 'negative'} />
+      <Money
+        agorot={Math.abs(person.amountAgorot)}
+        currency={person.currency}
+        tone={person.amountAgorot > 0 ? 'positive' : 'negative'}
+      />
     </View>
   );
 }
