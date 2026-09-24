@@ -8,7 +8,15 @@ import {
   useWindowDimensions,
   type ViewToken,
 } from 'react-native';
-import Animated, { FadeIn, FadeInDown, FadeOut } from '@/components/animated';
+import { AppMark } from '@/components/app-mark';
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  FadeOut,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FeedCard } from '@/components/bet-card';
@@ -224,6 +232,17 @@ export default function FeedScreen() {
   // narrow enough that it reads as a seam rather than a margin.
   const snapInterval = cardHeight + CARD_GAP;
 
+  // One flip at a threshold rather than a value driven every frame: the name
+  // is either there or it is not, and a per-frame handler would run a worklet
+  // on every pixel of every scroll to animate a fade that happens once.
+  const [scrolled, setScrolled] = useState(false);
+  const wordmark = useSharedValue(1);
+  useEffect(() => {
+    const to = scrolled ? 0 : 1;
+    wordmark.value = reduced ? to : withTiming(to, { duration: motion.duration.fast });
+  }, [scrolled, reduced, wordmark]);
+  const wordmarkStyle = useAnimatedStyle(() => ({ opacity: wordmark.value }));
+
   const bets = useMemo(() => {
     const all = feed.data ?? [];
     const mine = all.filter((bet) => bet.positions?.some((p) => p.user_id === userId));
@@ -391,11 +410,22 @@ export default function FeedScreen() {
   return (
     <Screen>
       <SafeAreaView edges={['top']} className="flex-1">
-        {/* No screen title. The tab bar already says where you are, and the
-            bet is meant to be the first thing on the screen. The demo badge
-            sits in a row that collapses to nothing when it renders null. */}
-        <View className="items-end px-gutter pt-1">
-          <DemoBadge />
+        {/* The app's own face, once, at the top of the feed.
+
+            It is the only screen that carries it: the tab bar says which tab
+            you are on, so a title here would be the third thing on screen
+            saying "Feed". The name gives way as soon as you scroll and the
+            mark stays — and the name keeps its box at zero opacity rather than
+            being unmounted, so the mark cannot shift sideways when it goes.
+            Opacity only; nothing re-lays out. */}
+        <View className="h-14 flex-row items-center justify-center gap-2.5 px-gutter">
+          <AppMark size={24} />
+          <Animated.View style={wordmarkStyle}>
+            <Text className="text-lg font-extrabold tracking-tight text-primary">Betta</Text>
+          </Animated.View>
+          <View className="absolute right-gutter">
+            <DemoBadge />
+          </View>
         </View>
 
         {feed.error && (
@@ -445,6 +475,11 @@ export default function FeedScreen() {
                   // the only frame and the gap between posts is the only
                   // separator — which is what makes a column of bets read as
                   // one stream rather than a stack of cards.
+                }}
+                scrollEventThrottle={64}
+                onScroll={(event) => {
+                  const past = event.nativeEvent.contentOffset.y > 24;
+                  setScrolled((was) => (was === past ? was : past));
                 }}
                 onViewableItemsChanged={onViewableItemsChanged.current}
                 viewabilityConfig={VIEWABILITY}
