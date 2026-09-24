@@ -52,6 +52,7 @@ export function OddsBar({
   size = 'md',
   onMedia = false,
   compact = false,
+  showNames = true,
 }: {
   slices: OddsSlice[];
   /** Once resolved, everything that lost falls back to a rule. */
@@ -65,6 +66,14 @@ export function OddsBar({
    * screen keep the full bar without saying so.
    */
   compact?: boolean;
+  /**
+   * Drop the option names, leaving the two figures and the track.
+   *
+   * The bet screen passes this: the labels are on the option cards a few
+   * pixels below, in the colour they belong to and on the thing you press, so
+   * printing them again above the bar is the same two words twice.
+   */
+  showNames?: boolean;
 }) {
   const colors = useColors();
   const scheme = useScheme();
@@ -105,6 +114,7 @@ export function OddsBar({
           onMedia={onMedia}
           scheme={scheme}
           compact={compact}
+          showNames={showNames}
         />
       ) : null}
 
@@ -166,6 +176,7 @@ function TwoUp({
   onMedia,
   scheme,
   compact,
+  showNames,
 }: {
   slices: OddsSlice[];
   shares: number[];
@@ -174,6 +185,7 @@ function TwoUp({
   onMedia: boolean;
   scheme: ColorScheme;
   compact: boolean;
+  showNames: boolean;
 }) {
   const pctClass = size === 'lg' ? 'text-2xl' : size === 'sm' ? 'text-lg' : 'text-xl';
   const label = onMedia ? 'text-on-media-soft' : 'text-secondary';
@@ -226,7 +238,7 @@ function TwoUp({
 
         return (
           <View key={slice.id} className={index === 0 ? 'flex-1' : 'flex-1 items-end'}>
-            {name}
+            {showNames && name}
             {figure}
           </View>
         );

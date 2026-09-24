@@ -1,11 +1,15 @@
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  Pressable,
   RefreshControl,
   ScrollView,
+  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -19,7 +23,14 @@ import { BetMediaView } from '@/components/bet-media';
 import { BetProof } from '@/components/bet-proof';
 import { ReportSheet, type ReportTarget } from '@/components/report-sheet';
 import { splitMedia } from '@/lib/media';
-import { AlertIcon, ClockIcon, LockIcon, TrophyIcon } from '@/components/icons';
+import {
+  AlertIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  ClockIcon,
+  LockIcon,
+  TrophyIcon,
+} from '@/components/icons';
 import { OddsBar } from '@/components/odds-bar';
 import { ContentWidth, Screen } from '@/components/screen';
 import {
@@ -59,6 +70,7 @@ export default function BetDetailScreen() {
   const betId = id ?? '';
   const { session, profile } = useAuth();
   const colors = useColors();
+  const scheme = useScheme();
   const router = useRouter();
   const userId = session?.user.id ?? '';
 
@@ -70,6 +82,8 @@ export default function BetDetailScreen() {
   const groupId = bet.data?.group_id;
 
   const [busy, setBusy] = useState(false);
+  // The resolve sheet, opened from the row under the two options.
+  const [calling, setCalling] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   /** What the report/block sheet is pointed at, if anything. */
   const [reporting, setReporting] = useState<ReportTarget | null>(null);
@@ -256,60 +270,144 @@ export default function BetDetailScreen() {
           showsVerticalScrollIndicator={false}
         >
           <ContentWidth>
-            {media.length > 0 && (
-              <Animated.View entering={FadeIn.duration(motion.duration.base)} className="mb-5">
-                {/* Double-tap to like, the gesture everyone already has in
-                    their fingers. It belongs *here* and not on the feed card:
-                    there, a single tap opens the bet, and waiting ~250ms to
-                    find out whether a second tap is coming would make every
-                    navigation in the app feel slow to buy one shortcut. */}
-                <DoubleTapToLike
-                  enabled={!social.liked}
-                  onLike={() => void likeFromGesture()}
-                >
-                  <BetMediaView media={media} active radius={24} className="h-72 w-full" />
-                </DoubleTapToLike>
-              </Animated.View>
-            )}
+            {/* The bet, on its photo.
 
-            <Animated.View entering={FadeInDown.duration(motion.duration.base)}>
-              <View className="mb-3 flex-row items-center gap-2.5">
-                <Badge label={data.status} tone={data.status} />
-                {countdown && !isResolved && !isCancelled && (
-                  <View className="flex-row items-center gap-1.5">
-                    <ClockIcon size={13} color={colors.textSecondary} />
-                    <Text className="text-sm text-secondary">{countdown}</Text>
-                  </View>
+                Everything that identifies it — the group, the question, the
+                pot and the countdown — sits on the picture with the three
+                actions, so the page below can start on the odds. That is one
+                whole line of vertical space bought back, and the money reads
+                while you are still looking at the thing it is about.
+
+                With no photo the same block draws on the page ground instead.
+                Half the bets in this app have no attachment, and a hero that
+                only works with one is a hero that works half the time. */}
+            <Animated.View
+              entering={FadeIn.duration(motion.duration.base)}
+              className={media.length > 0 ? '-mx-gutter mb-6' : 'mb-6 pt-2'}
+            >
+              <View className="relative">
+                {media.length > 0 && (
+                  <>
+                    {/* Double-tap to like, the gesture everyone already has in
+                        their fingers. It belongs *here* and not on the feed
+                        card: there, a single tap opens the bet, and waiting
+                        ~250ms to find out whether a second tap is coming would
+                        make every navigation in the app feel slow to buy one
+                        shortcut. */}
+                    <DoubleTapToLike enabled={!social.liked} onLike={() => void likeFromGesture()}>
+                      <BetMediaView media={media} active radius={0} className="h-[318px] w-full" />
+                    </DoubleTapToLike>
+                    {/* Explicit rgba stops: an eight-digit hex that does not
+                        truly reach zero leaves a hard seam across the photo. */}
+                    <LinearGradient
+                      colors={[
+                        'rgba(0,0,0,0.55)',
+                        'rgba(0,0,0,0.08)',
+                        'rgba(0,0,0,0.30)',
+                        'rgba(0,0,0,0.80)',
+                      ]}
+                      locations={[0, 0.34, 0.6, 1]}
+                      pointerEvents="none"
+                      style={StyleSheet.absoluteFill}
+                    />
+                  </>
                 )}
-                <Text className="ml-auto text-sm text-tertiary">
-                  {formatShortDate(data.created_at)}
-                </Text>
+
+                <View
+                  className={
+                    media.length > 0 ? 'absolute inset-x-0 bottom-0 px-gutter pb-4' : ''
+                  }
+                >
+                  {isCreator && !isResolved && !isCancelled && (
+                    <View className="mb-3 flex-row">
+                      <View className="flex-row items-center gap-1.5 rounded-full bg-scrim px-2.5 py-1">
+                        <View className="h-1.5 w-1.5 rounded-full bg-brand" />
+                        <Text className="text-2xs font-bold tracking-wide text-on-media">
+                          YOURS
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  <View className="flex-row items-center gap-2.5">
+                    <Badge label={data.status} tone={data.status} />
+                    {data.group?.name && (
+                      <Text
+                        numberOfLines={1}
+                        className={`shrink text-sm ${
+                          media.length > 0 ? 'text-on-media-soft' : 'text-secondary'
+                        }`}
+                      >
+                        {data.group.name}
+                      </Text>
+                    )}
+                  </View>
+
+                  <Text
+                    className={`mt-3 text-2xl font-bold leading-[30px] ${
+                      media.length > 0 ? 'text-on-media' : 'text-primary'
+                    }`}
+                  >
+                    {data.title}
+                  </Text>
+
+                  <View className="mt-3.5 flex-row items-end justify-between gap-3">
+                    <View className="flex-row items-center gap-3.5">
+                      <Money
+                        agorot={data.total_pot_agorot}
+                        currency={data.group?.currency}
+                        size="md"
+                        tone={media.length > 0 ? 'onMedia' : 'neutral'}
+                      />
+                      {countdown && !isResolved && !isCancelled && (
+                        <View className="flex-row items-center gap-1.5">
+                          <ClockIcon
+                            size={13}
+                            color={media.length > 0 ? colors.onMediaSoft : colors.textSecondary}
+                          />
+                          <Text
+                            className={`text-sm ${
+                              media.length > 0 ? 'text-on-media-soft' : 'text-secondary'
+                            }`}
+                          >
+                            {countdown}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <BetActions
+                      liked={social.liked}
+                      likeCount={social.likeCount}
+                      commentCount={social.commentCount}
+                      onToggleLike={toggleLike}
+                      onMedia={media.length > 0}
+                    />
+                  </View>
+                </View>
               </View>
 
-              <Text className="text-2xl font-bold text-primary">{data.title}</Text>
               {data.description && (
-                <Text className="mt-2.5 text-base leading-[22px] text-secondary">
+                <Text
+                  className={`mt-4 text-base leading-[22px] text-secondary ${
+                    media.length > 0 ? 'px-gutter' : ''
+                  }`}
+                >
                   {data.description}
                 </Text>
               )}
             </Animated.View>
 
-            {/* The market */}
-            <Animated.View
-              entering={FadeInDown.delay(60).duration(motion.duration.base)}
-              className="mt-5"
-            >
-              <View className="rounded-3xl border border-hairline bg-surface p-4">
-                <View className="mb-5 flex-row items-end justify-between">
-                  <Text className="text-subhead text-secondary">Total pot</Text>
-                  <Money agorot={data.total_pot_agorot} currency={data.group?.currency} size="lg" tone="accent" />
-                </View>
-                <OddsBar
-                  slices={slices}
-                  winningId={isResolved ? data.winning_option_id ?? null : null}
-                  size="lg"
-                />
-              </View>
+            {/* The odds, with no option names: the labels are on the
+                cards directly below, in their own colour and on the thing you
+                press, so printing them here is the same two words twice. */}
+            <Animated.View entering={FadeInDown.delay(60).duration(motion.duration.base)}>
+              <OddsBar
+                slices={slices}
+                winningId={isResolved ? data.winning_option_id ?? null : null}
+                size="lg"
+                showNames={false}
+              />
             </Animated.View>
 
             {actionError && (
@@ -358,6 +456,40 @@ export default function BetDetailScreen() {
               ))}
             </Animated.View>
 
+            {/* Yours to call, said where the sides are.
+
+                The creator's controls used to be a titled section at the foot
+                of the screen, under the comments — the furthest point from the
+                two options the decision is actually between. It is one row
+                now, directly below them, and pressing it asks which side was
+                right with those same two labels.
+
+                Spring Mint rather than the accent: `brand`'s job in this app
+                is status and selection, and calling a bet is a change of
+                status. It also keeps the one irreversible button on the screen
+                from looking like every other blue control. */}
+            {isCreator && !isResolved && !isCancelled && (
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel="Call this bet — pick the side that was right"
+                disabled={busy}
+                scaleTo={0.985}
+                onPress={() => setCalling(true)}
+                className="mt-4 flex-row items-center gap-3 rounded-2xl border border-brand bg-brand-soft px-4 py-3.5"
+              >
+                <View className="h-[30px] w-[30px] items-center justify-center rounded-full bg-brand">
+                  <CheckIcon size={17} color={colors.brandInk} />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-subhead font-bold text-brand">Call it</Text>
+                  <Text className="mt-0.5 text-xs text-secondary">
+                    Pick the side that was right
+                  </Text>
+                </View>
+                <ChevronRightIcon size={16} color={colors.brand} />
+              </PressableScale>
+            )}
+
             {!canJoin && !isResolved && !isCancelled && (
               <View className="mt-4 flex-row items-center gap-3 rounded-2xl border border-hairline bg-surface px-4 py-3.5">
                 <LockIcon size={17} color={colors.textSecondary} />
@@ -394,18 +526,6 @@ export default function BetDetailScreen() {
                 onChanged={() => bet.reload({ silent: true })}
               />
             )}
-
-            {/* Reactions sit between the bet and the creator's controls: the
-                bet is what you came for, the talk about it is next, and the
-                buttons that end it are last. */}
-            <View className="mt-7 flex-row items-center justify-between">
-              <BetActions
-                liked={social.liked}
-                likeCount={social.likeCount}
-                commentCount={social.commentCount}
-                onToggleLike={toggleLike}
-              />
-            </View>
 
             <BetComments
               betId={betId}
@@ -447,25 +567,18 @@ export default function BetDetailScreen() {
               </PressableScale>
             )}
 
+            {/* What is left of the creator's controls once calling it has
+                moved up beside the sides. Locking and cancelling are rare and
+                neither is the thing you came back to do, so they stay at the
+                foot of the screen. */}
             {isCreator && !isResolved && !isCancelled && (
               <View className="mt-7">
                 <SectionTitle>You created this bet</SectionTitle>
                 <View className="rounded-3xl border border-hairline bg-surface p-4">
                   <Text className="mb-4 text-sm leading-[18px] text-secondary">
-                    Only you can call it. Bets can&apos;t be edited — only locked, resolved or
-                    cancelled.
+                    Bets can&apos;t be edited — only locked, called or cancelled.
                   </Text>
                   <View className="gap-3">
-                    {slices.map((slice) => (
-                      <Button
-                        key={slice.id}
-                        title={`"${slice.label}" won`}
-                        variant="secondary"
-                        disabled={busy}
-                        icon={<TrophyIcon size={16} color={colors.text} />}
-                        onPress={() => confirmResolve(slice.id)}
-                      />
-                    ))}
                     {data.status === 'open' && (
                       <Button
                         title="Lock — no more joining"
@@ -488,6 +601,56 @@ export default function BetDetailScreen() {
           </ContentWidth>
         </ScrollView>
         </KeyboardAvoidingView>
+
+        {/* Which side was right, asked with the same two labels and the same
+            two colours the options carry. Picking one here is the whole
+            resolve: one tap from the row, rather than a scroll to a section
+            and then a button. */}
+        <Modal
+          visible={calling}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setCalling(false)}
+        >
+          <Pressable
+            className="flex-1 justify-end bg-scrim"
+            onPress={() => setCalling(false)}
+            accessibilityLabel="Close"
+          >
+            <View className="rounded-t-[30px] border-t border-hairline-strong bg-surface2 px-gutter pb-10 pt-3">
+              <View className="mb-5 h-1 w-9 self-center rounded-full bg-hairline-strong" />
+              <Text className="text-xl font-bold text-primary">Which side was right?</Text>
+              <Text className="mt-1.5 text-subhead leading-5 text-secondary">
+                Everybody is paid the moment you pick. This cannot be undone.
+              </Text>
+              <View className="mt-5 gap-3">
+                {slices.map((slice, index) => (
+                  <PressableScale
+                    key={slice.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${slice.label} won`}
+                    disabled={busy}
+                    onPress={() => {
+                      setCalling(false);
+                      confirmResolve(slice.id);
+                    }}
+                    style={{ borderColor: optionColor(index, slices.length, scheme) }}
+                    className="h-[52px] flex-row items-center justify-center gap-2 rounded-2xl border bg-surface"
+                  >
+                    <TrophyIcon size={16} color={optionColor(index, slices.length, scheme)} />
+                    <Text
+                      numberOfLines={1}
+                      style={{ color: optionColor(index, slices.length, scheme) }}
+                      className="text-callout font-bold"
+                    >
+                      {slice.label}
+                    </Text>
+                  </PressableScale>
+                ))}
+              </View>
+            </View>
+          </Pressable>
+        </Modal>
 
         {/* Blocking hides the blocked person's comments at the policy level, so
             the screen has to re-read to see that happen. */}
