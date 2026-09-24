@@ -241,6 +241,24 @@ export function TicketIcon(props: IconProps) {
   );
 }
 
+/**
+ * Settings, as sliders rather than a cog.
+ *
+ * A cog at 21px is a circle with radiating ticks, which is also a sun — and
+ * that is exactly what it was read as. Three tracks with a knob on each is
+ * unmistakable at any size and cannot be mistaken for the weather.
+ */
+export function SettingsIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Path d="M4 7.5h4.4M12.6 7.5H20" />
+      <Circle cx="10.5" cy="7.5" r="2.1" />
+      <Path d="M4 16.5h7.4M15.6 16.5H20" />
+      <Circle cx="13.5" cy="16.5" r="2.1" />
+    </Icon>
+  );
+}
+
 export function KeyIcon(props: IconProps) {
   return (
     <Icon {...props}>

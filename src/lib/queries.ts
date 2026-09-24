@@ -1159,6 +1159,44 @@ export async function fetchMyBets(
   return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
 }
 
+/**
+ * The bets you took a side on, newest first — the Profile's "Joined" tab.
+ *
+ * Two round trips rather than one embed, deliberately. `BET_SELECT` already
+ * embeds `bet_positions`, so filtering on a second embed of the same table
+ * would need an alias PostgREST resolves differently depending on which
+ * foreign key it picks, and getting that wrong returns an empty list rather
+ * than an error. Asking for the ids first is longer on the wire and impossible
+ * to misread. It is also behind a tab rather than on first paint, which is
+ * where the embed rule is actually paying for itself.
+ */
+export async function fetchBetsIJoined(
+  userId: string,
+  limit = MY_BETS_PAGE
+): Promise<BetWithPositions[]> {
+  if (isDemoMode()) return demo.fetchMyBets(userId, limit);
+
+  const positions = await supabase
+    .from('bet_positions')
+    .select('bet_id')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (positions.error) throw new Error(positions.error.message);
+  const ids = Array.from(new Set((positions.data ?? []).map((row) => row.bet_id)));
+  if (ids.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from('bets')
+    .select(BET_SELECT)
+    .in('id', ids)
+    .order('created_at', { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
+}
+
 export async function fetchMyStats(): Promise<MyStatsRow | null> {
   if (isDemoMode()) return demo.fetchMyStats();
   const { data, error } = await supabase.rpc('my_stats');
