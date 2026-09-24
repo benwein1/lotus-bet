@@ -36,7 +36,10 @@
     "scrim": "rgba(0, 0, 0, 0.45)",
     "onMedia": "#FFFFFF",
     "onMediaSoft": "rgba(255, 255, 255, 0.78)",
-    "onMediaFaint": "rgba(255, 255, 255, 0.55)"
+    "onMediaFaint": "rgba(255, 255, 255, 0.55)",
+    "markFrom": "#22B573",
+    "markTo": "#2E92FF",
+    "markInk": "#04140A"
   },
   "dark": {
     "canvas": "#000000",
@@ -75,6 +78,9 @@
     "scrim": "rgba(0, 0, 0, 0.6)",
     "onMedia": "#FFFFFF",
     "onMediaSoft": "rgba(255, 255, 255, 0.78)",
-    "onMediaFaint": "rgba(255, 255, 255, 0.55)"
+    "onMediaFaint": "rgba(255, 255, 255, 0.55)",
+    "markFrom": "#22B573",
+    "markTo": "#2E92FF",
+    "markInk": "#04140A"
   }
 }

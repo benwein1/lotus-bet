@@ -1,5 +1,6 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import { TopTabs } from 'expo-router/js-top-tabs';
-import { Platform, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from '@/components/animated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -105,6 +106,15 @@ function FloatingTabBar({ state, navigation }: TabBarProps) {
  * unambiguous do not need labels, and dropping them lets the bar shrink to
  * something closer to a control than a strip. The label survives as the
  * accessibility name, which is the only place it was doing real work.
+ *
+ * The selected tab is filled with the mark's own green-to-blue ramp rather
+ * than with `accent-soft`. It is the one place the logo's colour appears in
+ * the chrome, and it says "you are here" without spending the accent, which
+ * every other control in the app needs to mean "press this".
+ *
+ * `markInk` rather than a scheme colour on the glyph: the ramp is the same
+ * drawing in both schemes, so what reads on it does not follow the scheme
+ * either — white would fail against the blue end in either one.
  */
 function TabButton({
   label,
@@ -146,11 +156,17 @@ function TabButton({
         onResponderTerminate={() => {
           press.value = withSpring(1, motion.press);
         }}
-        className={`h-11 w-[68px] items-center justify-center rounded-full ${
-          focused ? 'bg-accent-soft' : ''
-        }`}
+        className="h-11 w-[68px] items-center justify-center overflow-hidden rounded-full"
       >
-        <Icon size={23} active={focused} color={focused ? colors.accent : colors.textSecondary} />
+        {focused && (
+          <LinearGradient
+            colors={[colors.markFrom, colors.markTo]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
+        <Icon size={23} active={focused} color={focused ? colors.markInk : colors.textSecondary} />
       </View>
     </Animated.View>
   );

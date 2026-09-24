@@ -47,6 +47,9 @@
     --c-on-media: #FFFFFF;
     --c-on-media-soft: rgba(255, 255, 255, 0.78);
     --c-on-media-faint: rgba(255, 255, 255, 0.55);
+    --c-mark-from: #22B573;
+    --c-mark-to: #2E92FF;
+    --c-mark-ink: #04140A;
   }
 
   .dark:root {
@@ -87,5 +90,8 @@
     --c-on-media: #FFFFFF;
     --c-on-media-soft: rgba(255, 255, 255, 0.78);
     --c-on-media-faint: rgba(255, 255, 255, 0.55);
+    --c-mark-from: #22B573;
+    --c-mark-to: #2E92FF;
+    --c-mark-ink: #04140A;
   }
 }

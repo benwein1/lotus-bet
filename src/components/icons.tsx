@@ -241,6 +241,16 @@ export function TicketIcon(props: IconProps) {
   );
 }
 
+export function KeyIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Circle cx="8.2" cy="12" r="4.2" />
+      <Path d="M12.4 12H20.4" />
+      <Path d="M18 12v3.2M15.4 12v2.4" />
+    </Icon>
+  );
+}
+
 export function LogOutIcon(props: IconProps) {
   return (
     <Icon {...props}>
