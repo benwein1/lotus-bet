@@ -8,7 +8,7 @@ import {
   useWindowDimensions,
   type ViewToken,
 } from 'react-native';
-import { AppMark } from '@/components/app-mark';
+import { AppMark, WordmarkGlow } from '@/components/app-mark';
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -37,7 +37,14 @@ import { isNewSince, useLastSeen } from '@/hooks/use-last-seen';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import type { BetSide, BetWithPositions } from '@/lib/database.types';
-import { fetchFeedBets, fetchMyGroups, joinBetOption, setBetLike } from '@/lib/queries';
+import {
+  fetchFeedBets,
+  fetchFeedComments,
+  fetchMyGroups,
+  joinBetOption,
+  setBetLike,
+  type FeedComment,
+} from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
 import { motion } from '@/theme';
@@ -189,6 +196,13 @@ export default function FeedScreen() {
                         user_id: whose,
                         side: row.side ?? null,
                         option_id: row.option_id as string,
+                        // Realtime hands over the row, not its embeds, so the
+                        // footer's "who moved last" has a timestamp but no
+                        // name until the next read fills it in. A nameless
+                        // line is not drawn at all, which is better than one
+                        // that says "Someone".
+                        created_at: new Date().toISOString(),
+                        user: null,
                       },
                     ],
               };
@@ -235,6 +249,10 @@ export default function FeedScreen() {
   // One flip at a threshold rather than a value driven every frame: the name
   // is either there or it is not, and a per-frame handler would run a worklet
   // on every pixel of every scroll to animate a fade that happens once.
+  // The footers' comments, for the whole page in one read. `useState` rather
+  // than `useAsync` because it follows the feed rather than being asked for:
+  // it refills whenever the list does and never blocks a paint.
+  const [feedComments, setFeedComments] = useState<Map<string, FeedComment[]>>(new Map());
   const [scrolled, setScrolled] = useState(false);
   const wordmark = useSharedValue(1);
   useEffect(() => {
@@ -249,6 +267,25 @@ export default function FeedScreen() {
     const rest = all.filter((bet) => !bet.positions?.some((p) => p.user_id === userId));
     return [...mine, ...rest];
   }, [feed.data, userId]);
+
+  const betIdsKey = bets.map((bet) => bet.id).join(',');
+  useEffect(() => {
+    const ids = betIdsKey ? betIdsKey.split(',') : [];
+    if (ids.length === 0) {
+      setFeedComments(new Map());
+      return;
+    }
+    let live = true;
+    void fetchFeedComments(ids).then((grouped) => {
+      if (live) setFeedComments(grouped);
+    });
+    return () => {
+      live = false;
+    };
+    // Keyed on the ids themselves, not the array: a like makes a new array
+    // every time and this would otherwise re-read on every heart.
+  }, [betIdsKey]);
+
 
   // Deadline reminders are local notifications, so the phone has to be told
   // what is currently outstanding. The feed already knows: it holds every open
@@ -397,6 +434,7 @@ export default function FeedScreen() {
           busyOptionId={busy?.betId === item.id ? busy.optionId : null}
           onToggleLike={(next) => toggleLike(item.id, next)}
           onOpenComments={() => setCommentsFor(item.id)}
+          comments={feedComments.get(item.id) ?? []}
         />
       </ContentWidth>
     ),
@@ -404,7 +442,7 @@ export default function FeedScreen() {
     // over nothing that is not already listed here, which is the same reason
     // `FeedCard`'s comparator skips its callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [userId, cardHeight, activeId, since, busy]
+    [userId, cardHeight, activeId, since, busy, feedComments]
   );
 
   return (
@@ -418,10 +456,16 @@ export default function FeedScreen() {
             mark stays — and the name keeps its box at zero opacity rather than
             being unmounted, so the mark cannot shift sideways when it goes.
             Opacity only; nothing re-lays out. */}
-        <View className="h-14 flex-row items-center justify-center gap-2.5 px-gutter">
+        <View className="h-14 flex-row items-center justify-center gap-[9px] px-gutter">
+          {/* A soft blue bloom behind the name, as drawn. It is the one
+              decorative mark in the app and it belongs to the wordmark, so it
+              fades out with it rather than staying behind a lone glyph. */}
+          <Animated.View pointerEvents="none" style={wordmarkStyle} className="absolute">
+            <WordmarkGlow />
+          </Animated.View>
           <AppMark size={24} />
           <Animated.View style={wordmarkStyle}>
-            <Text className="text-lg font-extrabold tracking-tight text-primary">Betta</Text>
+            <Text className="text-lg font-extrabold tracking-[-0.6px] text-primary">Betta</Text>
           </Animated.View>
           <View className="absolute right-gutter">
             <DemoBadge />
@@ -439,7 +483,7 @@ export default function FeedScreen() {
           onLayout={(event) => setListHeight(event.nativeEvent.layout.height)}
         >
           {feed.loading ? (
-            <ContentWidth className="px-gutter pt-2">
+            <ContentWidth className="px-gutter pt-3.5">
               <BetFeedSkeleton cardHeight={cardHeight} />
             </ContentWidth>
           ) : bets.length === 0 ? (
@@ -467,7 +511,7 @@ export default function FeedScreen() {
                 snapToAlignment="start"
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{
-                  paddingTop: 8,
+                  paddingTop: 14,
                   paddingBottom: tabInset,
                   // No horizontal padding. The cards used to be inset 20pt with
                   // a border and a 28pt radius, which made each one a separate

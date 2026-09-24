@@ -452,6 +452,29 @@ function seed(): SeededState {
         body: 'Give him a chance, he set three alarms.',
         created_at: iso(-1),
       },
+      // A second and third bet carry a thread too, so the feed's social footer
+      // is exercised on more than the one card the comment sheet opens from.
+      {
+        id: 'demo-comment-3',
+        bet_id: 'demo-bet-2',
+        user_id: NOA,
+        body: 'Two goals against that defence is generous.',
+        created_at: iso(-3),
+      },
+      {
+        id: 'demo-comment-4',
+        bet_id: 'demo-bet-2',
+        user_id: YOSSI,
+        body: "I'll take that action.",
+        created_at: iso(-1),
+      },
+      {
+        id: 'demo-comment-5',
+        bet_id: 'demo-bet-3',
+        user_id: DOR,
+        body: "He said 'this week' three weeks ago.",
+        created_at: iso(-4),
+      },
     ],
     blocked: [],
   };
@@ -483,7 +506,19 @@ function withPositions(bet: BetRow, includeGroup = false): BetWithPositions {
       .sort((a, b) => a.position - b.position),
     positions: state.positions
       .filter((p) => p.bet_id === bet.id)
-      .map((p) => ({ user_id: p.user_id, side: p.side, option_id: p.option_id })),
+      .map((p) => ({
+        user_id: p.user_id,
+        side: p.side,
+        option_id: p.option_id,
+        // The demo has no clock on a position and no need of one: the card
+        // only uses this to say "4m", and in a fake backend everything
+        // happened just now.
+        created_at: new Date().toISOString(),
+        user: (() => {
+          const u: UserRow | undefined = USERS[p.user_id];
+          return u ? { id: u.id, display_name: u.display_name, avatar_url: u.avatar_url } : null;
+        })(),
+      })),
     media: state.media
       .filter((m) => m.bet_id === bet.id)
       .sort((a, b) => a.position - b.position),
@@ -1119,6 +1154,24 @@ export const demo = {
     if (liked) {
       state.likes.push({ bet_id: betId, user_id: userId, created_at: new Date().toISOString() });
     }
+  },
+
+  /**
+   * Every thread on the page in one pass, the same shape the real query
+   * returns: oldest first within a bet, so the card can take the last two.
+   */
+  async fetchFeedComments(betIds: string[]): Promise<Map<string, BetComment[]>> {
+    const wanted = new Set(betIds);
+    const grouped = new Map<string, BetComment[]>();
+    for (const row of state.comments
+      .filter((c) => wanted.has(c.bet_id))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+      const withAuthor = clone({ ...row, author: USERS[row.user_id] ?? null });
+      const list = grouped.get(row.bet_id);
+      if (list) list.push(withAuthor);
+      else grouped.set(row.bet_id, [withAuthor]);
+    }
+    return grouped;
   },
 
   async fetchBetComments(betId: string): Promise<BetComment[]> {

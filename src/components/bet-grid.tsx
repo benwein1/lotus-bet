@@ -20,7 +20,10 @@ cssInterop(Image, { className: 'style' });
 const COLUMNS = 3;
 
 /** Hairline gutters, so the grid reads as one surface rather than as cards. */
-const GAP = 2;
+// 5pt between tiles and a 10pt corner on each, as the board draws it: the
+// grid reads as a wall of separate bets rather than one mosaic sheet.
+const GAP = 5;
+const TILE_RADIUS = 10;
 
 /**
  * The bets somebody posted, as a grid.
@@ -55,7 +58,7 @@ export function BetGrid({ bets }: { bets: BetWithPositions[] }) {
   return (
     <View
       onLayout={onLayout}
-      className="flex-row flex-wrap overflow-hidden rounded-2xl"
+      className="flex-row flex-wrap"
       style={{ gap: GAP }}
     >
       {tile !== null &&
@@ -102,7 +105,10 @@ function BetTile({
       accessibilityLabel={describeTile(bet)}
       style={{ width: size, height: size }}
     >
-      <View className="h-full w-full overflow-hidden bg-sunken">
+      <View
+        style={{ borderRadius: TILE_RADIUS }}
+        className="h-full w-full overflow-hidden bg-sunken"
+      >
         {cover ? (
           <Image
             source={{ uri: cover.url }}
@@ -119,10 +125,13 @@ function BetTile({
           // the page ground — the tile stopped reading as a tile and became a
           // hole with text floating in it. A tile is a tile; it is the content
           // that recedes.
-          <View className="h-full w-full justify-center bg-surface2 p-2.5">
+          // The question sits at the foot of the tile, the way a caption sits
+          // over a photo in the tiles beside it — so a grid of both kinds
+          // reads as one wall rather than two.
+          <View className="h-full w-full justify-end bg-surface2 p-[9px]">
             <Text
               numberOfLines={5}
-              className={`text-sm font-semibold leading-[17px] ${
+              className={`text-2xs font-semibold leading-[14px] ${
                 marked ? 'text-tertiary' : 'text-primary'
               }`}
             >

@@ -1,6 +1,8 @@
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { GroupFace } from '@/components/group-face';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCallback, useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -33,8 +35,11 @@ import {
 } from '@/components/icons';
 import { OddsBar } from '@/components/odds-bar';
 import { ContentWidth, Screen } from '@/components/screen';
+import { DetailTopBar } from '@/components/detail-top-bar';
+import { FloatingTabBar, TabBarScrim } from '@/components/tab-bar';
 import {
   Avatar,
+  AvatarStack,
   Badge,
   Button,
   ErrorNotice,
@@ -42,15 +47,18 @@ import {
   Money,
   PressableScale,
   SectionTitle,
+  tap,
   useConfirm,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
+import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import { useForegroundRefresh } from '@/hooks/use-foreground-refresh';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import type { BetSide, BetWithPositions, UserRow } from '@/lib/database.types';
 import { formatMoney } from '@/lib/currency';
 import { formatCountdown, formatShortDate } from '@/lib/format';
+import { shareBet } from '@/lib/invites';
 import { previewShareAgorot } from '@/lib/payout';
 import {
   cancelBet,
@@ -63,7 +71,7 @@ import {
 } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors, useScheme } from '@/providers/theme-provider';
-import { motion, optionColor } from '@/theme';
+import { motion, optionColor, optionSoftColor, tabular } from '@/theme';
 
 export default function BetDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -72,6 +80,8 @@ export default function BetDetailScreen() {
   const colors = useColors();
   const scheme = useScheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const tabInset = useTabBarInset();
   const userId = session?.user.id ?? '';
 
   // One request, not three. The group's members and the ledger rows used to be
@@ -248,7 +258,13 @@ export default function BetDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: data.group?.name ?? 'Bet' }} />
+      {/* No navigation bar.
+
+          The approved board runs the photo from the very top of the screen,
+          with the back button floating over it — the bet's own picture is the
+          header. An opaque bar above it would eat 100pt and put the group's
+          name on screen twice, since the hero already names it. */}
+      <Stack.Screen options={{ headerShown: false }} />
       <Screen ground="sunken">
         {/* The comment composer lives at the bottom of a long scroll, so
             without this the keyboard covers the thing you are typing into. */}
@@ -257,7 +273,15 @@ export default function BetDetailScreen() {
           className="flex-1"
         >
         <ScrollView
-          contentContainerClassName="px-gutter pb-12 pt-2"
+          // With no navigation bar the media starts at y=0. A bet without one
+          // has to clear the floating back button itself.
+          contentContainerClassName="px-gutter"
+          // The media runs to the very top of the screen, as drawn. A bet
+          // without one has to clear the floating back button itself.
+          contentContainerStyle={{
+            paddingTop: media.length > 0 ? 0 : insets.top + 62,
+            paddingBottom: tabInset,
+          }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           refreshControl={
@@ -300,13 +324,8 @@ export default function BetDetailScreen() {
                     {/* Explicit rgba stops: an eight-digit hex that does not
                         truly reach zero leaves a hard seam across the photo. */}
                     <LinearGradient
-                      colors={[
-                        'rgba(0,0,0,0.55)',
-                        'rgba(0,0,0,0.08)',
-                        'rgba(0,0,0,0.30)',
-                        'rgba(0,0,0,0.80)',
-                      ]}
-                      locations={[0, 0.34, 0.6, 1]}
+                      colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.08)', 'rgba(0,0,0,0.74)']}
+                      locations={[0, 0.34, 1]}
                       pointerEvents="none"
                       style={StyleSheet.absoluteFill}
                     />
@@ -329,34 +348,52 @@ export default function BetDetailScreen() {
                     </View>
                   )}
 
+                  {/* Group, then who posted it. The status is already said by
+                      the countdown beside the pot, and a badge here put a
+                      coloured pill in front of the group's own name. */}
                   <View className="flex-row items-center gap-2.5">
-                    <Badge label={data.status} tone={data.status} />
-                    {data.group?.name && (
+                    {data.group?.avatar_url ? (
+                      <GroupFace
+                        avatarUrl={data.group.avatar_url}
+                        members={[]}
+                        size={26}
+                        radius={999}
+                      />
+                    ) : null}
+                    <Text
+                      numberOfLines={1}
+                      className={`text-sm font-semibold ${
+                        media.length > 0 ? 'text-on-media' : 'text-primary'
+                      }`}
+                    >
+                      {data.group?.name ?? ''}
+                    </Text>
+                    {data.creator?.display_name && (
                       <Text
                         numberOfLines={1}
                         className={`shrink text-sm ${
                           media.length > 0 ? 'text-on-media-soft' : 'text-secondary'
                         }`}
                       >
-                        {data.group.name}
+                        · {data.creator.display_name} posted this
                       </Text>
                     )}
                   </View>
 
                   <Text
-                    className={`mt-3 text-2xl font-bold leading-[30px] ${
+                    className={`mt-[13px] text-[25px] font-bold leading-[30px] tracking-[-0.7px] ${
                       media.length > 0 ? 'text-on-media' : 'text-primary'
                     }`}
                   >
                     {data.title}
                   </Text>
 
-                  <View className="mt-3.5 flex-row items-end justify-between gap-3">
+                  <View className="mt-[15px] flex-row items-end justify-between gap-3">
                     <View className="flex-row items-center gap-3.5">
                       <Money
                         agorot={data.total_pot_agorot}
                         currency={data.group?.currency}
-                        size="md"
+                        size="betPot"
                         tone={media.length > 0 ? 'onMedia' : 'neutral'}
                       />
                       {countdown && !isResolved && !isCancelled && (
@@ -370,17 +407,24 @@ export default function BetDetailScreen() {
                               media.length > 0 ? 'text-on-media-soft' : 'text-secondary'
                             }`}
                           >
-                            {countdown}
+                            {countdown.replace('Closes in ', '')}
                           </Text>
                         </View>
                       )}
                     </View>
 
                     <BetActions
+                      gap={16}
                       liked={social.liked}
                       likeCount={social.likeCount}
                       commentCount={social.commentCount}
                       onToggleLike={toggleLike}
+                      onPressShare={() => {
+                        tap();
+                        // Swallowed: a share sheet the user dismissed is not
+                        // an error worth interrupting the bet for.
+                        void shareBet(betId, data.title, data.group?.name).catch(() => {});
+                      }}
                       onMedia={media.length > 0}
                     />
                   </View>
@@ -406,7 +450,11 @@ export default function BetDetailScreen() {
                 slices={slices}
                 winningId={isResolved ? data.winning_option_id ?? null : null}
                 size="lg"
+                compact
                 showNames={false}
+                figurePx={28}
+                barPx={3}
+                gapPx={12}
               />
             </Animated.View>
 
@@ -420,7 +468,7 @@ export default function BetDetailScreen() {
                 object. See OptionCard for why these used to be two rows. */}
             <Animated.View
               entering={FadeInDown.delay(120).duration(motion.duration.base)}
-              className="mt-4 flex-row flex-wrap gap-3"
+              className="mt-5 flex-row flex-wrap gap-2.5"
             >
               {slices.map((slice, index) => (
                 <OptionCard
@@ -602,6 +650,10 @@ export default function BetDetailScreen() {
         </ScrollView>
         </KeyboardAvoidingView>
 
+        <DetailTopBar onBack={() => router.back()} onMedia={media.length > 0} />
+        <TabBarScrim />
+        <FloatingTabBar active="index" onSelect={(t) => router.navigate(t.href)} />
+
         {/* Which side was right, asked with the same two labels and the same
             two colours the options carry. Picking one here is the whole
             resolve: one tap from the row, rather than a scroll to a section
@@ -725,37 +777,47 @@ function OptionCard({
 
   const body = (
     <>
-      <View className="mb-3 flex-row items-center gap-1.5">
+      <View className="flex-row items-center gap-1.5">
         <Text
-          numberOfLines={2}
+          numberOfLines={1}
           style={dimmed ? undefined : { color }}
-          className={`flex-1 text-base font-semibold ${dimmed ? 'text-tertiary' : ''}`}
+          className={`flex-1 text-base font-bold ${dimmed ? 'text-tertiary' : ''}`}
         >
           {label}
         </Text>
         {won === true && <TrophyIcon size={15} color={colors.positive} />}
       </View>
 
-      {people.length === 0 ? (
-        <Text className="text-sm text-tertiary">Nobody yet</Text>
-      ) : (
-        people.map((person, personIndex) => (
-          <View key={`${person.id}-${personIndex}`} className="mb-2 flex-row items-center gap-2">
-            <Avatar name={person.name} id={person.id} uri={person.avatarUrl} size={24} />
-            <Text numberOfLines={1} className="flex-1 text-sm text-primary">
-              {person.name}
-            </Text>
-          </View>
-        ))
-      )}
-
-      {/* The payoff line sits under the roster, not over it: the people are
-          the reason to choose, the number is the consequence of choosing. */}
+      {/* The payoff sits right under the label and in the side's own colour:
+          it is the consequence of this square, not a footnote to it. Hidden
+          once the bet closes, because the number would be a promise nobody
+          can take. */}
       {shareAgorot !== null && (
-        <Text className="mt-1 text-sm text-secondary">
-          {selected ? 'Tap to withdraw' : `Win ~${formatMoney(shareAgorot, currency)}`}
+        <Text
+          style={dimmed ? undefined : { color }}
+          className={`mt-[5px] text-sm ${dimmed ? 'text-tertiary' : ''}`}
+        >
+          {selected ? 'Tap to withdraw' : `+${formatMoney(shareAgorot, currency)} each`}
         </Text>
       )}
+
+      <View className="flex-1" />
+
+      {/* The roster as a stack, not a list of names. Four faces and a count
+          fit on one line; four rows of name did not, and the card had to grow
+          to a different height for every option. */}
+      <View className="mt-3.5 flex-row items-center gap-2">
+        {people.length === 0 ? (
+          <Text className="text-xs text-tertiary">Nobody yet</Text>
+        ) : (
+          <>
+            <AvatarStack people={people} size={22} max={4} />
+            <Text style={tabular} className="text-xs text-secondary">
+              {people.length}
+            </Text>
+          </>
+        )}
+      </View>
     </>
   );
 
@@ -766,7 +828,7 @@ function OptionCard({
     return (
       <View
         style={sizing}
-        className={`rounded-3xl border bg-surface p-4 ${
+        className={`h-[114px] rounded-[18px] border bg-surface px-[15px] pb-[13px] pt-[15px] ${
           won === true ? 'border-positive' : 'border-hairline'
         } ${dimmed ? 'opacity-60' : ''}`}
       >
@@ -787,8 +849,17 @@ function OptionCard({
           : `Back ${label}. ${describeRoster(people)}`
       }
       accessibilityState={{ selected, disabled }}
-      style={{ ...sizing, borderColor: selected ? color : undefined }}
-      className={`rounded-3xl border-2 p-4 ${
+      // The side you are on is outlined *and* filled, in its own colour: a
+      // 2pt rule alone over the same ground as the other square read as a
+      // focus ring rather than as a choice already made.
+      style={{
+        ...sizing,
+        borderWidth: selected ? 2 : 1,
+        ...(selected
+          ? { borderColor: color, backgroundColor: optionSoftColor(index, count, scheme) }
+          : null),
+      }}
+      className={`h-[114px] rounded-[18px] px-[15px] pb-[13px] pt-[15px] ${
         selected ? '' : 'border-hairline bg-surface'
       } ${disabled ? 'opacity-50' : ''}`}
     >

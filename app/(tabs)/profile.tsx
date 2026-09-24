@@ -163,7 +163,10 @@ export default function ProfileScreen() {
                   onChange={(url) => updateProfile({ avatar_url: url })}
                 />
                 <View className="min-w-0 flex-1">
-                  <Text numberOfLines={1} className="text-base font-bold text-primary">
+                  <Text
+                    numberOfLines={1}
+                    className="text-base font-bold tracking-[-0.2px] text-primary"
+                  >
                     {profile.display_name}
                   </Text>
                   {/* The handle is the one thing people need *from* you — it
@@ -177,7 +180,7 @@ export default function ProfileScreen() {
               </View>
 
               <View className="mt-5 flex-row items-baseline gap-2.5">
-                <Money agorot={series.net} currency={series.currency} size="xl" sign />
+                <Money agorot={series.net} currency={series.currency} size="net" sign />
                 {series.recent !== 0 && (
                   <Text
                     className={`text-sm ${series.recent > 0 ? 'text-positive' : 'text-negative'}`}
@@ -206,8 +209,8 @@ export default function ProfileScreen() {
               </View>
             </Animated.View>
 
-            <View className="mt-6">
-              <UnderlineTabs tabs={TABS} value={tab} onChange={setTab} />
+            <View className="mt-[18px]">
+              <UnderlineTabs tabs={TABS} value={tab} onChange={setTab} variant="even" />
             </View>
 
             <View className="mt-4">

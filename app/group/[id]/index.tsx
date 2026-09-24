@@ -4,9 +4,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 
-import { BetCard } from '@/components/bet-card';
+import { GroupBetRow } from '@/components/group-bet-row';
 import { GroupFace } from '@/components/group-face';
 import {
   CameraIcon,
@@ -18,6 +19,8 @@ import {
   TicketIcon,
 } from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
+import { DetailTopBar } from '@/components/detail-top-bar';
+import { FloatingTabBar, TabBarScrim } from '@/components/tab-bar';
 import { BetCardSkeleton } from '@/components/skeletons';
 import {
   Avatar,
@@ -32,6 +35,7 @@ import {
 import { UnderlineTabs } from '@/components/underline-tabs';
 import { useAsync } from '@/hooks/use-async';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
+import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import { inviteUrl, linkTargets, shareInvite } from '@/lib/invites';
 import { pickAvatar, uploadAvatar } from '@/lib/media';
 import {
@@ -72,6 +76,8 @@ export default function GroupDetailScreen() {
   const router = useRouter();
   const { session, profile } = useAuth();
   const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const tabInset = useTabBarInset();
   const userId = session?.user.id ?? '';
 
   const group = useAsync(() => fetchGroup(groupId), [groupId]);
@@ -195,10 +201,16 @@ export default function GroupDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: data.name }} />
+      {/* No navigation bar: the group's own name is the first thing on the
+          page at Title-2, and a bar above it would print it twice. What the
+          bar was for — getting back — floats over the content instead. */}
+      <Stack.Screen options={{ headerShown: false }} />
       <Screen>
         <ScrollView
-          contentContainerClassName="px-gutter pb-12 pt-2"
+          contentContainerClassName="px-gutter"
+          // 62 below the safe area, as drawn: ten points clear of the 52pt
+          // topbar that floats above it.
+          contentContainerStyle={{ paddingTop: insets.top + 62, paddingBottom: tabInset }}
           refreshControl={
             <RefreshControl
               refreshing={bets.refreshing}
@@ -238,7 +250,10 @@ export default function GroupDetailScreen() {
                 )}
 
                 <View className="min-w-0 flex-1">
-                  <Text numberOfLines={1} className="text-xl font-bold text-primary">
+                  <Text
+                    numberOfLines={1}
+                    className="text-[22px] font-bold leading-[26px] tracking-[-0.55px] text-primary"
+                  >
                     {data.name}
                   </Text>
                   <View className="mt-1.5">
@@ -259,11 +274,19 @@ export default function GroupDetailScreen() {
                   className="items-end"
                 >
                   {myBalance === 0 ? (
-                    <Text className="text-lg font-bold text-primary">Square</Text>
+                    <Text className="text-[22px] font-extrabold leading-[22px] text-primary">
+                      Square
+                    </Text>
                   ) : (
-                    <Money agorot={myBalance} currency={data.currency} size="md" sign />
+                    <Money
+                      agorot={myBalance}
+                      currency={data.currency}
+                      size="md"
+                      sign
+                      className="text-[22px] font-extrabold leading-[22px] tracking-[-0.6px]"
+                    />
                   )}
-                  <Text className="mt-1 text-2xs text-tertiary">
+                  <Text className="mt-1 text-[11px] text-tertiary">
                     {myBalance === 0
                       ? 'nothing owed'
                       : myBalance > 0
@@ -280,13 +303,13 @@ export default function GroupDetailScreen() {
               )}
             </Animated.View>
 
-            <View className="mt-6">
+            <View className="mt-[22px]">
               <UnderlineTabs tabs={TABS} value={active} onChange={setActive} />
             </View>
 
             {bets.error && <ErrorNotice message={bets.error} />}
 
-            <View className="mt-4">
+            <View className="mt-[14px]">
               {active === 'live' && (
                 <>
                   <NewBetRow
@@ -295,7 +318,7 @@ export default function GroupDetailScreen() {
                       router.push({ pathname: '/group/[id]/new-bet', params: { id: groupId } })
                     }
                   />
-                  <View className="mt-3">
+                  <View className="mt-2.5">
                     {bets.loading ? (
                       <>
                         <BetCardSkeleton />
@@ -310,9 +333,7 @@ export default function GroupDetailScreen() {
                         />
                       </View>
                     ) : (
-                      openBets.map((bet, i) => (
-                        <BetCard key={bet.id} bet={bet} currentUserId={userId} index={i} />
-                      ))
+                      openBets.map((bet) => <GroupBetRow key={bet.id} bet={bet} />)
                     )}
                   </View>
                 </>
@@ -330,8 +351,8 @@ export default function GroupDetailScreen() {
                     </View>
                   ) : (
                     <>
-                      {pastBets.map((bet, i) => (
-                        <BetCard key={bet.id} bet={bet} currentUserId={userId} index={i} />
+                      {pastBets.map((bet) => (
+                        <GroupBetRow key={bet.id} bet={bet} />
                       ))}
                       {/* A group two years old has hundreds of these and used
                           to fetch every one on every open. Explicit rather
@@ -444,6 +465,10 @@ export default function GroupDetailScreen() {
             </View>
           </ContentWidth>
         </ScrollView>
+
+        <DetailTopBar onBack={() => router.back()} />
+        <TabBarScrim />
+        <FloatingTabBar active="groups" onSelect={(t) => router.navigate(t.href)} />
       </Screen>
     </>
   );

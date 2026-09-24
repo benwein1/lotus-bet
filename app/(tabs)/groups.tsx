@@ -75,13 +75,13 @@ export default function GroupsScreen() {
           showsVerticalScrollIndicator={false}
         >
           <ContentWidth>
-            <View className="mb-7 flex-row items-end justify-between pt-3">
+            <View className="mb-[26px] flex-row items-end justify-between pt-3">
               <View className="flex-1 pr-4">
                 <AppMark size={26} />
-                <Text className="mt-3 text-3xl font-semibold tracking-tight text-primary">
+                <Text className="mt-3 text-[30px] font-semibold leading-[34px] tracking-[-0.9px] text-primary">
                   Your groups
                 </Text>
-                <Text className="mt-1.5 text-subhead text-secondary">
+                <Text className="mt-1.5 text-sm text-secondary">
                   {live === 0
                     ? 'The people you bet against live here.'
                     : live === 1
@@ -212,6 +212,11 @@ function GroupRow({
     };
   }, [group.id, currentUserId]);
 
+  // The board's row says how much is running here. `live_bet_count` is a
+  // column on the group when the project has it; without it the line simply
+  // reads the headcount, which is what it did before.
+  const live = Number((group as { live_bet_count?: number }).live_bet_count ?? 0);
+
   const members = group.members.map((m) => ({
     id: m.user_id,
     name: m.user?.display_name ?? '?',
@@ -228,7 +233,7 @@ function GroupRow({
       className="mb-2.5 flex-row items-center gap-3 overflow-hidden rounded-2xl border border-hairline bg-surface py-3 pl-[19px] pr-4"
     >
       <LinearGradient
-        colors={[colors.markTo, colors.markFrom]}
+        colors={[colors.markFrom, colors.markTo]}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3 }}
@@ -257,10 +262,14 @@ function GroupRow({
           className="flex-1 flex-row items-center gap-3"
         >
           <View className="flex-1">
-            <Text numberOfLines={1} className="text-base font-semibold text-primary">
+            <Text
+              numberOfLines={1}
+              className="text-base font-semibold tracking-[-0.4px] text-primary"
+            >
               {group.name}
             </Text>
             <Text numberOfLines={1} className="mt-1 text-xs text-secondary">
+              {live > 0 ? `${live} live  ·  ` : ''}
               {group.members.length === 1 ? '1 person' : `${group.members.length} people`}
             </Text>
           </View>
@@ -322,6 +331,13 @@ function HowItWorks({ step, title, body }: { step: string; title: string; body: 
   );
 }
 
+/**
+ * One figure, no caption.
+ *
+ * The row already says everything else in words; a second line reading
+ * "you're owed" under a green number is the colour saying it twice. The sign
+ * carries the direction, which is the convention the ledger uses everywhere.
+ */
 function BalancePreview({
   balance,
   currency,
@@ -332,13 +348,16 @@ function BalancePreview({
   if (balance === null) return null;
 
   if (balance === 0) {
-    return <Text className="text-callout font-semibold text-secondary">Square</Text>;
+    return <Text className="text-base font-semibold text-secondary">Square</Text>;
   }
 
   return (
-    <View className="items-end">
-      <Money agorot={Math.abs(balance)} currency={currency} size="sm" sign={false} tone={balance > 0 ? 'positive' : 'negative'} />
-      <Text className="mt-0.5 text-2xs text-tertiary">{balance > 0 ? "you're owed" : 'you owe'}</Text>
-    </View>
+    <Money
+      agorot={balance}
+      currency={currency}
+      size="sm"
+      sign
+      className="text-base font-bold tracking-[-0.3px]"
+    />
   );
 }

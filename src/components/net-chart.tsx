@@ -78,8 +78,8 @@ export function NetChart({
         )}
       </View>
       <View className="mt-1.5 flex-row items-center justify-end gap-1">
-        <Text className="text-xs text-secondary">All stats</Text>
-        <ChevronRightIcon size={13} color={colors.textSecondary} />
+        <Text className="text-xs font-semibold text-accent">All stats</Text>
+        <ChevronRightIcon size={13} color={colors.accent} />
       </View>
     </PressableScale>
   );

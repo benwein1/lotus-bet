@@ -9,9 +9,10 @@ import { GroupFace } from '@/components/group-face';
 import { GroupGlyph } from '@/components/group-glyph';
 import { ClockIcon, LockIcon } from '@/components/icons';
 import { OddsBar, type OddsSlice } from '@/components/odds-bar';
-import { Badge, LiveDot, Money, PressableScale, tap } from '@/components/ui';
+import { Avatar, Badge, LiveDot, Money, PressableScale, tap } from '@/components/ui';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { shareBet } from '@/lib/invites';
+import type { FeedComment } from '@/lib/queries';
 import type { BetSide, BetStatus, BetWithPositions } from '@/lib/database.types';
 import { formatCountdown } from '@/lib/format';
 import { useColors, useScheme } from '@/providers/theme-provider';
@@ -78,6 +79,7 @@ function FeedCardImpl({
   busyOptionId = null,
   onToggleLike,
   onOpenComments,
+  comments = [],
 }: {
   bet: BetWithPositions;
   currentUserId: string;
@@ -94,6 +96,14 @@ function FeedCardImpl({
    * to pushing the bet screen, which is what every other entry point does.
    */
   onOpenComments?: () => void;
+  /**
+   * The last words on this bet, oldest first.
+   *
+   * Passed in rather than fetched: the feed reads them for the whole page in
+   * one query, because PostgREST cannot limit an embed per parent and a
+   * hundred bets would otherwise come back with every comment on all of them.
+   */
+  comments?: FeedComment[];
 }) {
   const colors = useColors();
   const router = useRouter();
@@ -118,37 +128,34 @@ function FeedCardImpl({
       : router.push({ pathname: '/bet/[id]', params: { id: bet.id } });
 
   return (
-    <View style={{ height }} className="px-3 pb-3">
+    <View style={{ height }} className="px-3">
       {/*
-        The card is an object on the page again, not a full-bleed photograph.
-
-        Everything used to sit over the media under a scrim, which made the
-        picture the loudest thing in the feed whether or not it had anything to
-        do with the question. The media is an inset panel now and the bet is
-        type on a surface, so a card with a photo and a card without are the
-        same shape — and a bet with no attachment, which is half of them, stops
-        being a page of white text on a generated gradient.
-
-        That is also why there is no generated cover here any more: the card
-        has a ground of its own, so `bet-cover` was drawing a background behind
-        a background.
+        The card is an object on the page, not a full-bleed photograph.
+        Everything below is measured against the approved board: 28pt corners
+        on a hairline over `surface`, the media a 162pt panel inset 10 from the
+        card's own edges, and one 3pt rule under the two figures.
       */}
-      <View className="flex-1 overflow-hidden rounded-4xl border border-hairline-strong bg-surface">
-        <View className="flex-row items-center gap-2.5 px-4 pt-4">
+      <View className="overflow-hidden rounded-4xl border border-hairline bg-surface">
+        <View className="flex-row items-center gap-2.5 px-4 pt-[15px]">
           {bet.group && (
             <>
-              {/* The group's photo, or nothing at all. An emoji fallback was a
-                  guess that rendered differently on every platform; where
-                  there is no picture the name carries it. */}
+              {/* The group's photo, or its initials in its own derived colour.
+                  `GroupFace` falls back to a stack of member avatars, and the
+                  feed deliberately does not embed members (it reads a hundred
+                  bets), so here the fallback would be an empty grey disc that
+                  reads as something still loading. An emoji was the older
+                  guess and rendered differently on every platform. */}
               {bet.group.avatar_url ? (
-                <GroupFace avatarUrl={bet.group.avatar_url} members={[]} size={28} radius={999} />
-              ) : null}
+                <GroupFace avatarUrl={bet.group.avatar_url} members={[]} size={30} radius={999} />
+              ) : (
+                <Avatar id={bet.group.id} name={bet.group.name} size={30} />
+              )}
               <View className="min-w-0 flex-1">
-                <Text numberOfLines={1} className="text-sm font-semibold text-primary">
+                <Text numberOfLines={1} className="text-[14px] font-semibold text-primary">
                   {bet.group.name}
                 </Text>
                 {bet.creator && (
-                  <Text numberOfLines={1} className="mt-0.5 text-2xs text-tertiary">
+                  <Text numberOfLines={1} className="mt-px text-[11px] text-secondary">
                     {bet.creator.username
                       ? `@${bet.creator.username}`
                       : bet.creator.display_name}
@@ -157,8 +164,8 @@ function FeedCardImpl({
               </View>
             </>
           )}
-          {/* "New" displaces "Live" rather than sitting beside it: both say the
-              bet is open, and two pills in a corner is clutter. */}
+          {/* "New" displaces "Live": both say the bet is open, and two pills
+              in a corner is clutter. */}
           {isNew && bet.status === 'open' ? (
             <View className="rounded-full bg-accent px-2.5 py-1">
               <Text className="text-xs font-semibold text-accent-ink">New</Text>
@@ -174,16 +181,15 @@ function FeedCardImpl({
         </View>
 
         {hasMedia && (
-          <View className="mx-2.5 mt-3 flex-1 overflow-hidden rounded-3xl">
+          <View className="mx-2.5 mt-[13px] h-[162px] overflow-hidden rounded-[18px]">
             <BetMediaView media={media} active={active} className="absolute inset-0" />
           </View>
         )}
 
-        {/* The side buttons sit *outside* the Link, not inside it. Nesting a
-            button in a link is invalid markup, and on the web it costs the
-            feature outright: the inner press fires, then the browser's own
-            anchor activation hard-navigates the document. */}
-        <View className="px-4 pb-3 pt-4">
+        {/* The side buttons sit *outside* the Link. Nesting a button in a link
+            is invalid markup, and on the web the inner press fires and then
+            the browser's own anchor activation navigates the document. */}
+        <View className="px-4 pb-2 pt-4">
           <Link href={{ pathname: '/bet/[id]', params: { id: bet.id } }} asChild>
             <PressableScale
               scaleTo={0.995}
@@ -191,25 +197,27 @@ function FeedCardImpl({
               accessibilityLabel={`Bet: ${bet.title}`}
             >
               <Text
-                // Without a photo the question is the whole post, so it gets
-                // the size the picture would have had.
+                // Without a photo the question is the whole post, so it takes
+                // the lines the picture would have had.
                 numberOfLines={hasMedia ? 2 : 5}
-                className={`font-bold text-primary ${hasMedia ? 'text-xl' : 'text-2xl'}`}
+                className={`font-bold tracking-[-0.6px] text-primary ${
+                  hasMedia ? 'text-[23px] leading-[27px]' : 'text-[28px] leading-[34px]'
+                }`}
               >
                 {bet.title}
               </Text>
 
-              {/* No description here. It is the one genuinely long-form piece
-                  of a bet, and a card that carries it stops being a glance. */}
-
-              <View className="mt-3 flex-row items-center gap-4">
+              <View className="mt-2.5 flex-row items-center gap-[14px]">
                 {/* The figure alone: an amount on a bet card is the pot and
-                    nothing else, so the word carried no information the
-                    position did not. */}
+                    nothing else — and neutral, not green. `positive` and
+                    `negative` mean money owed to you and money you owe; a pot
+                    is neither, and colouring it would give the ledger's one
+                    convention a third meaning on the busiest screen. */}
                 <Money
                   agorot={bet.total_pot_agorot}
                   currency={bet.group?.currency}
-                  size="md"
+                  size="pot"
+                  tone="neutral"
                 />
 
                 {countdown && (
@@ -229,19 +237,23 @@ function FeedCardImpl({
                 )}
               </View>
 
-              <View className="mt-4">
-                {/* The names are on the buttons directly below, in their own
-                    colour and on the thing you press. */}
-                <OddsBar slices={slices} compact showNames={false} />
+              <View className="mt-[18px]">
+                {/* No names: they are on the buttons directly below, in their
+                    own colour and on the thing you press. */}
+                <OddsBar
+                  slices={slices}
+                  compact
+                  showNames={false}
+                  figurePx={30}
+                  barPx={3}
+                  gapPx={12}
+                />
               </View>
             </PressableScale>
           </Link>
 
           {joinable && (
-            // Two options sit side by side; more wrap onto as many rows as
-            // they need. `flex-wrap` with a basis rather than a grid, because
-            // the labels are user-written and a fixed column would truncate.
-            <View className="mt-4 flex-row flex-wrap gap-2.5">
+            <View className="mt-[18px] flex-row flex-wrap gap-2.5">
               {slices.map((slice, index) => (
                 <OptionPick
                   key={slice.id}
@@ -249,7 +261,6 @@ function FeedCardImpl({
                   index={index}
                   count={slices.length}
                   selected={picked === slice.id}
-                  onMedia={false}
                   busy={busyOptionId === slice.id}
                   onPress={() => {
                     tap();
@@ -260,19 +271,8 @@ function FeedCardImpl({
             </View>
           )}
 
-          {/*
-            Three icons and nothing else.
-
-            There used to be a second line under this row — "View all 4
-            comments". It was doing two jobs: carrying the count, and inviting
-            the first comment. The count sits against the bubble where a count
-            belongs; the invitation is gone, and that is the trade.
-
-            The thread is unchanged behind it: pressing the bubble raises the
-            sheet over the feed rather than pushing the bet screen.
-          */}
           {onToggleLike && (
-            <View className="mt-3">
+            <View className="mt-1">
               <BetActions
                 liked={social.liked}
                 likeCount={social.likeCount}
@@ -281,18 +281,124 @@ function FeedCardImpl({
                 onPressComments={openThread}
                 onPressShare={() => {
                   tap();
-                  // Swallowed on purpose: a share sheet the user dismissed, or
-                  // a browser with neither `navigator.share` nor a clipboard,
-                  // is not an error worth interrupting the feed for.
+                  // Swallowed on purpose: a share sheet the user dismissed is
+                  // not an error worth interrupting the feed for.
                   void shareBet(bet.id, bet.title, bet.group?.name).catch(() => {});
                 }}
               />
             </View>
           )}
         </View>
+
+        {/* The social footer: what just happened, and the last two things
+            anybody said. It sits on `surface2` behind a hairline so the card
+            reads as two zones — the bet, and the talk about it. */}
+        <FeedSocial
+          bet={bet}
+          comments={comments}
+          commentCount={social.commentCount}
+          onOpen={openThread}
+        />
       </View>
     </View>
   );
+}
+
+/**
+ * The strip at the foot of a feed card.
+ *
+ * The activity line is derived from the bet's own positions — the newest one,
+ * who made it and when — rather than from an events table the schema does not
+ * have. The comments come from one extra read for the whole page rather than
+ * an embed per bet, which is why `comments` arrives as a prop instead of being
+ * fetched here.
+ *
+ * Both halves are optional and the strip disappears entirely when there is
+ * neither, so a brand-new bet does not carry an empty grey band.
+ */
+function FeedSocial({
+  bet,
+  comments,
+  commentCount,
+  onOpen,
+}: {
+  bet: BetWithPositions;
+  comments: FeedComment[];
+  commentCount: number;
+  onOpen: () => void;
+}) {
+  const latest = (bet.positions ?? [])
+    .slice()
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+  // No name, no line. Realtime hands over a row without its embeds, so a
+  // just-arrived position has a timestamp and nobody attached to it, and
+  // "Someone picked a side" is worse than silence.
+  const actor = latest?.user?.display_name ?? null;
+  const actorAt = latest?.created_at ?? null;
+  const shown = comments.slice(-2);
+
+  if (!(actor && actorAt) && shown.length === 0) return null;
+
+  return (
+    <View className="border-t border-hairline bg-surface2 px-4 pb-1 pt-3">
+      {actor && actorAt && (
+        <View className="flex-row items-center gap-[9px]">
+          <View className="mx-2 h-1.5 w-1.5 rounded-full bg-brand" />
+          <Text numberOfLines={1} className="flex-1 text-sm text-secondary">
+            <Text className="font-semibold text-primary">{actor}</Text> picked a side
+          </Text>
+          <Text className="text-xs text-secondary">{actorAt ? shortAgo(actorAt) : ''}</Text>
+        </View>
+      )}
+
+      {shown.length > 0 && (
+        <View className="mt-3 gap-[11px]">
+          {shown.map((comment) => (
+            <View key={comment.id} className="flex-row items-start gap-[9px]">
+              <Avatar
+                id={comment.user_id}
+                name={comment.author?.display_name ?? '?'}
+                uri={comment.author?.avatar_url}
+                size={22}
+              />
+              {/* Name and body in one flowing paragraph: it reads the way a
+                  spoken remark reads and costs a line less per comment. */}
+              <Text numberOfLines={2} className="flex-1 text-sm leading-[19px] text-primary">
+                <Text className="font-semibold">
+                  {comment.author?.display_name ?? 'Someone'}
+                </Text>{' '}
+                {comment.body}
+                <Text className="text-xs text-secondary"> {shortAgo(comment.created_at)}</Text>
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {commentCount > 0 && (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={`View all ${commentCount} comments`}
+          onPress={onOpen}
+          className="min-h-11 justify-center"
+        >
+          <Text className="text-sm text-secondary">
+            View all {commentCount} {commentCount === 1 ? 'comment' : 'comments'}
+          </Text>
+        </PressableScale>
+      )}
+    </View>
+  );
+}
+
+/** "4m", "2h", "3d" — the feed's own shorthand, narrower than a countdown. */
+function shortAgo(at: string): string {
+  const mins = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 60000));
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
 }
 
 /**
@@ -332,7 +438,7 @@ function OptionPick({
   index,
   count,
   selected,
-  onMedia,
+  onMedia = false,
   busy,
   onPress,
 }: {
@@ -340,12 +446,17 @@ function OptionPick({
   index: number;
   count: number;
   selected: boolean;
-  onMedia: boolean;
+  onMedia?: boolean;
   busy: boolean;
   onPress: () => void;
 }) {
   const scheme = useScheme();
   const color = optionColor(index, count, scheme, onMedia);
+  // The first side is filled and the rest are outlined on their own soft
+  // ground. It is not a selected state — it is the shape the board draws,
+  // and it gives the row a weight on the side the question is phrased from.
+  const filled = index === 0;
+  const ink = scheme === 'dark' ? '#00190C' : '#FFFFFF';
 
   return (
     <PressableScale
@@ -356,20 +467,20 @@ function OptionPick({
       accessibilityState={{ selected, busy }}
       accessibilityLabel={selected ? `Withdraw from ${label}` : `Back ${label}`}
       style={{
-        backgroundColor: selected ? color : undefined,
-        borderColor: selected ? color : undefined,
-        // Two fill the row; three or more take half of it and wrap.
+        backgroundColor: filled ? color : undefined,
+        borderColor: color,
+        borderWidth: selected ? 2 : filled ? 0 : 1,
         flexBasis: count === 2 ? 0 : '47%',
         flexGrow: 1,
       }}
-      className={`min-h-12 items-center justify-center rounded-2xl border px-3 py-2 ${
-        selected ? '' : onMedia ? 'border-chrome-edge bg-scrim' : 'border-hairline bg-surface2'
+      className={`h-12 items-center justify-center rounded-[14px] px-3 ${
+        filled ? '' : index === 1 ? 'bg-sideB-soft' : 'bg-surface2'
       } ${busy ? 'opacity-60' : ''}`}
     >
       <Text
         numberOfLines={1}
-        style={selected ? undefined : { color }}
-        className={`text-subhead font-semibold ${selected ? 'text-on-media' : ''}`}
+        style={{ color: filled ? ink : color }}
+        className={`text-callout ${filled ? 'font-bold' : 'font-semibold'}`}
       >
         {label}
       </Text>

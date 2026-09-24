@@ -339,7 +339,15 @@ export async function leaveGroup(groupId: string, userId: string): Promise<void>
 // they need no such hint — but check that again before embedding any new table
 // that also points at `bets` twice.
 const BET_SELECT =
-  '*, options:bet_options!bet_options_bet_id_fkey(*), positions:bet_positions(user_id, side, option_id), media:bet_media(*), likes:bet_likes(user_id), comments:bet_comments(count)';
+  '*, options:bet_options!bet_options_bet_id_fkey(*), ' +
+  // `created_at` and the picker's name ride along because the feed card's
+  // footer says who moved last and when. It is a name and a timestamp on rows
+  // the select already returns, not a second list: the group's *members* are
+  // still deliberately absent (see `fetchBet`), because those are a hundred
+  // rosters the feed never renders.
+  'positions:bet_positions(user_id, side, option_id, created_at, ' +
+  'user:users!bet_positions_user_id_fkey(id, display_name, avatar_url)), ' +
+  'media:bet_media(*), likes:bet_likes(user_id), comments:bet_comments(count)';
 /**
  * `creator` names its foreign key even though `bets` has only one to `users`.
  *
@@ -1195,6 +1203,53 @@ export async function fetchBetsIJoined(
 
   if (error) throw new Error(error.message);
   return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
+}
+
+/** The last words on a bet, as the feed card's footer prints them. */
+export interface FeedComment {
+  id: string;
+  bet_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+  author: { display_name: string; avatar_url: string | null } | null;
+}
+
+/**
+ * The newest comments across a page of bets, in one read.
+ *
+ * The alternative was an embed on `BET_SELECT`, and PostgREST cannot limit an
+ * embed per parent — a feed of a hundred bets would come back with every
+ * comment on all of them. One flat query ordered newest-first with a hard cap
+ * is bounded no matter how loud the groups are; the card takes the last two it
+ * was given and the full thread is one tap away either way.
+ */
+export async function fetchFeedComments(
+  betIds: string[],
+  cap = 240
+): Promise<Map<string, FeedComment[]>> {
+  const grouped = new Map<string, FeedComment[]>();
+  if (betIds.length === 0) return grouped;
+  if (isDemoMode()) return demo.fetchFeedComments(betIds);
+
+  const { data, error } = await supabase
+    .from('bet_comments')
+    .select('id, bet_id, user_id, body, created_at, author:users(display_name, avatar_url)')
+    .in('bet_id', betIds)
+    .order('created_at', { ascending: false })
+    .limit(cap);
+
+  // A footer that could not load is not worth failing a feed over: the card
+  // renders without it and the thread is still one tap away.
+  if (error) return grouped;
+
+  for (const row of (data ?? []) as unknown as FeedComment[]) {
+    const list = grouped.get(row.bet_id);
+    // Oldest first within a bet, so the card can take the last two.
+    if (list) list.unshift(row);
+    else grouped.set(row.bet_id, [row]);
+  }
+  return grouped;
 }
 
 export async function fetchMyStats(): Promise<MyStatsRow | null> {

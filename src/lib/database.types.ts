@@ -292,7 +292,13 @@ export interface BetComment extends BetCommentRow {
 }
 
 export interface BetWithPositions extends BetRow {
-  positions: { user_id: string; side: BetSide | null; option_id: string }[];
+  positions: {
+    user_id: string;
+    side: BetSide | null;
+    option_id: string;
+    created_at: string;
+    user: { id: string; display_name: string; avatar_url: string | null } | null;
+  }[];
   /** Ordered by `position`. Always at least two. */
   options: BetOptionRow[];
   media?: BetMedia[];
