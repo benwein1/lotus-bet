@@ -12,6 +12,7 @@ import {
   ErrorNotice,
   PressableScale,
   SectionTitle,
+  Segmented,
   TextField,
   FieldGroup,
   selectionTap,
@@ -35,6 +36,22 @@ const LABEL_PRESETS: [string, string][] = [
 
 /** Placeholders that read as a real bet rather than "Option 3". */
 const OPTION_PLACEHOLDERS = ['Yes', 'No', 'Too close to call', 'Something else', 'Nobody knows'];
+
+/** Matches the column's own check. Long enough for a sentence, not a story. */
+const MAX_STAKE_TEXT = 80;
+
+/**
+ * Forfeits people actually set, as a starting point.
+ *
+ * The same job the pot presets do: most bets take one of a handful of shapes,
+ * and typing is the slowest part of posting one.
+ */
+const FORFEIT_PRESETS = [
+  'Loser buys dinner',
+  'Loser does 50 pushups',
+  'Winner picks the film',
+  'Loser does the washing up',
+];
 
 const POT_PRESETS = [20, 50, 100, 200];
 
@@ -69,6 +86,12 @@ export default function NewBetScreen() {
   // `option_b_label` on the row.
   const [options, setOptions] = useState<string[]>([seedA ?? 'Yes', seedB ?? 'No']);
   const [pot, setPot] = useState(seedPot ?? '');
+  /**
+   * Money or a forfeit. Not both — the database refuses a bet that claims
+   * both, so this is the choice rather than an optional extra field.
+   */
+  const [stakeKind, setStakeKind] = useState<'money' | 'forfeit'>('money');
+  const [stakeText, setStakeText] = useState('');
   const [media, setMedia] = useState<PickedMedia[]>([]);
   const [hasDeadline, setHasDeadline] = useState(false);
   const [deadlineHours, setDeadlineHours] = useState(24);
@@ -86,6 +109,7 @@ export default function NewBetScreen() {
   // the parser behind it both come from there.
   const currency = group.data?.currency;
   const potAgorot = parseMoneyToMinor(pot, currency);
+  const trimmedStake = stakeText.trim();
   const trimmed = options.map((label) => label.trim());
   const filled = trimmed.filter(Boolean);
   // Case-insensitive, because "Yes" and "yes" are the same answer and a bet
@@ -96,7 +120,7 @@ export default function NewBetScreen() {
     filled.length === trimmed.length &&
     filled.length >= MIN_BET_OPTIONS &&
     !labelsClash &&
-    potAgorot !== null;
+    (stakeKind === 'money' ? potAgorot !== null : trimmedStake.length > 0);
 
   function setOption(index: number, value: string) {
     setOptions((current) => current.map((label, i) => (i === index ? value : label)));
@@ -146,7 +170,8 @@ export default function NewBetScreen() {
         title: title.trim(),
         description: description.trim() || null,
         optionLabels: trimmed,
-        totalPotAgorot: potAgorot!,
+        totalPotAgorot: stakeKind === 'money' ? potAgorot! : 0,
+        stakeText: stakeKind === 'forfeit' ? trimmedStake : null,
         closeAt: hasDeadline
           ? new Date(Date.now() + deadlineHours * 60 * 60 * 1000).toISOString()
           : null,
@@ -287,34 +312,80 @@ export default function NewBetScreen() {
 
             <View className="mb-7" />
 
-            <SectionTitle>Total pot</SectionTitle>
-            <FieldGroup>
-              <TextField
-                label={currencySymbol(currency)}
-                value={pot}
-                onChangeText={setPot}
-                placeholder="100"
-                keyboardType="decimal-pad"
-                last
-              />
-            </FieldGroup>
+            <SectionTitle>What&apos;s at stake</SectionTitle>
+            {/* A pot or a forfeit, and the toggle is where that choice is
+                made. The database refuses a bet that claims both, so the two
+                fields are alternatives rather than a form with an optional
+                extra — which is also why this is a segmented control and not
+                a checkbox beside the amount. */}
+            <Segmented
+              className="mb-3"
+              value={stakeKind}
+              onChange={setStakeKind}
+              options={[
+                { value: 'money' as const, label: 'Money' },
+                { value: 'forfeit' as const, label: 'Something else' },
+              ]}
+            />
 
-            <View className="mb-3 mt-3 flex-row flex-wrap gap-2">
-              {POT_PRESETS.map((amount) => (
-                <Chip
-                  key={amount}
-                  label={`${currencySymbol(currency)}${amount}`}
-                  selected={pot === String(amount)}
-                  onPress={() => setPot(String(amount))}
+            {stakeKind === 'money' ? (
+              <>
+                <FieldGroup>
+                  <TextField
+                    label={currencySymbol(currency)}
+                    value={pot}
+                    onChangeText={setPot}
+                    placeholder="100"
+                    keyboardType="decimal-pad"
+                    last
+                  />
+                </FieldGroup>
+
+                <View className="mb-3 mt-3 flex-row flex-wrap gap-2">
+                  {POT_PRESETS.map((amount) => (
+                    <Chip
+                      key={amount}
+                      label={`${currencySymbol(currency)}${amount}`}
+                      selected={pot === String(amount)}
+                      onPress={() => setPot(String(amount))}
+                    />
+                  ))}
+                </View>
+
+                <Text className="mb-7 px-1 text-sm leading-[18px] text-secondary">
+                  One fixed pot for the whole bet — it doesn&apos;t grow as more people join. The
+                  winning side splits {potAgorot ? formatMoney(potAgorot, currency) : 'it'} between
+                  them; the losing side covers the same amount between them.
+                </Text>
+              </>
+            ) : (
+              <>
+                <BlockField
+                  label="The forfeit"
+                  value={stakeText}
+                  onChangeText={setStakeText}
+                  placeholder="Loser buys dinner"
+                  maxLength={MAX_STAKE_TEXT}
+                  returnKeyType="done"
                 />
-              ))}
-            </View>
 
-            <Text className="mb-7 px-1 text-sm leading-[18px] text-secondary">
-              One fixed pot for the whole bet — it doesn&apos;t grow as more people join. The
-              winning side splits {potAgorot ? formatMoney(potAgorot, currency) : 'it'} between them; the
-              losing side covers the same amount between them.
-            </Text>
+                <View className="mb-3 mt-3 flex-row flex-wrap gap-2">
+                  {FORFEIT_PRESETS.map((preset) => (
+                    <Chip
+                      key={preset}
+                      label={preset}
+                      selected={stakeText.trim() === preset}
+                      onPress={() => setStakeText(preset)}
+                    />
+                  ))}
+                </View>
+
+                <Text className="mb-7 px-1 text-sm leading-[18px] text-secondary">
+                  No money changes hands and nothing lands on anybody&apos;s balance — this is the
+                  two of you holding each other to it.
+                </Text>
+              </>
+            )}
 
             {/* Only worth showing when there is somebody to leave out. In a
                 two-person group — every duel — the bet is already private to

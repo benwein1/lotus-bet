@@ -152,6 +152,14 @@ export interface BetRow {
   option_a_label: string;
   option_b_label: string;
   total_pot_agorot: number;
+  /**
+   * What is at stake when it is not money — "loser buys dinner".
+   *
+   * A bet has a pot or a forfeit, never both; the database enforces that, and
+   * a forfeit bet's `total_pot_agorot` is 0. Null on every money bet, which is
+   * every bet made before this existed.
+   */
+  stake_text?: string | null;
   status: BetStatus;
   /** `private` means only the creator and the invitees can see it at all. */
   visibility?: 'group' | 'private';

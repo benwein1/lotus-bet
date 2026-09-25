@@ -865,7 +865,9 @@ export const demo = {
       description: input.description,
       option_a_label: labels[0]!,
       option_b_label: labels[1]!,
-      total_pot_agorot: input.totalPotAgorot,
+      // The same rule the constraint enforces: a pot or a forfeit, never both.
+      total_pot_agorot: input.stakeText ? 0 : input.totalPotAgorot,
+      stake_text: input.stakeText ?? null,
       status: 'open',
       winning_option: null,
       winning_option_id: null,

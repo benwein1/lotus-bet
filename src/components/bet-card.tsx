@@ -13,6 +13,7 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { shareBet } from '@/lib/invites';
 import type { FeedComment } from '@/lib/queries';
 import type { BetSide, BetStatus, BetWithPositions } from '@/lib/database.types';
+import { isForfeit } from '@/lib/currency';
 import { formatCountdown } from '@/lib/format';
 import { useColors, useScheme } from '@/providers/theme-provider';
 import { elevation, motion, optionColor, tabular } from '@/theme';
@@ -125,6 +126,7 @@ function FeedCardImpl({
   const countdown = bet.status === 'open' ? formatCountdown(bet.close_at) : null;
   const media = bet.media ?? [];
   const hasMedia = media.length > 0;
+  const forfeit = isForfeit(bet);
   // Every card has a background now — a photo when there is one, a generated
   // cover when there is not. One layout instead of two, which is what makes the
   // column read as a single stream rather than alternating photographs and
@@ -242,13 +244,27 @@ function FeedCardImpl({
                     nothing else — and neutral, not green. `positive` and
                     `negative` mean money owed to you and money you owe; a pot
                     is neither, and colouring it would give the ledger's one
-                    convention a third meaning on the busiest screen. */}
-                <Money
-                  agorot={bet.total_pot_agorot}
-                  currency={bet.group?.currency}
-                  size="pot"
-                  tone="neutral"
-                />
+                    convention a third meaning on the busiest screen.
+
+                    A forfeit takes the same slot at a smaller size, because
+                    "Loser buys dinner" is a sentence and $240 is a figure —
+                    set at 22 it would be the loudest thing on the card and
+                    would still wrap. */}
+                {forfeit ? (
+                  <Text
+                    numberOfLines={1}
+                    className="flex-1 text-callout font-semibold text-primary"
+                  >
+                    {bet.stake_text}
+                  </Text>
+                ) : (
+                  <Money
+                    agorot={bet.total_pot_agorot}
+                    currency={bet.group?.currency}
+                    size="pot"
+                    tone="neutral"
+                  />
+                )}
 
                 {countdown && (
                   <View className="flex-row items-center gap-1.5">

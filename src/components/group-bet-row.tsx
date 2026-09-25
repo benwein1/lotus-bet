@@ -3,6 +3,7 @@ import { View, Text } from 'react-native';
 
 import { LiveDot, Money, PressableScale } from '@/components/ui';
 import { betSlices } from '@/components/bet-card';
+import { isForfeit } from '@/lib/currency';
 import { percentages } from '@/lib/odds';
 import { formatCountdown } from '@/lib/format';
 import type { BetWithPositions } from '@/lib/database.types';
@@ -46,14 +47,22 @@ export function GroupBetRow({ bet }: { bet: BetWithPositions }) {
           <Text numberOfLines={1} className="flex-1 text-xs text-secondary">
             {meta}
           </Text>
-          {/* Neutral: the pot is not a direction. */}
-          <Money
-            agorot={bet.total_pot_agorot}
-            currency={bet.group?.currency}
-            size="sm"
-            tone="neutral"
-            className="text-subhead font-bold"
-          />
+          {/* Neutral: the pot is not a direction. A forfeit takes the same
+              slot as words, clamped to the line rather than wrapping the
+              row. */}
+          {isForfeit(bet) ? (
+            <Text numberOfLines={1} className="max-w-[55%] text-subhead font-bold text-primary">
+              {bet.stake_text}
+            </Text>
+          ) : (
+            <Money
+              agorot={bet.total_pot_agorot}
+              currency={bet.group?.currency}
+              size="sm"
+              tone="neutral"
+              className="text-subhead font-bold"
+            />
+          )}
         </View>
 
         <Text

@@ -56,7 +56,7 @@ import { useForegroundRefresh } from '@/hooks/use-foreground-refresh';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import type { BetSide, BetWithPositions, UserRow } from '@/lib/database.types';
-import { formatMoney } from '@/lib/currency';
+import { formatMoney, isForfeit } from '@/lib/currency';
 import { formatCountdown, formatShortDate } from '@/lib/format';
 import { shareBet } from '@/lib/invites';
 import { previewShareAgorot } from '@/lib/payout';
@@ -229,10 +229,12 @@ export default function BetDetailScreen() {
       message:
         winners === 0
           ? 'Nobody backed that side, so nothing will change hands. This cannot be undone.'
-          : `${winners} ${winners === 1 ? 'person splits' : 'people split'} ${formatMoney(
-              data.total_pot_agorot,
-              data.group?.currency
-            )}. This cannot be undone.`,
+          : isForfeit(data)
+            ? `Everybody else owes it: ${data.stake_text}. Nothing lands on a balance. This cannot be undone.`
+            : `${winners} ${winners === 1 ? 'person splits' : 'people split'} ${formatMoney(
+                data.total_pot_agorot,
+                data.group?.currency
+              )}. This cannot be undone.`,
       confirmLabel: 'Resolve',
       destructive: true,
       onConfirm: () =>
@@ -389,12 +391,25 @@ export default function BetDetailScreen() {
 
                   <View className="mt-[15px] flex-row items-end justify-between gap-3">
                     <View className="flex-row items-center gap-3.5">
-                      <Money
-                        agorot={data.total_pot_agorot}
-                        currency={data.group?.currency}
-                        size="betPot"
-                        tone={media.length > 0 ? 'onMedia' : 'neutral'}
-                      />
+                      {/* A forfeit reads as a sentence, so it takes the
+                          pot's place at a size a sentence can hold. */}
+                      {isForfeit(data) ? (
+                        <Text
+                          numberOfLines={2}
+                          className={`flex-1 text-callout font-semibold ${
+                            media.length > 0 ? 'text-on-media' : 'text-primary'
+                          }`}
+                        >
+                          {data.stake_text}
+                        </Text>
+                      ) : (
+                        <Money
+                          agorot={data.total_pot_agorot}
+                          currency={data.group?.currency}
+                          size="betPot"
+                          tone={media.length > 0 ? 'onMedia' : 'neutral'}
+                        />
+                      )}
                       {countdown && !isResolved && !isCancelled && (
                         <View className="flex-row items-center gap-1.5">
                           <ClockIcon
@@ -482,8 +497,10 @@ export default function BetDetailScreen() {
                   // n+1 unless you are already on it. No preview once the bet
                   // is closed — the number would be a promise nobody can take.
                   currency={data.group?.currency}
+                  // No payoff line on a forfeit: there is no pot to divide,
+                  // and "+$0.00 each" is worse than saying nothing.
                   shareAgorot={
-                    canJoin
+                    canJoin && !isForfeit(data)
                       ? previewShareAgorot(
                           data.total_pot_agorot,
                           picked === slice.id ? slice.count : slice.count + 1

@@ -108,3 +108,27 @@ export function parseMoneyToMinor(input: string, currency: string | null | undef
   const minor = Math.round(Number(cleaned) * META[asCurrency(currency)].minor);
   return Number.isSafeInteger(minor) && minor > 0 ? minor : null;
 }
+
+/**
+ * What a bet says is at stake, as one string.
+ *
+ * A bet has a pot **or** a forfeit — the database refuses both — so every
+ * screen that prints "what is riding on this" faces the same either/or. This
+ * is that decision, once, so the feed card, the bet screen and the group row
+ * cannot drift into three slightly different answers about the same bet.
+ *
+ * It returns the forfeit verbatim. A forfeit is somebody's own words and the
+ * app has no business abbreviating them; the screens clamp lines instead.
+ */
+export function stakeLabel(
+  bet: { total_pot_agorot: number; stake_text?: string | null },
+  currency?: string | null
+): string {
+  const forfeit = bet.stake_text?.trim();
+  return forfeit ? forfeit : formatMoney(bet.total_pot_agorot, currency);
+}
+
+/** True when a bet's stake is words rather than money. */
+export function isForfeit(bet: { stake_text?: string | null }): boolean {
+  return Boolean(bet.stake_text?.trim());
+}

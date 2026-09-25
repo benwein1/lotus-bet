@@ -567,6 +567,14 @@ export interface NewBetInput {
   /** Two or more, in display order. */
   optionLabels: string[];
   totalPotAgorot: number;
+  /**
+   * A forfeit instead of a pot — "loser buys dinner".
+   *
+   * Set it and `totalPotAgorot` must be 0; the database refuses a bet that
+   * claims both, because two answers to "what is at stake" means every screen
+   * has to pick one.
+   */
+  stakeText?: string | null;
   closeAt: string | null;
   /** Photos and videos picked on the new-bet screen, uploaded after insert. */
   media?: PickedMedia[];
@@ -593,6 +601,16 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
   const checkedTitle = prepareContent(input.title, { strict: true });
   if (!checkedTitle.ok) throw new Error(checkedTitle.message);
 
+  // A forfeit is free text that everybody in the group reads, so it goes
+  // through the same filter the title does, at the same strictness. It is
+  // also the most obvious place to try to write something the filter is for.
+  let checkedStake: string | null = null;
+  if (input.stakeText && input.stakeText.trim()) {
+    const checked = prepareContent(input.stakeText, { strict: true });
+    if (!checked.ok) throw new Error(checked.message);
+    checkedStake = checked.text;
+  }
+
   let checkedDescription: string | null = null;
   if (input.description && input.description.trim()) {
     const checked = prepareContent(input.description);
@@ -616,6 +634,7 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
       ...input,
       title: checkedTitle.text,
       description: checkedDescription,
+      stakeText: checkedStake,
       optionLabels: labels,
     });
   }
@@ -634,7 +653,11 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
         description: checkedDescription,
         option_a_label: labels[0],
         option_b_label: labels[1],
-        total_pot_agorot: input.totalPotAgorot,
+        // Zero when there is a forfeit: the constraint refuses both, and the
+        // payout maths then computes no ledger entries, which is the right
+        // answer for a bet that moves no money.
+        total_pot_agorot: checkedStake ? 0 : input.totalPotAgorot,
+        stake_text: checkedStake,
         close_at: input.closeAt,
         visibility: (input.inviteeIds?.length ?? 0) > 0 ? 'private' : 'group',
       })
