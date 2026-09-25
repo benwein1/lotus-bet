@@ -1,7 +1,7 @@
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /** The floating pill itself. Screens add the safe-area inset on top of this. */
-export const TAB_BAR_HEIGHT = 60;
+export const TAB_BAR_HEIGHT = 56;
 
 /**
  * Bottom padding a scrolling screen needs so its last row clears the floating

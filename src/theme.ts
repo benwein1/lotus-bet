@@ -115,6 +115,35 @@ export function optionColor(
   return ramp[index % ramp.length] ?? ramp[0]!;
 }
 
+/**
+ * The same option's *fill* — what a square is tinted with once it is the side
+ * you are on.
+ *
+ * At two options it is the palette's own soft pair, so a picked side reads in
+ * exactly the tone the ledger uses for the same colour elsewhere. Past two
+ * there is no token to reach for, so it is the option's own ramp colour at a
+ * low alpha: a tint of itself, which is what `sideASoft` is to `sideA`.
+ */
+export function optionSoftColor(index: number, count: number, scheme: ColorScheme): string {
+  if (count <= 2) {
+    const palette = palettes[scheme];
+    return index === 0 ? palette.sideASoft : palette.sideBSoft;
+  }
+  const hex = optionColor(index, count, scheme);
+  return hexWithAlpha(hex, scheme === 'dark' ? 0.22 : 0.12);
+}
+
+/** `#RRGGBB` plus an alpha, as `rgba()`. Unknown input is returned unchanged. */
+function hexWithAlpha(hex: string, alpha: number): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) return hex;
+  const value = parseInt(match[1]!, 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 // Fixed values rather than palette tokens: these are chart colours, and a
 // stacked bar needs neighbours that stay apart from each other in both
 // schemes rather than each one adapting on its own.

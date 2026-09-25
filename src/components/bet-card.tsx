@@ -1,20 +1,20 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { Link, useRouter } from 'expo-router';
 import { memo } from 'react';
 import { Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 
 import { BetActions, betSocial } from '@/components/bet-actions';
-import { BetCoverView } from '@/components/bet-cover';
 import { BetMediaView } from '@/components/bet-media';
-import { GroupGlyph } from '@/components/group-glyph';
+import { GroupFace } from '@/components/group-face';
 import { ClockIcon, LockIcon } from '@/components/icons';
 import { OddsBar, type OddsSlice } from '@/components/odds-bar';
-import { Badge, LiveDot, Money, PressableScale, tap } from '@/components/ui';
+import { Avatar, Badge, LiveDot, Money, PressableScale, tap } from '@/components/ui';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { shareBet } from '@/lib/invites';
+import type { FeedComment } from '@/lib/queries';
 import type { BetSide, BetStatus, BetWithPositions } from '@/lib/database.types';
-import { formatCountdown } from '@/lib/format';
+import { isForfeit } from '@/lib/currency';
+import { formatCountdown, viewAllComments } from '@/lib/format';
 import { useColors, useScheme } from '@/providers/theme-provider';
 import { elevation, motion, optionColor, tabular } from '@/theme';
 
@@ -62,12 +62,18 @@ export function winningLabel(bet: BetWithPositions): string | null {
 }
 
 /**
- * The feed card — one bet, most of a screen.
+ * The feed card — one bet.
  *
- * When the bet has a photo or video it fills the frame and everything else
- * sits on top of it, the way a post reads anywhere else. Without media the
- * card falls back to type: the question gets the whole card, because on a
- * text-only bet the question *is* the content.
+ * **Two heights, not one.** A bet with a photo takes the whole feed: the
+ * picture grows into whatever the card has spare, so one flick is one bet.
+ * A bet without one takes only what it says. It used to take the full slot
+ * too, with the question stretched across the space the photo would have had
+ * and a hole above the comments where nothing was — a card mostly made of
+ * nothing, which is what a reader notices first.
+ *
+ * The cost is that rows are no longer a uniform height, so the feed measures
+ * them and snaps to running offsets instead of one interval. `onMeasured` is
+ * how it finds out; see `snapOffsets` in the feed.
  */
 function FeedCardImpl({
   bet,
@@ -79,9 +85,15 @@ function FeedCardImpl({
   busyOptionId = null,
   onToggleLike,
   onOpenComments,
+  comments = [],
+  onMeasured,
 }: {
   bet: BetWithPositions;
   currentUserId: string;
+  /**
+   * The full slot. A card with media fills it exactly; one without ignores it
+   * and takes its content's height.
+   */
   height: number;
   /** True when this is the card on screen — only that one plays its video. */
   active?: boolean;
@@ -95,6 +107,16 @@ function FeedCardImpl({
    * to pushing the bet screen, which is what every other entry point does.
    */
   onOpenComments?: () => void;
+  /**
+   * The last words on this bet, oldest first.
+   *
+   * Passed in rather than fetched: the feed reads them for the whole page in
+   * one query, because PostgREST cannot limit an embed per parent and a
+   * hundred bets would otherwise come back with every comment on all of them.
+   */
+  comments?: FeedComment[];
+  /** Reports this card's real height, so the feed knows where the next starts. */
+  onMeasured?: (betId: string, height: number) => void;
 }) {
   const colors = useColors();
   const router = useRouter();
@@ -104,6 +126,7 @@ function FeedCardImpl({
   const countdown = bet.status === 'open' ? formatCountdown(bet.close_at) : null;
   const media = bet.media ?? [];
   const hasMedia = media.length > 0;
+  const forfeit = isForfeit(bet);
   // Every card has a background now — a photo when there is one, a generated
   // cover when there is not. One layout instead of two, which is what makes the
   // column read as a single stream rather than alternating photographs and
@@ -118,175 +141,135 @@ function FeedCardImpl({
       ? onOpenComments()
       : router.push({ pathname: '/bet/[id]', params: { id: bet.id } });
 
-  // Over an image the palette has to stop following the colour scheme: white
-  // on a scrim is legible over anything, a semantic label colour is not.
-  // Both a photo and a generated cover are coloured grounds under a scrim, so
-  // the palette stops following the colour scheme either way: white on a scrim
-  // is legible over anything, a semantic label colour is not.
-  const titleClass = 'text-on-media';
-  const metaClass = 'text-on-media-soft';
-
   return (
     <View
-      style={{ height }}
-      // No border, no radius, no shadow. The card used to be a bordered object
-      // floating on the page; the feed reads as one continuous stream when the
-      // screen edge is the only frame and the gap between posts is the only
-      // separator. Instagram's shape, and the reason it scrolls the way it does.
-      className="overflow-hidden bg-black"
+      // With a photo the card is exactly one slot tall and the picture takes
+      // the slack. Without one there is nothing to stretch, so the card is as
+      // tall as what it says.
+      style={hasMedia ? { height } : undefined}
+      onLayout={
+        onMeasured
+          ? (event) => onMeasured(bet.id, event.nativeEvent.layout.height)
+          : undefined
+      }
+      className="px-3"
     >
-      {hasMedia ? (
-        <>
-          <BetMediaView media={media} active={active} className="absolute inset-0" />
-          {/* Explicit rgba, never eight-digit hex: a stop that does not truly
-              reach zero leaves a hard seam where the gradient ends. */}
-          <LinearGradient
-            colors={[
-              'rgba(0,0,0,0.55)',
-              'rgba(0,0,0,0.12)',
-              'rgba(0,0,0,0.35)',
-              'rgba(0,0,0,0.86)',
-            ]}
-            locations={[0, 0.32, 0.6, 1]}
-            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-            pointerEvents="none"
-          />
-        </>
-      ) : (
-        <>
-          <BetCoverView betId={bet.id} className="absolute inset-0" />
-          {/* The same scrim shape as over a photo, a little lighter because a
-              cover is already a controlled ground rather than somebody's
-              snapshot of a dark room. */}
-          <LinearGradient
-            colors={[
-              'rgba(0,0,0,0.42)',
-              'rgba(0,0,0,0.06)',
-              'rgba(0,0,0,0.28)',
-              'rgba(0,0,0,0.78)',
-            ]}
-            locations={[0, 0.34, 0.62, 1]}
-            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-            pointerEvents="none"
-          />
-        </>
-      )}
-
-      {/* The corners are 28pt, so content needs real inset to stop it crowding
-          them — vertical most of all, since `justify-between` pushes the first
-          and last rows hard against the edges.
-
-          The side buttons sit *outside* the Link, not inside it. Nesting a
-          button in a link is invalid markup, and on the web it costs you the
-          feature outright: the inner press fires, then the browser's own
-          anchor activation runs anyway and hard-navigates the document. Two
-          siblings — one link, one control. */}
-      <View className="flex-1 px-6 py-7">
-        <Link href={{ pathname: '/bet/[id]', params: { id: bet.id } }} asChild>
-          <PressableScale
-            scaleTo={0.99}
-            accessibilityRole="button"
-            accessibilityLabel={`Bet: ${bet.title}`}
-            className="flex-1 justify-between"
-          >
-            <View className="flex-row items-start justify-between gap-3">
-              <View className="flex-1 flex-row items-center gap-2">
-                {bet.group && (
-                  <>
-                    <GroupGlyph
-                      emoji={bet.group.emoji}
-                      avatarUrl={bet.group.avatar_url}
-                      name={bet.group.name}
-                      size={26}
-                      radius={9}
-                    />
-                    {/*
-                      Group over creator, stacked rather than on one line. A
-                      middle dot between them would be the meta string CLAUDE.md
-                      §4 rules out, and at this width the two would collide on a
-                      small iPhone long before a long group name ran out.
-
-                      The creator is a line of type rather than a second avatar:
-                      the glyph already carries the group, and two round things
-                      in a corner is the crowding the card cannot afford.
-                    */}
-                    <View className="flex-1">
-                      <Text numberOfLines={1} className={`text-sm ${metaClass}`}>
-                        {bet.group.name}
-                      </Text>
-                      {bet.creator && (
-                        <Text numberOfLines={1} className="text-2xs text-on-media-faint">
-                          {bet.creator.username
-                            ? `@${bet.creator.username}`
-                            : bet.creator.display_name}
-                        </Text>
-                      )}
-                    </View>
-                  </>
+      {/*
+        The card is an object on the page, not a full-bleed photograph.
+        Everything below is measured against the approved board: 28pt corners
+        on a hairline over `surface`, the media a 162pt panel inset 10 from the
+        card's own edges, and one 3pt rule under the two figures.
+      */}
+      <View
+        className={`overflow-hidden rounded-4xl border border-hairline bg-surface ${
+          hasMedia ? 'flex-1' : ''
+        }`}
+      >
+        <View className="flex-row items-center gap-2.5 px-4 pt-[15px]">
+          {bet.group && (
+            <>
+              {/* The same face the Groups tab draws, round here and square
+                  there, so one group is recognisably one object across the
+                  app. An emoji was the older fallback and rendered
+                  differently on every platform. */}
+              <GroupFace avatarUrl={bet.group.avatar_url} size={30} radius={999} />
+              <View className="min-w-0 flex-1">
+                <Text numberOfLines={1} className="text-[14px] font-semibold text-primary">
+                  {bet.group.name}
+                </Text>
+                {bet.creator && (
+                  <Text numberOfLines={1} className="mt-px text-[11px] text-secondary">
+                    {bet.creator.username
+                      ? `@${bet.creator.username}`
+                      : bet.creator.display_name}
+                  </Text>
                 )}
               </View>
-              {/* "New" displaces "Live" rather than sitting beside it: both
-                  say the bet is open, and two pills in a corner is clutter. */}
-              {isNew && bet.status === 'open' ? (
-                <View className="flex-row items-center gap-1.5 rounded-full bg-accent px-2.5 py-1">
-                  <Text className="text-xs font-semibold text-accent-ink">New</Text>
-                </View>
-              ) : bet.status === 'open' ? (
-                <View className="flex-row items-center gap-1.5 rounded-full bg-scrim px-2.5 py-1">
-                  <LiveDot />
-                  <Text className="text-xs font-semibold text-on-media">Live</Text>
-                </View>
-              ) : (
-                <Badge label={bet.status} tone={STATUS_TONE[bet.status]} />
-              )}
+            </>
+          )}
+          {/* "New" displaces "Live": both say the bet is open, and two pills
+              in a corner is clutter. */}
+          {isNew && bet.status === 'open' ? (
+            <View className="rounded-full bg-accent px-2.5 py-1">
+              <Text className="text-xs font-semibold text-accent-ink">New</Text>
             </View>
+          ) : bet.status === 'open' ? (
+            <View className="flex-row items-center gap-1.5 rounded-full bg-surface3 px-2.5 py-1">
+              <LiveDot />
+              <Text className="text-xs font-semibold text-primary">Live</Text>
+            </View>
+          ) : (
+            <Badge label={bet.status} tone={STATUS_TONE[bet.status]} />
+          )}
+        </View>
 
-            {/* A spacer, not a container. The title used to live up here at
-                Large Title inside a fixed-height centred box when there was no
-                photo, and a long question simply ran past the bottom and lost
-                its last lines with nothing on screen to say so. There is one
-                title now, in the row below, where the layout sizes to the text
-                instead of the text being cut to the layout. */}
-            <View className="flex-1" />
+        {/* The photo takes whatever the card has spare.
+            162 is the board's height and the floor here, not the value: the
+            card fills its slot in the feed, and everything else in it — the
+            group row, the question, the bar, the buttons, the footer — is
+            sized by what it says. The picture is the one part that can grow
+            into the difference without changing what anything means. */}
+        {hasMedia && (
+          <View className="mx-2.5 mt-[13px] min-h-[162px] flex-1 overflow-hidden rounded-[18px]">
+            <BetMediaView media={media} active={active} className="absolute inset-0" />
+          </View>
+        )}
 
-            <View>
+        {/* The side buttons sit *outside* the Link. Nesting a button in a link
+            is invalid markup, and on the web the inner press fires and then
+            the browser's own anchor activation navigates the document. */}
+        <View className="px-4 pb-2 pt-4">
+          <Link href={{ pathname: '/bet/[id]', params: { id: bet.id } }} asChild>
+            <PressableScale
+              scaleTo={0.995}
+              accessibilityRole="button"
+              accessibilityLabel={`Bet: ${bet.title}`}
+            >
               <Text
-                // Long questions get more room rather than an ellipsis: without
-                // a photo to look at, the question is the whole post. Six lines
-                // at this size is about 180 characters, past which a feed card
-                // is the wrong place to read it and the bet screen is the right
-                // one.
-                numberOfLines={hasMedia ? 3 : 6}
-                className={`text-2xl font-bold ${titleClass}`}
+                // Without a photo the question is the whole post, so it takes
+                // the lines the picture would have had.
+                // Three lines rather than five without a photo: the card is
+                // sized by its content now, so a long question makes the card
+                // taller instead of filling space that was there anyway.
+                numberOfLines={hasMedia ? 2 : 3}
+                className={`font-bold tracking-[-0.6px] text-primary ${
+                  hasMedia ? 'text-[23px] leading-[27px]' : 'text-[25px] leading-[30px]'
+                }`}
               >
                 {bet.title}
               </Text>
 
-              {/* No description here. It is the one piece of a bet that is
-                  genuinely long-form, and a feed card that carries it stops
-                  being a glance — the bet screen shows it in full, two lines
-                  under the title, which is where somebody who wants it looks. */}
+              <View className="mt-2.5 flex-row items-center gap-[14px]">
+                {/* The figure alone: an amount on a bet card is the pot and
+                    nothing else — and neutral, not green. `positive` and
+                    `negative` mean money owed to you and money you owe; a pot
+                    is neither, and colouring it would give the ledger's one
+                    convention a third meaning on the busiest screen.
 
-              <View className="mt-3 flex-row items-center gap-4">
-                {/* The figure alone. An amount on a bet card is the pot and
-                    nothing else, so the word was carrying no information the
-                    position did not already carry — and it sat between the
-                    number and the countdown, which is the row's real content.
-                    "Total pot" is still spelled out on the bet screen. */}
-                <Money
-                  agorot={bet.total_pot_agorot}
-                  currency={bet.group?.currency}
-                  size="md"
-                  tone="onMedia"
-                />
+                    A forfeit takes the same slot at a smaller size, because
+                    "Loser buys dinner" is a sentence and $240 is a figure —
+                    set at 22 it would be the loudest thing on the card and
+                    would still wrap. */}
+                {forfeit ? (
+                  <Text
+                    numberOfLines={1}
+                    className="flex-1 text-callout font-semibold text-primary"
+                  >
+                    {bet.stake_text}
+                  </Text>
+                ) : (
+                  <Money
+                    agorot={bet.total_pot_agorot}
+                    currency={bet.group?.currency}
+                    size="pot"
+                    tone="neutral"
+                  />
+                )}
 
                 {countdown && (
                   <View className="flex-row items-center gap-1.5">
-                    <ClockIcon
-                      size={14}
-                      color={colors.onMediaSoft}
-                    />
-                    <Text style={tabular} className={`text-sm ${metaClass}`}>
+                    <ClockIcon size={14} color={colors.textSecondary} />
+                    <Text style={tabular} className="text-sm text-secondary">
                       {countdown.replace('Closes in ', '')}
                     </Text>
                   </View>
@@ -294,87 +277,174 @@ function FeedCardImpl({
 
                 {bet.status === 'locked' && (
                   <View className="flex-row items-center gap-1.5">
-                    <LockIcon
-                      size={14}
-                      color={colors.onMediaSoft}
-                    />
-                    <Text className={`text-sm ${metaClass}`}>Locked</Text>
+                    <LockIcon size={14} color={colors.textSecondary} />
+                    <Text className="text-sm text-secondary">Locked</Text>
                   </View>
                 )}
               </View>
 
-              <View className="mt-4">
-                <OddsBar slices={slices} onMedia compact />
+              <View className="mt-[18px]">
+                {/* No names: they are on the buttons directly below, in their
+                    own colour and on the thing you press. */}
+                <OddsBar
+                  slices={slices}
+                  compact
+                  showNames={false}
+                  figurePx={30}
+                  barPx={3}
+                  gapPx={12}
+                />
               </View>
-            </View>
-          </PressableScale>
-        </Link>
+            </PressableScale>
+          </Link>
 
-        {joinable && (
-          // Two options sit side by side; more wrap onto as many rows as they
-          // need. `flex-wrap` with a basis rather than a grid, because the
-          // labels are user-written and a fixed column would truncate them.
-          <View className="mt-4 flex-row flex-wrap gap-2.5">
-            {slices.map((slice, index) => (
-              <OptionPick
-                key={slice.id}
-                label={slice.label}
-                index={index}
-                count={slices.length}
-                selected={picked === slice.id}
-                onMedia
-                busy={busyOptionId === slice.id}
-                onPress={() => {
+          {joinable && (
+            <View className="mt-[18px] flex-row flex-wrap gap-2.5">
+              {slices.map((slice, index) => (
+                <OptionPick
+                  key={slice.id}
+                  label={slice.label}
+                  index={index}
+                  count={slices.length}
+                  selected={picked === slice.id}
+                  busy={busyOptionId === slice.id}
+                  onPress={() => {
+                    tap();
+                    onPickOption?.(slice.id);
+                  }}
+                />
+              ))}
+            </View>
+          )}
+
+          {onToggleLike && (
+            <View className="mt-1">
+              <BetActions
+                liked={social.liked}
+                likeCount={social.likeCount}
+                commentCount={social.commentCount}
+                onToggleLike={onToggleLike}
+                onPressComments={openThread}
+                onPressShare={() => {
                   tap();
-                  onPickOption?.(slice.id);
+                  // Swallowed on purpose: a share sheet the user dismissed is
+                  // not an error worth interrupting the feed for.
+                  void shareBet(bet.id, bet.title, bet.group?.name).catch(() => {});
                 }}
               />
-            ))}
-          </View>
-        )}
+            </View>
+          )}
+        </View>
 
-        {/* Also a sibling of the Link, for the same reason the option row is:
-            a pressable inside an anchor fires twice on the web, once as the
-            button and once as the browser navigating. */}
-        {/*
-          Three icons and nothing else.
-
-          There used to be a second line under this row — "View all 4 comments",
-          or "Add a comment" when there were none. It was doing two jobs:
-          carrying the count, and inviting the first comment. The count now
-          sits against the bubble where a count belongs — `BetActions` had a
-          `showCommentCount` prop that existed only so this card could turn the
-          number off while that line printed it, and with the line gone the
-          prop had no callers left and went with it. The invitation is gone
-          too, and that is the trade: the row is a row of controls now rather
-          than a control and a sentence.
-
-          The thread is unchanged behind it. Pressing the bubble still raises
-          the sheet over the feed rather than pushing the bet screen, so the
-          composer is one tap away exactly as it was.
-        */}
-        {onToggleLike && (
-          <View className="mt-4">
-            <BetActions
-              liked={social.liked}
-              likeCount={social.likeCount}
-              commentCount={social.commentCount}
-              onToggleLike={onToggleLike}
-              onPressComments={openThread}
-              onPressShare={() => {
-                tap();
-                // Swallowed on purpose: a share sheet the user dismissed, or a
-                // browser with neither `navigator.share` nor a clipboard, is
-                // not an error worth interrupting the feed for.
-                void shareBet(bet.id, bet.title, bet.group?.name).catch(() => {});
-              }}
-              onMedia
-            />
-          </View>
-        )}
+        {/* The social footer: what just happened, and the last two things
+            anybody said. It sits on `surface2` behind a hairline so the card
+            reads as two zones — the bet, and the talk about it. */}
+        <FeedSocial
+          bet={bet}
+          comments={comments}
+          commentCount={social.commentCount}
+          onOpen={openThread}
+        />
       </View>
     </View>
   );
+}
+
+/**
+ * The strip at the foot of a feed card.
+ *
+ * The activity line is derived from the bet's own positions — the newest one,
+ * who made it and when — rather than from an events table the schema does not
+ * have. The comments come from one extra read for the whole page rather than
+ * an embed per bet, which is why `comments` arrives as a prop instead of being
+ * fetched here.
+ *
+ * Both halves are optional and the strip disappears entirely when there is
+ * neither, so a brand-new bet does not carry an empty grey band.
+ */
+function FeedSocial({
+  bet,
+  comments,
+  commentCount,
+  onOpen,
+}: {
+  bet: BetWithPositions;
+  comments: FeedComment[];
+  commentCount: number;
+  onOpen: () => void;
+}) {
+  const latest = (bet.positions ?? [])
+    .slice()
+    .sort((a, b) => (a.joined_at < b.joined_at ? 1 : -1))[0];
+  // No name, no line. Realtime hands over a row without its embeds, so a
+  // just-arrived position has a timestamp and nobody attached to it, and
+  // "Someone picked a side" is worse than silence.
+  const actor = latest?.user?.display_name ?? null;
+  const actorAt = latest?.joined_at ?? null;
+  const shown = comments.slice(-2);
+
+  if (!(actor && actorAt) && shown.length === 0) return null;
+
+  return (
+    <View className="border-t border-hairline bg-surface2 px-4 pb-1 pt-3">
+      {actor && actorAt && (
+        <View className="flex-row items-center gap-[9px]">
+          <View className="mx-2 h-1.5 w-1.5 rounded-full bg-brand" />
+          <Text numberOfLines={1} className="flex-1 text-sm text-secondary">
+            <Text className="font-semibold text-primary">{actor}</Text> picked a side
+          </Text>
+          <Text className="text-xs text-secondary">{actorAt ? shortAgo(actorAt) : ''}</Text>
+        </View>
+      )}
+
+      {shown.length > 0 && (
+        <View className="mt-3 gap-[11px]">
+          {shown.map((comment) => (
+            <View key={comment.id} className="flex-row items-start gap-[9px]">
+              <Avatar
+                id={comment.user_id}
+                name={comment.author?.display_name ?? '?'}
+                uri={comment.author?.avatar_url}
+                size={22}
+              />
+              {/* Name and body in one flowing paragraph: it reads the way a
+                  spoken remark reads and costs a line less per comment. */}
+              <Text numberOfLines={2} className="flex-1 text-sm leading-[19px] text-primary">
+                <Text className="font-semibold">
+                  {comment.author?.display_name ?? 'Someone'}
+                </Text>{' '}
+                {comment.body}
+                <Text className="text-xs text-secondary"> {shortAgo(comment.created_at)}</Text>
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {commentCount > 0 && (
+        <PressableScale
+          accessibilityRole="button"
+          // The label and the text are one string, because they were two and
+          // the label said "View all 1 comments" while the text said "comment".
+          accessibilityLabel={viewAllComments(commentCount)}
+          onPress={onOpen}
+          className="min-h-11 justify-center"
+        >
+          <Text className="text-sm text-secondary">{viewAllComments(commentCount)}</Text>
+        </PressableScale>
+      )}
+    </View>
+  );
+}
+
+/** "4m", "2h", "3d" — the feed's own shorthand, narrower than a countdown. */
+function shortAgo(at: string): string {
+  const mins = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 60000));
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
 }
 
 /**
@@ -414,7 +484,7 @@ function OptionPick({
   index,
   count,
   selected,
-  onMedia,
+  onMedia = false,
   busy,
   onPress,
 }: {
@@ -422,12 +492,17 @@ function OptionPick({
   index: number;
   count: number;
   selected: boolean;
-  onMedia: boolean;
+  onMedia?: boolean;
   busy: boolean;
   onPress: () => void;
 }) {
   const scheme = useScheme();
   const color = optionColor(index, count, scheme, onMedia);
+  // The first side is filled and the rest are outlined on their own soft
+  // ground. It is not a selected state — it is the shape the board draws,
+  // and it gives the row a weight on the side the question is phrased from.
+  const filled = index === 0;
+  const ink = scheme === 'dark' ? '#00190C' : '#FFFFFF';
 
   return (
     <PressableScale
@@ -438,20 +513,20 @@ function OptionPick({
       accessibilityState={{ selected, busy }}
       accessibilityLabel={selected ? `Withdraw from ${label}` : `Back ${label}`}
       style={{
-        backgroundColor: selected ? color : undefined,
-        borderColor: selected ? color : undefined,
-        // Two fill the row; three or more take half of it and wrap.
+        backgroundColor: filled ? color : undefined,
+        borderColor: color,
+        borderWidth: selected ? 2 : filled ? 0 : 1,
         flexBasis: count === 2 ? 0 : '47%',
         flexGrow: 1,
       }}
-      className={`min-h-12 items-center justify-center rounded-2xl border px-3 py-2 ${
-        selected ? '' : onMedia ? 'border-chrome-edge bg-scrim' : 'border-hairline bg-surface2'
+      className={`h-12 items-center justify-center rounded-[14px] px-3 ${
+        filled ? '' : index === 1 ? 'bg-sideB-soft' : 'bg-surface2'
       } ${busy ? 'opacity-60' : ''}`}
     >
       <Text
         numberOfLines={1}
-        style={selected ? undefined : { color }}
-        className={`text-subhead font-semibold ${selected ? 'text-on-media' : ''}`}
+        style={{ color: filled ? ink : color }}
+        className={`text-callout ${filled ? 'font-bold' : 'font-semibold'}`}
       >
         {label}
       </Text>
@@ -512,13 +587,7 @@ export function BetCard({
               <View className="flex-1 flex-row items-center gap-1.5">
                 {showGroup && bet.group ? (
                   <>
-                    <GroupGlyph
-                      emoji={bet.group.emoji}
-                      avatarUrl={bet.group.avatar_url}
-                      name={bet.group.name}
-                      size={20}
-                      radius={7}
-                    />
+                    <GroupFace avatarUrl={bet.group.avatar_url} size={20} radius={7} />
                     <Text numberOfLines={1} className="flex-1 text-sm text-secondary">
                       {bet.group.name}
                     </Text>

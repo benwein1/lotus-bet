@@ -183,6 +183,19 @@ export interface GroupWithMembers extends GroupRow {
  * The filter is written to tolerate a project that has not applied
  * `…_private_and_duels.sql` yet: no `kind` column means no duels exist.
  */
+/**
+ * Everything the "Groups & challenges" tab lists — groups *and* duels.
+ *
+ * Duels used to be filtered out here, on the reasoning that the tab would
+ * otherwise become a roster of everybody you have ever bet against. What that
+ * actually did was strand them: a duel is only reachable from the feed, so the
+ * person who was challenged had nowhere to find it once the bet scrolled past,
+ * and the person who sent it had no way back to settle up. A challenge you
+ * cannot open is a challenge that does not work.
+ *
+ * They are the same object underneath (`groups.kind = 'duel'`), so they need
+ * no second list — the screen groups them under their own heading.
+ */
 export async function fetchMyGroups(): Promise<GroupWithMembers[]> {
   if (isDemoMode()) return demo.fetchMyGroups();
   const { data, error } = await supabase
@@ -191,9 +204,7 @@ export async function fetchMyGroups(): Promise<GroupWithMembers[]> {
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
-  return ((data ?? []) as unknown as GroupWithMembers[]).filter(
-    (group) => group.kind !== 'duel'
-  );
+  return (data ?? []) as unknown as GroupWithMembers[];
 }
 
 /** Every group including duels — what the Profile ledger needs to name them. */
@@ -339,7 +350,21 @@ export async function leaveGroup(groupId: string, userId: string): Promise<void>
 // they need no such hint — but check that again before embedding any new table
 // that also points at `bets` twice.
 const BET_SELECT =
-  '*, options:bet_options!bet_options_bet_id_fkey(*), positions:bet_positions(user_id, side, option_id), media:bet_media(*), likes:bet_likes(user_id), comments:bet_comments(count)';
+  '*, options:bet_options!bet_options_bet_id_fkey(*), ' +
+  // `joined_at` and the picker's name ride along because the feed card's
+  // footer says who moved last and when. It is a name and a timestamp on rows
+  // the select already returns, not a second list: the group's *members* are
+  // still deliberately absent (see `fetchBet`), because those are a hundred
+  // rosters the feed never renders.
+  //
+  // It is `joined_at` and not `created_at`, which is what this said first.
+  // A column that does not exist fails the select exactly the way an ambiguous
+  // embed does — PostgREST returns no rows at all — so the feed went empty
+  // rather than merely undated. `__tests__/bet-select.test.ts` now reads every
+  // column named here against the migrations for that reason.
+  'positions:bet_positions(user_id, side, option_id, joined_at, ' +
+  'user:users!bet_positions_user_id_fkey(id, display_name, avatar_url)), ' +
+  'media:bet_media(*), likes:bet_likes(user_id), comments:bet_comments(count)';
 /**
  * `creator` names its foreign key even though `bets` has only one to `users`.
  *
@@ -542,6 +567,14 @@ export interface NewBetInput {
   /** Two or more, in display order. */
   optionLabels: string[];
   totalPotAgorot: number;
+  /**
+   * A forfeit instead of a pot — "loser buys dinner".
+   *
+   * Set it and `totalPotAgorot` must be 0; the database refuses a bet that
+   * claims both, because two answers to "what is at stake" means every screen
+   * has to pick one.
+   */
+  stakeText?: string | null;
   closeAt: string | null;
   /** Photos and videos picked on the new-bet screen, uploaded after insert. */
   media?: PickedMedia[];
@@ -568,6 +601,16 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
   const checkedTitle = prepareContent(input.title, { strict: true });
   if (!checkedTitle.ok) throw new Error(checkedTitle.message);
 
+  // A forfeit is free text that everybody in the group reads, so it goes
+  // through the same filter the title does, at the same strictness. It is
+  // also the most obvious place to try to write something the filter is for.
+  let checkedStake: string | null = null;
+  if (input.stakeText && input.stakeText.trim()) {
+    const checked = prepareContent(input.stakeText, { strict: true });
+    if (!checked.ok) throw new Error(checked.message);
+    checkedStake = checked.text;
+  }
+
   let checkedDescription: string | null = null;
   if (input.description && input.description.trim()) {
     const checked = prepareContent(input.description);
@@ -591,6 +634,7 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
       ...input,
       title: checkedTitle.text,
       description: checkedDescription,
+      stakeText: checkedStake,
       optionLabels: labels,
     });
   }
@@ -609,7 +653,11 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
         description: checkedDescription,
         option_a_label: labels[0],
         option_b_label: labels[1],
-        total_pot_agorot: input.totalPotAgorot,
+        // Zero when there is a forfeit: the constraint refuses both, and the
+        // payout maths then computes no ledger entries, which is the right
+        // answer for a bet that moves no money.
+        total_pot_agorot: checkedStake ? 0 : input.totalPotAgorot,
+        stake_text: checkedStake,
         close_at: input.closeAt,
         visibility: (input.inviteeIds?.length ?? 0) > 0 ? 'private' : 'group',
       })
@@ -1157,6 +1205,94 @@ export async function fetchMyBets(
 
   if (error) throw new Error(error.message);
   return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
+}
+
+/**
+ * The bets you took a side on, newest first — the Profile's "Joined" tab.
+ *
+ * Two round trips rather than one embed, deliberately. `BET_SELECT` already
+ * embeds `bet_positions`, so filtering on a second embed of the same table
+ * would need an alias PostgREST resolves differently depending on which
+ * foreign key it picks, and getting that wrong returns an empty list rather
+ * than an error. Asking for the ids first is longer on the wire and impossible
+ * to misread. It is also behind a tab rather than on first paint, which is
+ * where the embed rule is actually paying for itself.
+ */
+export async function fetchBetsIJoined(
+  userId: string,
+  limit = MY_BETS_PAGE
+): Promise<BetWithPositions[]> {
+  if (isDemoMode()) return demo.fetchBetsIJoined(userId, limit);
+
+  const positions = await supabase
+    .from('bet_positions')
+    .select('bet_id')
+    .eq('user_id', userId)
+    // `joined_at`, not `created_at` — see `BET_SELECT`. Naming a column that
+    // does not exist does not drop the ordering, it rejects the request, so
+    // the Joined tab came back empty rather than unsorted.
+    .order('joined_at', { ascending: false })
+    .limit(limit);
+
+  if (positions.error) throw new Error(positions.error.message);
+  const ids = Array.from(new Set((positions.data ?? []).map((row) => row.bet_id)));
+  if (ids.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from('bets')
+    .select(BET_SELECT)
+    .in('id', ids)
+    .order('created_at', { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return attachSignedMedia((data ?? []) as unknown as BetWithPositions[]);
+}
+
+/** The last words on a bet, as the feed card's footer prints them. */
+export interface FeedComment {
+  id: string;
+  bet_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+  author: { display_name: string; avatar_url: string | null } | null;
+}
+
+/**
+ * The newest comments across a page of bets, in one read.
+ *
+ * The alternative was an embed on `BET_SELECT`, and PostgREST cannot limit an
+ * embed per parent — a feed of a hundred bets would come back with every
+ * comment on all of them. One flat query ordered newest-first with a hard cap
+ * is bounded no matter how loud the groups are; the card takes the last two it
+ * was given and the full thread is one tap away either way.
+ */
+export async function fetchFeedComments(
+  betIds: string[],
+  cap = 240
+): Promise<Map<string, FeedComment[]>> {
+  const grouped = new Map<string, FeedComment[]>();
+  if (betIds.length === 0) return grouped;
+  if (isDemoMode()) return demo.fetchFeedComments(betIds);
+
+  const { data, error } = await supabase
+    .from('bet_comments')
+    .select('id, bet_id, user_id, body, created_at, author:users(display_name, avatar_url)')
+    .in('bet_id', betIds)
+    .order('created_at', { ascending: false })
+    .limit(cap);
+
+  // A footer that could not load is not worth failing a feed over: the card
+  // renders without it and the thread is still one tap away.
+  if (error) return grouped;
+
+  for (const row of (data ?? []) as unknown as FeedComment[]) {
+    const list = grouped.get(row.bet_id);
+    // Oldest first within a bet, so the card can take the last two.
+    if (list) list.unshift(row);
+    else grouped.set(row.bet_id, [row]);
+  }
+  return grouped;
 }
 
 export async function fetchMyStats(): Promise<MyStatsRow | null> {

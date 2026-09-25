@@ -241,6 +241,33 @@ export function TicketIcon(props: IconProps) {
   );
 }
 
+/**
+ * Settings, as the cog the board draws.
+ *
+ * This was three sliders for a while, on the grounds that a cog at 21px is a
+ * circle with radiating ticks and reads as a sun. The teeth here are a single
+ * closed path with flat lobes rather than spokes, which is what stops that
+ * happening — and it is what the approved design uses, so the app uses it.
+ */
+export function SettingsIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Circle cx="12" cy="12" r="3.2" />
+      <Path d="M19.4 13.5a7.7 7.7 0 000-3l1.7-1.3-1.8-3.1-2 .8a7.7 7.7 0 00-2.6-1.5L14.4 3h-3.6l-.3 2.4a7.7 7.7 0 00-2.6 1.5l-2-.8L4 9.2l1.7 1.3a7.7 7.7 0 000 3L4 14.8l1.8 3.1 2-.8a7.7 7.7 0 002.6 1.5l.3 2.4h3.6l.3-2.4a7.7 7.7 0 002.6-1.5l2 .8 1.8-3.1z" />
+    </Icon>
+  );
+}
+
+export function KeyIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Circle cx="8.2" cy="12" r="4.2" />
+      <Path d="M12.4 12H20.4" />
+      <Path d="M18 12v3.2M15.4 12v2.4" />
+    </Icon>
+  );
+}
+
 export function LogOutIcon(props: IconProps) {
   return (
     <Icon {...props}>

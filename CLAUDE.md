@@ -1391,12 +1391,23 @@ is worth rebuilding whenever doing design work:
    `'dark'` contexts so **both schemes** get walked.
 4. Screenshot each route and read the console for errors.
 
-Three things learned the hard way: the **dev server and the export build
+Four things learned the hard way: the **dev server and the export build
 differ** (the `darkMode` crash only reproduces on the dev server);
 **colours in a downscaled screenshot mislead** — verify computed styles rather
-than eyeballing a PNG; and when a scheme looks wrong, probe
+than eyeballing a PNG; when a scheme looks wrong, probe
 `document.documentElement.className` and `getPropertyValue('--c-canvas')`
-before touching any component.
+before touching any component; and **an export build strips React's own
+warnings**, so reading the console of one proves nothing about them. The
+`transform-origin` error on the animated mark printed on every `npm start` and
+on no export, which is how a mark whose petals pivoted around the wrong point
+survived several screenshot passes. A console check has to run against
+`expo start`, not against `/tmp/web-demo`.
+
+`react-native-svg` writes `transform-origin` itself, from any of `origin`,
+`originX` and `originY` (`web/utils/prepare.js`), and React rejects the
+hyphenated name — so there is no spelling of that prop that is clean on the
+web. Express a pivot as a translate/untranslate sandwich around the animated
+group instead; `animated-mark.tsx` is the worked example.
 
 ---
 

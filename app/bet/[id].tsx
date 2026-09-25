@@ -1,11 +1,17 @@
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import { GroupFace } from '@/components/group-face';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCallback, useState } from 'react';
 import {
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  Pressable,
   RefreshControl,
   ScrollView,
+  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -19,11 +25,21 @@ import { BetMediaView } from '@/components/bet-media';
 import { BetProof } from '@/components/bet-proof';
 import { ReportSheet, type ReportTarget } from '@/components/report-sheet';
 import { splitMedia } from '@/lib/media';
-import { AlertIcon, ClockIcon, LockIcon, TrophyIcon } from '@/components/icons';
+import {
+  AlertIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  ClockIcon,
+  LockIcon,
+  TrophyIcon,
+} from '@/components/icons';
 import { OddsBar } from '@/components/odds-bar';
 import { ContentWidth, Screen } from '@/components/screen';
+import { DetailTopBar } from '@/components/detail-top-bar';
+import { FloatingTabBar, TabBarScrim } from '@/components/tab-bar';
 import {
   Avatar,
+  AvatarStack,
   Badge,
   Button,
   ErrorNotice,
@@ -31,15 +47,18 @@ import {
   Money,
   PressableScale,
   SectionTitle,
+  tap,
   useConfirm,
 } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
+import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import { useForegroundRefresh } from '@/hooks/use-foreground-refresh';
 import { useGroupRealtime } from '@/hooks/use-group-realtime';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import type { BetSide, BetWithPositions, UserRow } from '@/lib/database.types';
-import { formatMoney } from '@/lib/currency';
+import { formatMoney, isForfeit } from '@/lib/currency';
 import { formatCountdown, formatShortDate } from '@/lib/format';
+import { shareBet } from '@/lib/invites';
 import { previewShareAgorot } from '@/lib/payout';
 import {
   cancelBet,
@@ -52,14 +71,17 @@ import {
 } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors, useScheme } from '@/providers/theme-provider';
-import { motion, optionColor } from '@/theme';
+import { motion, optionColor, optionSoftColor, tabular } from '@/theme';
 
 export default function BetDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const betId = id ?? '';
   const { session, profile } = useAuth();
   const colors = useColors();
+  const scheme = useScheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const tabInset = useTabBarInset();
   const userId = session?.user.id ?? '';
 
   // One request, not three. The group's members and the ledger rows used to be
@@ -70,6 +92,8 @@ export default function BetDetailScreen() {
   const groupId = bet.data?.group_id;
 
   const [busy, setBusy] = useState(false);
+  // The resolve sheet, opened from the row under the two options.
+  const [calling, setCalling] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   /** What the report/block sheet is pointed at, if anything. */
   const [reporting, setReporting] = useState<ReportTarget | null>(null);
@@ -205,10 +229,12 @@ export default function BetDetailScreen() {
       message:
         winners === 0
           ? 'Nobody backed that side, so nothing will change hands. This cannot be undone.'
-          : `${winners} ${winners === 1 ? 'person splits' : 'people split'} ${formatMoney(
-              data.total_pot_agorot,
-              data.group?.currency
-            )}. This cannot be undone.`,
+          : isForfeit(data)
+            ? `Everybody else owes it: ${data.stake_text}. Nothing lands on a balance. This cannot be undone.`
+            : `${winners} ${winners === 1 ? 'person splits' : 'people split'} ${formatMoney(
+                data.total_pot_agorot,
+                data.group?.currency
+              )}. This cannot be undone.`,
       confirmLabel: 'Resolve',
       destructive: true,
       onConfirm: () =>
@@ -234,7 +260,13 @@ export default function BetDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: data.group?.name ?? 'Bet' }} />
+      {/* No navigation bar.
+
+          The approved board runs the photo from the very top of the screen,
+          with the back button floating over it — the bet's own picture is the
+          header. An opaque bar above it would eat 100pt and put the group's
+          name on screen twice, since the hero already names it. */}
+      <Stack.Screen options={{ headerShown: false }} />
       <Screen ground="sunken">
         {/* The comment composer lives at the bottom of a long scroll, so
             without this the keyboard covers the thing you are typing into. */}
@@ -243,7 +275,15 @@ export default function BetDetailScreen() {
           className="flex-1"
         >
         <ScrollView
-          contentContainerClassName="px-gutter pb-12 pt-2"
+          // With no navigation bar the media starts at y=0. A bet without one
+          // has to clear the floating back button itself.
+          contentContainerClassName="px-gutter"
+          // The media runs to the very top of the screen, as drawn. A bet
+          // without one has to clear the floating back button itself.
+          contentContainerStyle={{
+            paddingTop: media.length > 0 ? 0 : insets.top + 62,
+            paddingBottom: tabInset,
+          }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           refreshControl={
@@ -256,60 +296,180 @@ export default function BetDetailScreen() {
           showsVerticalScrollIndicator={false}
         >
           <ContentWidth>
-            {media.length > 0 && (
-              <Animated.View entering={FadeIn.duration(motion.duration.base)} className="mb-5">
-                {/* Double-tap to like, the gesture everyone already has in
-                    their fingers. It belongs *here* and not on the feed card:
-                    there, a single tap opens the bet, and waiting ~250ms to
-                    find out whether a second tap is coming would make every
-                    navigation in the app feel slow to buy one shortcut. */}
-                <DoubleTapToLike
-                  enabled={!social.liked}
-                  onLike={() => void likeFromGesture()}
-                >
-                  <BetMediaView media={media} active radius={24} className="h-72 w-full" />
-                </DoubleTapToLike>
-              </Animated.View>
-            )}
+            {/* The bet, on its photo.
 
-            <Animated.View entering={FadeInDown.duration(motion.duration.base)}>
-              <View className="mb-3 flex-row items-center gap-2.5">
-                <Badge label={data.status} tone={data.status} />
-                {countdown && !isResolved && !isCancelled && (
-                  <View className="flex-row items-center gap-1.5">
-                    <ClockIcon size={13} color={colors.textSecondary} />
-                    <Text className="text-sm text-secondary">{countdown}</Text>
-                  </View>
+                Everything that identifies it — the group, the question, the
+                pot and the countdown — sits on the picture with the three
+                actions, so the page below can start on the odds. That is one
+                whole line of vertical space bought back, and the money reads
+                while you are still looking at the thing it is about.
+
+                With no photo the same block draws on the page ground instead.
+                Half the bets in this app have no attachment, and a hero that
+                only works with one is a hero that works half the time. */}
+            <Animated.View
+              entering={FadeIn.duration(motion.duration.base)}
+              className={media.length > 0 ? '-mx-gutter mb-6' : 'mb-6 pt-2'}
+            >
+              <View className="relative">
+                {media.length > 0 && (
+                  <>
+                    {/* Double-tap to like, the gesture everyone already has in
+                        their fingers. It belongs *here* and not on the feed
+                        card: there, a single tap opens the bet, and waiting
+                        ~250ms to find out whether a second tap is coming would
+                        make every navigation in the app feel slow to buy one
+                        shortcut. */}
+                    <DoubleTapToLike enabled={!social.liked} onLike={() => void likeFromGesture()}>
+                      <BetMediaView media={media} active radius={0} className="h-[318px] w-full" />
+                    </DoubleTapToLike>
+                    {/* Explicit rgba stops: an eight-digit hex that does not
+                        truly reach zero leaves a hard seam across the photo. */}
+                    <LinearGradient
+                      colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.08)', 'rgba(0,0,0,0.74)']}
+                      locations={[0, 0.34, 1]}
+                      pointerEvents="none"
+                      style={StyleSheet.absoluteFill}
+                    />
+                  </>
                 )}
-                <Text className="ml-auto text-sm text-tertiary">
-                  {formatShortDate(data.created_at)}
-                </Text>
+
+                <View
+                  className={
+                    media.length > 0 ? 'absolute inset-x-0 bottom-0 px-gutter pb-4' : ''
+                  }
+                >
+                  {isCreator && !isResolved && !isCancelled && (
+                    <View className="mb-3 flex-row">
+                      <View className="flex-row items-center gap-1.5 rounded-full bg-scrim px-2.5 py-1">
+                        <View className="h-1.5 w-1.5 rounded-full bg-brand" />
+                        <Text className="text-2xs font-bold tracking-wide text-on-media">
+                          YOURS
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Group, then who posted it. The status is already said by
+                      the countdown beside the pot, and a badge here put a
+                      coloured pill in front of the group's own name. */}
+                  <View className="flex-row items-center gap-2.5">
+                    {data.group?.avatar_url ? (
+                      <GroupFace
+                        avatarUrl={data.group.avatar_url}
+                        size={26}
+                        radius={999}
+                      />
+                    ) : null}
+                    <Text
+                      numberOfLines={1}
+                      className={`text-sm font-semibold ${
+                        media.length > 0 ? 'text-on-media' : 'text-primary'
+                      }`}
+                    >
+                      {data.group?.name ?? ''}
+                    </Text>
+                    {data.creator?.display_name && (
+                      <Text
+                        numberOfLines={1}
+                        className={`shrink text-sm ${
+                          media.length > 0 ? 'text-on-media-soft' : 'text-secondary'
+                        }`}
+                      >
+                        · {data.creator.display_name} posted this
+                      </Text>
+                    )}
+                  </View>
+
+                  <Text
+                    className={`mt-[13px] text-[25px] font-bold leading-[30px] tracking-[-0.7px] ${
+                      media.length > 0 ? 'text-on-media' : 'text-primary'
+                    }`}
+                  >
+                    {data.title}
+                  </Text>
+
+                  <View className="mt-[15px] flex-row items-end justify-between gap-3">
+                    <View className="flex-row items-center gap-3.5">
+                      {/* A forfeit reads as a sentence, so it takes the
+                          pot's place at a size a sentence can hold. */}
+                      {isForfeit(data) ? (
+                        <Text
+                          numberOfLines={2}
+                          className={`flex-1 text-callout font-semibold ${
+                            media.length > 0 ? 'text-on-media' : 'text-primary'
+                          }`}
+                        >
+                          {data.stake_text}
+                        </Text>
+                      ) : (
+                        <Money
+                          agorot={data.total_pot_agorot}
+                          currency={data.group?.currency}
+                          size="betPot"
+                          tone={media.length > 0 ? 'onMedia' : 'neutral'}
+                        />
+                      )}
+                      {countdown && !isResolved && !isCancelled && (
+                        <View className="flex-row items-center gap-1.5">
+                          <ClockIcon
+                            size={13}
+                            color={media.length > 0 ? colors.onMediaSoft : colors.textSecondary}
+                          />
+                          <Text
+                            className={`text-sm ${
+                              media.length > 0 ? 'text-on-media-soft' : 'text-secondary'
+                            }`}
+                          >
+                            {countdown.replace('Closes in ', '')}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <BetActions
+                      gap={16}
+                      liked={social.liked}
+                      likeCount={social.likeCount}
+                      commentCount={social.commentCount}
+                      onToggleLike={toggleLike}
+                      onPressShare={() => {
+                        tap();
+                        // Swallowed: a share sheet the user dismissed is not
+                        // an error worth interrupting the bet for.
+                        void shareBet(betId, data.title, data.group?.name).catch(() => {});
+                      }}
+                      onMedia={media.length > 0}
+                    />
+                  </View>
+                </View>
               </View>
 
-              <Text className="text-2xl font-bold text-primary">{data.title}</Text>
               {data.description && (
-                <Text className="mt-2.5 text-base leading-[22px] text-secondary">
+                <Text
+                  className={`mt-4 text-base leading-[22px] text-secondary ${
+                    media.length > 0 ? 'px-gutter' : ''
+                  }`}
+                >
                   {data.description}
                 </Text>
               )}
             </Animated.View>
 
-            {/* The market */}
-            <Animated.View
-              entering={FadeInDown.delay(60).duration(motion.duration.base)}
-              className="mt-5"
-            >
-              <View className="rounded-3xl border border-hairline bg-surface p-4">
-                <View className="mb-5 flex-row items-end justify-between">
-                  <Text className="text-subhead text-secondary">Total pot</Text>
-                  <Money agorot={data.total_pot_agorot} currency={data.group?.currency} size="lg" tone="accent" />
-                </View>
-                <OddsBar
-                  slices={slices}
-                  winningId={isResolved ? data.winning_option_id ?? null : null}
-                  size="lg"
-                />
-              </View>
+            {/* The odds, with no option names: the labels are on the
+                cards directly below, in their own colour and on the thing you
+                press, so printing them here is the same two words twice. */}
+            <Animated.View entering={FadeInDown.delay(60).duration(motion.duration.base)}>
+              <OddsBar
+                slices={slices}
+                winningId={isResolved ? data.winning_option_id ?? null : null}
+                size="lg"
+                compact
+                showNames={false}
+                figurePx={28}
+                barPx={3}
+                gapPx={12}
+              />
             </Animated.View>
 
             {actionError && (
@@ -322,7 +482,7 @@ export default function BetDetailScreen() {
                 object. See OptionCard for why these used to be two rows. */}
             <Animated.View
               entering={FadeInDown.delay(120).duration(motion.duration.base)}
-              className="mt-4 flex-row flex-wrap gap-3"
+              className="mt-5 flex-row flex-wrap gap-2.5"
             >
               {slices.map((slice, index) => (
                 <OptionCard
@@ -337,8 +497,10 @@ export default function BetDetailScreen() {
                   // n+1 unless you are already on it. No preview once the bet
                   // is closed — the number would be a promise nobody can take.
                   currency={data.group?.currency}
+                  // No payoff line on a forfeit: there is no pot to divide,
+                  // and "+$0.00 each" is worse than saying nothing.
                   shareAgorot={
-                    canJoin
+                    canJoin && !isForfeit(data)
                       ? previewShareAgorot(
                           data.total_pot_agorot,
                           picked === slice.id ? slice.count : slice.count + 1
@@ -357,6 +519,48 @@ export default function BetDetailScreen() {
                 />
               ))}
             </Animated.View>
+
+            {/* Yours to call, said where the sides are.
+
+                The creator's controls used to be a titled section at the foot
+                of the screen, under the comments — the furthest point from the
+                two options the decision is actually between. It is one row
+                now, directly below them, and pressing it asks which side was
+                right with those same two labels.
+
+                It was Spring Mint, on the reasoning that `brand` marks status
+                and calling a bet is a change of status. In the app that read
+                as a neon glow — mint text and mint rule over a green wash,
+                three greens in a row — and it sat beside two green-and-red
+                side buttons that mean something else entirely.
+
+                It is the accent now, which is the rule the rest of the app
+                already follows: blue carries every action, and for the
+                creator this is *the* action. The row shape is what keeps it
+                from being mistaken for a side — the two options are squares,
+                this is a full-width row with a disc and a chevron — rather
+                than the colour doing that job. */}
+            {isCreator && !isResolved && !isCancelled && (
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel="Call this bet — pick the side that was right"
+                disabled={busy}
+                scaleTo={0.985}
+                onPress={() => setCalling(true)}
+                className="mt-4 flex-row items-center gap-3 rounded-2xl border border-accent bg-accent-soft px-4 py-3.5"
+              >
+                <View className="h-[30px] w-[30px] items-center justify-center rounded-full bg-accent">
+                  <CheckIcon size={17} color={colors.accentInk} />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-subhead font-bold text-accent">Call it</Text>
+                  <Text className="mt-0.5 text-xs text-secondary">
+                    Pick the side that was right
+                  </Text>
+                </View>
+                <ChevronRightIcon size={16} color={colors.brand} />
+              </PressableScale>
+            )}
 
             {!canJoin && !isResolved && !isCancelled && (
               <View className="mt-4 flex-row items-center gap-3 rounded-2xl border border-hairline bg-surface px-4 py-3.5">
@@ -394,18 +598,6 @@ export default function BetDetailScreen() {
                 onChanged={() => bet.reload({ silent: true })}
               />
             )}
-
-            {/* Reactions sit between the bet and the creator's controls: the
-                bet is what you came for, the talk about it is next, and the
-                buttons that end it are last. */}
-            <View className="mt-7 flex-row items-center justify-between">
-              <BetActions
-                liked={social.liked}
-                likeCount={social.likeCount}
-                commentCount={social.commentCount}
-                onToggleLike={toggleLike}
-              />
-            </View>
 
             <BetComments
               betId={betId}
@@ -447,25 +639,18 @@ export default function BetDetailScreen() {
               </PressableScale>
             )}
 
+            {/* What is left of the creator's controls once calling it has
+                moved up beside the sides. Locking and cancelling are rare and
+                neither is the thing you came back to do, so they stay at the
+                foot of the screen. */}
             {isCreator && !isResolved && !isCancelled && (
               <View className="mt-7">
                 <SectionTitle>You created this bet</SectionTitle>
                 <View className="rounded-3xl border border-hairline bg-surface p-4">
                   <Text className="mb-4 text-sm leading-[18px] text-secondary">
-                    Only you can call it. Bets can&apos;t be edited — only locked, resolved or
-                    cancelled.
+                    Bets can&apos;t be edited — only locked, called or cancelled.
                   </Text>
                   <View className="gap-3">
-                    {slices.map((slice) => (
-                      <Button
-                        key={slice.id}
-                        title={`"${slice.label}" won`}
-                        variant="secondary"
-                        disabled={busy}
-                        icon={<TrophyIcon size={16} color={colors.text} />}
-                        onPress={() => confirmResolve(slice.id)}
-                      />
-                    ))}
                     {data.status === 'open' && (
                       <Button
                         title="Lock — no more joining"
@@ -488,6 +673,60 @@ export default function BetDetailScreen() {
           </ContentWidth>
         </ScrollView>
         </KeyboardAvoidingView>
+
+        <DetailTopBar onBack={() => router.back()} onMedia={media.length > 0} />
+        <TabBarScrim />
+        <FloatingTabBar active="index" onSelect={(t) => router.navigate(t.href)} />
+
+        {/* Which side was right, asked with the same two labels and the same
+            two colours the options carry. Picking one here is the whole
+            resolve: one tap from the row, rather than a scroll to a section
+            and then a button. */}
+        <Modal
+          visible={calling}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setCalling(false)}
+        >
+          <Pressable
+            className="flex-1 justify-end bg-scrim"
+            onPress={() => setCalling(false)}
+            accessibilityLabel="Close"
+          >
+            <View className="rounded-t-[30px] border-t border-hairline-strong bg-surface2 px-gutter pb-10 pt-3">
+              <View className="mb-5 h-1 w-9 self-center rounded-full bg-hairline-strong" />
+              <Text className="text-xl font-bold text-primary">Which side was right?</Text>
+              <Text className="mt-1.5 text-subhead leading-5 text-secondary">
+                Everybody is paid the moment you pick. This cannot be undone.
+              </Text>
+              <View className="mt-5 gap-3">
+                {slices.map((slice, index) => (
+                  <PressableScale
+                    key={slice.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${slice.label} won`}
+                    disabled={busy}
+                    onPress={() => {
+                      setCalling(false);
+                      confirmResolve(slice.id);
+                    }}
+                    style={{ borderColor: optionColor(index, slices.length, scheme) }}
+                    className="h-[52px] flex-row items-center justify-center gap-2 rounded-2xl border bg-surface"
+                  >
+                    <TrophyIcon size={16} color={optionColor(index, slices.length, scheme)} />
+                    <Text
+                      numberOfLines={1}
+                      style={{ color: optionColor(index, slices.length, scheme) }}
+                      className="text-callout font-bold"
+                    >
+                      {slice.label}
+                    </Text>
+                  </PressableScale>
+                ))}
+              </View>
+            </View>
+          </Pressable>
+        </Modal>
 
         {/* Blocking hides the blocked person's comments at the policy level, so
             the screen has to re-read to see that happen. */}
@@ -562,37 +801,47 @@ function OptionCard({
 
   const body = (
     <>
-      <View className="mb-3 flex-row items-center gap-1.5">
+      <View className="flex-row items-center gap-1.5">
         <Text
-          numberOfLines={2}
+          numberOfLines={1}
           style={dimmed ? undefined : { color }}
-          className={`flex-1 text-base font-semibold ${dimmed ? 'text-tertiary' : ''}`}
+          className={`flex-1 text-base font-bold ${dimmed ? 'text-tertiary' : ''}`}
         >
           {label}
         </Text>
         {won === true && <TrophyIcon size={15} color={colors.positive} />}
       </View>
 
-      {people.length === 0 ? (
-        <Text className="text-sm text-tertiary">Nobody yet</Text>
-      ) : (
-        people.map((person, personIndex) => (
-          <View key={`${person.id}-${personIndex}`} className="mb-2 flex-row items-center gap-2">
-            <Avatar name={person.name} id={person.id} uri={person.avatarUrl} size={24} />
-            <Text numberOfLines={1} className="flex-1 text-sm text-primary">
-              {person.name}
-            </Text>
-          </View>
-        ))
-      )}
-
-      {/* The payoff line sits under the roster, not over it: the people are
-          the reason to choose, the number is the consequence of choosing. */}
+      {/* The payoff sits right under the label and in the side's own colour:
+          it is the consequence of this square, not a footnote to it. Hidden
+          once the bet closes, because the number would be a promise nobody
+          can take. */}
       {shareAgorot !== null && (
-        <Text className="mt-1 text-sm text-secondary">
-          {selected ? 'Tap to withdraw' : `Win ~${formatMoney(shareAgorot, currency)}`}
+        <Text
+          style={dimmed ? undefined : { color }}
+          className={`mt-[5px] text-sm ${dimmed ? 'text-tertiary' : ''}`}
+        >
+          {selected ? 'Tap to withdraw' : `+${formatMoney(shareAgorot, currency)} each`}
         </Text>
       )}
+
+      <View className="flex-1" />
+
+      {/* The roster as a stack, not a list of names. Four faces and a count
+          fit on one line; four rows of name did not, and the card had to grow
+          to a different height for every option. */}
+      <View className="mt-3.5 flex-row items-center gap-2">
+        {people.length === 0 ? (
+          <Text className="text-xs text-tertiary">Nobody yet</Text>
+        ) : (
+          <>
+            <AvatarStack people={people} size={22} max={4} />
+            <Text style={tabular} className="text-xs text-secondary">
+              {people.length}
+            </Text>
+          </>
+        )}
+      </View>
     </>
   );
 
@@ -603,7 +852,7 @@ function OptionCard({
     return (
       <View
         style={sizing}
-        className={`rounded-3xl border bg-surface p-4 ${
+        className={`h-[114px] rounded-[18px] border bg-surface px-[15px] pb-[13px] pt-[15px] ${
           won === true ? 'border-positive' : 'border-hairline'
         } ${dimmed ? 'opacity-60' : ''}`}
       >
@@ -624,8 +873,17 @@ function OptionCard({
           : `Back ${label}. ${describeRoster(people)}`
       }
       accessibilityState={{ selected, disabled }}
-      style={{ ...sizing, borderColor: selected ? color : undefined }}
-      className={`rounded-3xl border-2 p-4 ${
+      // The side you are on is outlined *and* filled, in its own colour: a
+      // 2pt rule alone over the same ground as the other square read as a
+      // focus ring rather than as a choice already made.
+      style={{
+        ...sizing,
+        borderWidth: selected ? 2 : 1,
+        ...(selected
+          ? { borderColor: color, backgroundColor: optionSoftColor(index, count, scheme) }
+          : null),
+      }}
+      className={`h-[114px] rounded-[18px] px-[15px] pb-[13px] pt-[15px] ${
         selected ? '' : 'border-hairline bg-surface'
       } ${disabled ? 'opacity-50' : ''}`}
     >

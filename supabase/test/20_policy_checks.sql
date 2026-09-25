@@ -2475,3 +2475,120 @@ begin;
      and p.proname = 'my_totals_by_currency'
      and has_function_privilege('anon', p.oid, 'execute');
 rollback;
+
+\echo '--- 55. a bet whose stake is words, not money ---'
+-- The constraint pair, and the one thing that was actually load-bearing: a
+-- forfeit bet resolves with an empty ledger, which `resolve_bet_with_entries`
+-- used to refuse outright whenever both sides had been backed. Correct for a
+-- money bet and exactly wrong for this one — without the exemption a forfeit
+-- bet could be made and joined but never called.
+--
+-- Each refusal runs inside a savepoint, for the reason section 17 gives: a
+-- raised exception aborts the transaction, so without one only the first
+-- guard would ever fire.
+begin;
+  set local role postgres;
+
+  \echo '  (a) a pot and a forfeit together is refused'
+  savepoint s;
+  insert into public.bets (
+    id, group_id, creator_id, title, option_a_label, option_b_label,
+    total_pot_agorot, stake_text
+  ) values (
+    'ddddddd1-0000-4000-8000-000000000001',
+    'bbbbbbbb-0000-4000-8000-000000000000',
+    'aaaaaaaa-0000-4000-8000-000000000000',
+    'Both at once', 'Yes', 'No', 5000, 'Loser buys dinner'
+  );
+  rollback to s;
+
+  \echo '  (b) a forfeit of nothing but spaces is refused'
+  savepoint s;
+  insert into public.bets (
+    id, group_id, creator_id, title, option_a_label, option_b_label,
+    total_pot_agorot, stake_text
+  ) values (
+    'ddddddd1-0000-4000-8000-000000000002',
+    'bbbbbbbb-0000-4000-8000-000000000000',
+    'aaaaaaaa-0000-4000-8000-000000000000',
+    'Blank forfeit', 'Yes', 'No', 0, '   '
+  );
+  rollback to s;
+
+  \echo '  (c) a forfeit bet with both sides backed still resolves'
+  insert into public.bets (
+    id, group_id, creator_id, title, option_a_label, option_b_label,
+    total_pot_agorot, stake_text
+  ) values (
+    'ddddddd1-0000-4000-8000-000000000003',
+    'bbbbbbbb-0000-4000-8000-000000000000',
+    'aaaaaaaa-0000-4000-8000-000000000000',
+    'Who does the washing up', 'Me', 'You', 0, 'Loser does the washing up'
+  );
+
+  -- Both sides backed, which is precisely the shape the old guard refused.
+  insert into public.bet_positions (bet_id, user_id, option_id)
+  select 'ddddddd1-0000-4000-8000-000000000003', v.uid,
+         (select id from public.bet_options
+           where bet_id = 'ddddddd1-0000-4000-8000-000000000003' and position = v.pos)
+  from (values
+    ('aaaaaaaa-0000-4000-8000-000000000000'::uuid, 0),
+    ('00000000-0000-4000-8000-000000000001'::uuid, 1)
+  ) as v(uid, pos);
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  -- The status comes straight off what the call returns. `IS NOT NULL` on a
+  -- composite is true only when *every* column is non-null, so it would say
+  -- "this bet has a description" as much as "this returned something";
+  -- `PERFORM` is PL/pgSQL and not available here; and `limit 0` never runs
+  -- the function at all, which is how this check first passed for the wrong
+  -- reason and reported the bet still open.
+  select 'forfeit bet status' as check, status
+    from public.resolve_bet_with_entries(
+      'ddddddd1-0000-4000-8000-000000000003',
+      (select id from public.bet_options
+        where bet_id = 'ddddddd1-0000-4000-8000-000000000003' and position = 0),
+      '[]'::jsonb
+    );
+
+  \echo '  (d) and it moved no money'
+  select 'forfeit wrote ledger rows' as check, count(*) as rows
+    from public.bet_ledger_entries
+   where bet_id = 'ddddddd1-0000-4000-8000-000000000003';
+
+  \echo '  (e) a money bet with both sides backed still cannot resolve empty'
+  -- The exemption is for forfeits and nothing else. A money bet that tried to
+  -- resolve without moving the pot would be the original bug back again, so
+  -- the same shape is set up with a pot and must still be refused.
+  set local role postgres;
+  insert into public.bets (
+    id, group_id, creator_id, title, option_a_label, option_b_label, total_pot_agorot
+  ) values (
+    'ddddddd1-0000-4000-8000-000000000004',
+    'bbbbbbbb-0000-4000-8000-000000000000',
+    'aaaaaaaa-0000-4000-8000-000000000000',
+    'A money bet', 'Yes', 'No', 4000
+  );
+  insert into public.bet_positions (bet_id, user_id, option_id)
+  select 'ddddddd1-0000-4000-8000-000000000004', v.uid,
+         (select id from public.bet_options
+           where bet_id = 'ddddddd1-0000-4000-8000-000000000004' and position = v.pos)
+  from (values
+    ('aaaaaaaa-0000-4000-8000-000000000000'::uuid, 0),
+    ('00000000-0000-4000-8000-000000000001'::uuid, 1)
+  ) as v(uid, pos);
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  savepoint s;
+  select public.resolve_bet_with_entries(
+    'ddddddd1-0000-4000-8000-000000000004',
+    (select id from public.bet_options
+      where bet_id = 'ddddddd1-0000-4000-8000-000000000004' and position = 0),
+    '[]'::jsonb
+  );
+  rollback to s;
+rollback;
