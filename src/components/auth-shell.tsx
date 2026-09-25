@@ -14,7 +14,6 @@ import { AppMark } from '@/components/app-mark';
 import { ContentWidth, Screen } from '@/components/screen';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { motion } from '@/theme';
-import { APP_NAME } from '@/lib/legal';
 
 /**
  * The frame every screen before sign-in sits in.
@@ -27,9 +26,11 @@ import { APP_NAME } from '@/lib/legal';
  * place, so the route change reads as the *form* sliding under a fixed mark
  * rather than as three separate screens.
  *
- * The disclaimer is not decoration and is not optional: this app never touches
- * money, and saying so on the way in is a product and App Store commitment.
- * See CLAUDE.md §1 — do not remove it in a redesign.
+ * This shell used to carry the money disclaimer as a footnote under the form,
+ * and every other screen carried its own copy. The statement still exists and
+ * is still a product commitment — it lives once, in Settings, under Money, and
+ * in the terms. Repeating it on the way in made the first thing the app says
+ * about itself a denial. Do not add it back here; add to the Settings block.
  */
 export function AuthShell({
   title,
@@ -124,12 +125,6 @@ export function AuthShell({
 
               <View className="mt-10 items-center gap-5">
                 {footer}
-
-                {/* Load-bearing. See the note at the top of this file. */}
-                <Text className="max-w-[300px] text-center text-xs leading-4 text-tertiary">
-                  {APP_NAME} never handles money. It only keeps track of who owes whom.
-                </Text>
-
                 {showDemoEntry && <DemoEntry />}
               </View>
             </ContentWidth>

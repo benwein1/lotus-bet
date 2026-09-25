@@ -942,7 +942,7 @@ function ResolvedSummary({
               {winner} won — but nobody backed it.
             </Text>
             <Text className="mt-0.5 text-sm text-secondary">
-              No money changes hands on this one.
+              Nobody&apos;s balance changes on this one.
             </Text>
           </View>
         </View>
