@@ -6,7 +6,6 @@ import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { BetActions, betSocial } from '@/components/bet-actions';
 import { BetMediaView } from '@/components/bet-media';
 import { GroupFace } from '@/components/group-face';
-import { GroupGlyph } from '@/components/group-glyph';
 import { ClockIcon, LockIcon } from '@/components/icons';
 import { OddsBar, type OddsSlice } from '@/components/odds-bar';
 import { Avatar, Badge, LiveDot, Money, PressableScale, tap } from '@/components/ui';
@@ -62,12 +61,18 @@ export function winningLabel(bet: BetWithPositions): string | null {
 }
 
 /**
- * The feed card — one bet, most of a screen.
+ * The feed card — one bet.
  *
- * When the bet has a photo or video it fills the frame and everything else
- * sits on top of it, the way a post reads anywhere else. Without media the
- * card falls back to type: the question gets the whole card, because on a
- * text-only bet the question *is* the content.
+ * **Two heights, not one.** A bet with a photo takes the whole feed: the
+ * picture grows into whatever the card has spare, so one flick is one bet.
+ * A bet without one takes only what it says. It used to take the full slot
+ * too, with the question stretched across the space the photo would have had
+ * and a hole above the comments where nothing was — a card mostly made of
+ * nothing, which is what a reader notices first.
+ *
+ * The cost is that rows are no longer a uniform height, so the feed measures
+ * them and snaps to running offsets instead of one interval. `onMeasured` is
+ * how it finds out; see `snapOffsets` in the feed.
  */
 function FeedCardImpl({
   bet,
@@ -80,9 +85,14 @@ function FeedCardImpl({
   onToggleLike,
   onOpenComments,
   comments = [],
+  onMeasured,
 }: {
   bet: BetWithPositions;
   currentUserId: string;
+  /**
+   * The full slot. A card with media fills it exactly; one without ignores it
+   * and takes its content's height.
+   */
   height: number;
   /** True when this is the card on screen — only that one plays its video. */
   active?: boolean;
@@ -104,6 +114,8 @@ function FeedCardImpl({
    * hundred bets would otherwise come back with every comment on all of them.
    */
   comments?: FeedComment[];
+  /** Reports this card's real height, so the feed knows where the next starts. */
+  onMeasured?: (betId: string, height: number) => void;
 }) {
   const colors = useColors();
   const router = useRouter();
@@ -128,14 +140,29 @@ function FeedCardImpl({
       : router.push({ pathname: '/bet/[id]', params: { id: bet.id } });
 
   return (
-    <View style={{ height }} className="px-3">
+    <View
+      // With a photo the card is exactly one slot tall and the picture takes
+      // the slack. Without one there is nothing to stretch, so the card is as
+      // tall as what it says.
+      style={hasMedia ? { height } : undefined}
+      onLayout={
+        onMeasured
+          ? (event) => onMeasured(bet.id, event.nativeEvent.layout.height)
+          : undefined
+      }
+      className="px-3"
+    >
       {/*
         The card is an object on the page, not a full-bleed photograph.
         Everything below is measured against the approved board: 28pt corners
         on a hairline over `surface`, the media a 162pt panel inset 10 from the
         card's own edges, and one 3pt rule under the two figures.
       */}
-      <View className="flex-1 overflow-hidden rounded-4xl border border-hairline bg-surface">
+      <View
+        className={`overflow-hidden rounded-4xl border border-hairline bg-surface ${
+          hasMedia ? 'flex-1' : ''
+        }`}
+      >
         <View className="flex-row items-center gap-2.5 px-4 pt-[15px]">
           {bet.group && (
             <>
@@ -199,9 +226,12 @@ function FeedCardImpl({
               <Text
                 // Without a photo the question is the whole post, so it takes
                 // the lines the picture would have had.
-                numberOfLines={hasMedia ? 2 : 5}
+                // Three lines rather than five without a photo: the card is
+                // sized by its content now, so a long question makes the card
+                // taller instead of filling space that was there anyway.
+                numberOfLines={hasMedia ? 2 : 3}
                 className={`font-bold tracking-[-0.6px] text-primary ${
-                  hasMedia ? 'text-[23px] leading-[27px]' : 'text-[28px] leading-[34px]'
+                  hasMedia ? 'text-[23px] leading-[27px]' : 'text-[25px] leading-[30px]'
                 }`}
               >
                 {bet.title}
@@ -289,11 +319,6 @@ function FeedCardImpl({
             </View>
           )}
         </View>
-
-        {/* With no photo there is nothing to grow, so this takes the slack
-            instead and the footer stays on the card's bottom edge rather than
-            floating halfway up it. */}
-        {!hasMedia && <View className="flex-1" />}
 
         {/* The social footer: what just happened, and the last two things
             anybody said. It sits on `surface2` behind a hairline so the card
@@ -546,13 +571,7 @@ export function BetCard({
               <View className="flex-1 flex-row items-center gap-1.5">
                 {showGroup && bet.group ? (
                   <>
-                    <GroupGlyph
-                      emoji={bet.group.emoji}
-                      avatarUrl={bet.group.avatar_url}
-                      name={bet.group.name}
-                      size={20}
-                      radius={7}
-                    />
+                    <GroupFace avatarUrl={bet.group.avatar_url} size={20} radius={7} />
                     <Text numberOfLines={1} className="flex-1 text-sm text-secondary">
                       {bet.group.name}
                     </Text>

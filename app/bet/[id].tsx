@@ -511,10 +511,18 @@ export default function BetDetailScreen() {
                 now, directly below them, and pressing it asks which side was
                 right with those same two labels.
 
-                Spring Mint rather than the accent: `brand`'s job in this app
-                is status and selection, and calling a bet is a change of
-                status. It also keeps the one irreversible button on the screen
-                from looking like every other blue control. */}
+                It was Spring Mint, on the reasoning that `brand` marks status
+                and calling a bet is a change of status. In the app that read
+                as a neon glow — mint text and mint rule over a green wash,
+                three greens in a row — and it sat beside two green-and-red
+                side buttons that mean something else entirely.
+
+                It is the accent now, which is the rule the rest of the app
+                already follows: blue carries every action, and for the
+                creator this is *the* action. The row shape is what keeps it
+                from being mistaken for a side — the two options are squares,
+                this is a full-width row with a disc and a chevron — rather
+                than the colour doing that job. */}
             {isCreator && !isResolved && !isCancelled && (
               <PressableScale
                 accessibilityRole="button"
@@ -522,13 +530,13 @@ export default function BetDetailScreen() {
                 disabled={busy}
                 scaleTo={0.985}
                 onPress={() => setCalling(true)}
-                className="mt-4 flex-row items-center gap-3 rounded-2xl border border-brand bg-brand-soft px-4 py-3.5"
+                className="mt-4 flex-row items-center gap-3 rounded-2xl border border-accent bg-accent-soft px-4 py-3.5"
               >
-                <View className="h-[30px] w-[30px] items-center justify-center rounded-full bg-brand">
-                  <CheckIcon size={17} color={colors.brandInk} />
+                <View className="h-[30px] w-[30px] items-center justify-center rounded-full bg-accent">
+                  <CheckIcon size={17} color={colors.accentInk} />
                 </View>
                 <View className="flex-1">
-                  <Text className="text-subhead font-bold text-brand">Call it</Text>
+                  <Text className="text-subhead font-bold text-accent">Call it</Text>
                   <Text className="mt-0.5 text-xs text-secondary">
                     Pick the side that was right
                   </Text>

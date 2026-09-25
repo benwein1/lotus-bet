@@ -183,6 +183,19 @@ export interface GroupWithMembers extends GroupRow {
  * The filter is written to tolerate a project that has not applied
  * `…_private_and_duels.sql` yet: no `kind` column means no duels exist.
  */
+/**
+ * Everything the "Groups & challenges" tab lists — groups *and* duels.
+ *
+ * Duels used to be filtered out here, on the reasoning that the tab would
+ * otherwise become a roster of everybody you have ever bet against. What that
+ * actually did was strand them: a duel is only reachable from the feed, so the
+ * person who was challenged had nowhere to find it once the bet scrolled past,
+ * and the person who sent it had no way back to settle up. A challenge you
+ * cannot open is a challenge that does not work.
+ *
+ * They are the same object underneath (`groups.kind = 'duel'`), so they need
+ * no second list — the screen groups them under their own heading.
+ */
 export async function fetchMyGroups(): Promise<GroupWithMembers[]> {
   if (isDemoMode()) return demo.fetchMyGroups();
   const { data, error } = await supabase
@@ -191,9 +204,7 @@ export async function fetchMyGroups(): Promise<GroupWithMembers[]> {
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
-  return ((data ?? []) as unknown as GroupWithMembers[]).filter(
-    (group) => group.kind !== 'duel'
-  );
+  return (data ?? []) as unknown as GroupWithMembers[];
 }
 
 /** Every group including duels — what the Profile ledger needs to name them. */
@@ -1188,13 +1199,16 @@ export async function fetchBetsIJoined(
   userId: string,
   limit = MY_BETS_PAGE
 ): Promise<BetWithPositions[]> {
-  if (isDemoMode()) return demo.fetchMyBets(userId, limit);
+  if (isDemoMode()) return demo.fetchBetsIJoined(userId, limit);
 
   const positions = await supabase
     .from('bet_positions')
     .select('bet_id')
     .eq('user_id', userId)
-    .order('created_at', { ascending: false })
+    // `joined_at`, not `created_at` — see `BET_SELECT`. Naming a column that
+    // does not exist does not drop the ordering, it rejects the request, so
+    // the Joined tab came back empty rather than unsorted.
+    .order('joined_at', { ascending: false })
     .limit(limit);
 
   if (positions.error) throw new Error(positions.error.message);

@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import { cssInterop } from 'nativewind';
 import { View } from 'react-native';
 
-import { GroupsIcon } from '@/components/icons';
+import { GroupsIcon, ProfileIcon } from '@/components/icons';
 import { useColors } from '@/providers/theme-provider';
 
 // `className` is silently dropped on expo-image without registration.
@@ -23,18 +23,28 @@ export function GroupFace({
   avatarUrl,
   size = 40,
   radius = 12,
+  round = false,
 }: {
   avatarUrl?: string | null;
   size?: number;
   radius?: number;
+  /**
+   * A circle instead of a square, and a person instead of a group glyph.
+   *
+   * A duel's face is one other human, so it takes the shape every other
+   * avatar in the app has. Passing `radius: 999` would round the box but
+   * leave the wrong placeholder inside it.
+   */
+  round?: boolean;
 }) {
   const colors = useColors();
+  const corner = round ? 999 : radius;
 
   if (avatarUrl) {
     return (
       <Image
         source={{ uri: avatarUrl }}
-        style={{ width: size, height: size, borderRadius: radius }}
+        style={{ width: size, height: size, borderRadius: corner }}
         contentFit="cover"
         transition={140}
       />
@@ -43,10 +53,14 @@ export function GroupFace({
 
   return (
     <View
-      style={{ width: size, height: size, borderRadius: radius }}
+      style={{ width: size, height: size, borderRadius: corner }}
       className="items-center justify-center bg-surface3"
     >
-      <GroupsIcon size={Math.round(size * 0.46)} color={colors.textTertiary} />
+      {round ? (
+        <ProfileIcon size={Math.round(size * 0.5)} color={colors.textTertiary} />
+      ) : (
+        <GroupsIcon size={Math.round(size * 0.46)} color={colors.textTertiary} />
+      )}
     </View>
   );
 }

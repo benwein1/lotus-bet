@@ -2,11 +2,13 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { cssInterop } from 'nativewind';
 import { useMemo, useState } from 'react';
-import { Text, View, type LayoutChangeEvent } from 'react-native';
+import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { LockIcon, TrophyIcon } from '@/components/icons';
 import { PressableScale } from '@/components/ui';
 import type { BetWithPositions } from '@/lib/database.types';
+import { tileCover } from '@/lib/bet-cover';
 import { splitMedia } from '@/lib/media-rules';
 import { useColors } from '@/providers/theme-provider';
 
@@ -93,6 +95,7 @@ function BetTile({
     return attachments.find((item) => item.kind === 'image' && item.url) ?? null;
   }, [bet.media]);
 
+  const tile = useMemo(() => tileCover(bet.id, colors), [bet.id, colors]);
   const closed = bet.status === 'resolved' || bet.status === 'cancelled';
   const locked = bet.status === 'locked';
   const marked = closed || locked;
@@ -125,18 +128,46 @@ function BetTile({
           // the page ground — the tile stopped reading as a tile and became a
           // hole with text floating in it. A tile is a tile; it is the content
           // that recedes.
+          // A ground of its own, not a grey box.
+          //
           // The question sits at the foot of the tile, the way a caption sits
           // over a photo in the tiles beside it — so a grid of both kinds
-          // reads as one wall rather than two.
-          <View className="h-full w-full justify-end bg-surface2 p-[9px]">
-            <Text
-              numberOfLines={5}
-              className={`text-2xs font-semibold leading-[14px] ${
-                marked ? 'text-tertiary' : 'text-primary'
-              }`}
-            >
-              {bet.title}
-            </Text>
+          // reads as one wall rather than two. Behind it is a teal off the
+          // mark's own green-to-blue ramp, a different stretch of the ramp per
+          // bet, because `surface2` here was the same grey as the page and
+          // made a bet without a picture look like a tile that failed to load.
+          // See `tileCover`.
+          <View className="h-full w-full">
+            {/* A closed bet recedes by losing its colour rather than by
+                taking a scrim on top of it: the scrim the photo tiles get is
+                built for a photograph, and over an already-dark teal it went
+                to near-black. */}
+            <LinearGradient
+              colors={tile.colors}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[StyleSheet.absoluteFill, marked ? { opacity: 0.38 } : null]}
+            />
+            {/* The same foot-of-the-tile darkening the photo tiles get, so a
+                white caption is legible on the lighter end of the ramp. */}
+            <LinearGradient
+              colors={['rgba(0,0,0,0.05)', 'rgba(0,0,0,0.55)']}
+              style={StyleSheet.absoluteFill}
+            />
+            {/* `zIndex` on the box, not on the text: the gradients above are
+                absolutely positioned and CSS paints those over static content
+                whatever the DOM order, so on the web the caption disappeared
+                under its own background. Same trap as the tab bar's glyph. */}
+            <View style={{ zIndex: 1 }} className="flex-1 justify-end p-[9px]">
+              <Text
+                numberOfLines={5}
+                className={`text-2xs font-semibold leading-[14px] ${
+                  marked ? 'text-on-media-soft' : 'text-on-media'
+                }`}
+              >
+                {bet.title}
+              </Text>
+            </View>
           </View>
         )}
 
@@ -155,9 +186,9 @@ function BetTile({
             }`}
           >
             {closed ? (
-              <TrophyIcon size={14} color={cover ? colors.onMedia : colors.textTertiary} />
+              <TrophyIcon size={14} color={colors.onMedia} />
             ) : (
-              <LockIcon size={14} color={cover ? colors.onMedia : colors.textTertiary} />
+              <LockIcon size={14} color={colors.onMedia} />
             )}
           </View>
         )}

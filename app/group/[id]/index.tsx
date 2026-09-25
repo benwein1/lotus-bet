@@ -11,6 +11,7 @@ import { GroupBetRow } from '@/components/group-bet-row';
 import { GroupFace } from '@/components/group-face';
 import {
   CameraIcon,
+  ChevronRightIcon,
   CheckIcon,
   CopyIcon,
   ShareIcon,
@@ -340,6 +341,37 @@ export default function GroupDetailScreen() {
 
               {active === 'settled' && (
                 <>
+                  {/* Settling up is the point of the Settled tab, and it used
+                      to be reachable only by pressing the balance figure in
+                      the header — a control nothing announces as one. The
+                      balance still works; this says the same thing in words,
+                      where somebody looking to square up is already looking.
+
+                      It opens whatever balances exist, including none: "you
+                      are square" is an answer, and a button that disappears
+                      when there is nothing owed is a button people assume is
+                      broken. */}
+                  <PressableScale
+                    scaleTo={0.985}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Settle up in ${data.name}`}
+                    onPress={() =>
+                      router.push({ pathname: '/group/[id]/settle', params: { id: groupId } })
+                    }
+                    className="mb-3 flex-row items-center gap-3 rounded-2xl border border-hairline bg-surface px-4 py-3.5"
+                  >
+                    <View className="h-[34px] w-[34px] items-center justify-center rounded-full bg-accent-soft">
+                      <HandshakeIcon size={18} color={colors.accent} />
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-subhead font-semibold text-primary">Settle up</Text>
+                      <Text className="mt-0.5 text-xs text-secondary">
+                        Who owes who, and the fewest payments that clear it
+                      </Text>
+                    </View>
+                    <ChevronRightIcon size={16} color={colors.textTertiary} />
+                  </PressableScale>
+
                   {pastBets.length === 0 ? (
                     <View className="rounded-3xl border border-hairline bg-surface">
                       <EmptyState

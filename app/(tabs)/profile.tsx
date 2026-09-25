@@ -42,6 +42,9 @@ import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
 import { motion } from '@/theme';
 
+/** How far the chart stops short of the screen edge. */
+const CHART_BREATH = 6;
+
 type TabKey = 'started' | 'joined' | 'settled';
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -120,7 +123,16 @@ export default function ProfileScreen() {
       : FadeInDown.delay(delay).duration(motion.duration.base);
 
   // The chart is drawn edge to edge inside the gutter.
-  const chartWidth = Math.max(240, Math.min(width, 520) - 40);
+  /**
+   * The chart runs nearly edge to edge, not inside the page's gutter.
+   *
+   * Everything else on this screen is a line of type that wants a margin to
+   * read against. A chart is a shape, and 20pt of air either side of it is
+   * 40pt of the one thing on the page that gets better with width. It keeps a
+   * 6pt breath so the line never touches the bezel, and the block it sits in
+   * cancels the gutter to get there.
+   */
+  const chartWidth = Math.max(240, Math.min(width, 560) - CHART_BREATH * 2);
 
   return (
     <Screen>
@@ -199,7 +211,9 @@ export default function ProfileScreen() {
                 </Text>
               )}
 
-              <View className="mt-3">
+              {/* Out past the gutter. `-mx-gutter` cancels the screen's own
+                  padding, and the breath is added back. */}
+              <View className="-mx-gutter mt-3" style={{ paddingHorizontal: CHART_BREATH }}>
                 <NetChart
                   series={series}
                   width={chartWidth}

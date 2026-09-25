@@ -660,12 +660,8 @@ const byNewest = (a: { created_at: string }, b: { created_at: string }) =>
 export const demo = {
   async fetchMyGroups(): Promise<GroupWithMembers[]> {
     const ids = myGroupIds();
-    return clone(
-      state.groups
-        .filter((g) => ids.includes(g.id) && g.kind !== 'duel')
-        .sort(byNewest)
-        .map(withMembers)
-    );
+    // Duels included — the tab lists groups *and* challenges now.
+    return clone(state.groups.filter((g) => ids.includes(g.id)).sort(byNewest).map(withMembers));
   },
 
   async fetchGroup(groupId: string): Promise<GroupWithMembers> {
@@ -790,6 +786,20 @@ export const demo = {
     return clone(
       state.bets
         .filter((b) => b.creator_id === userId)
+        .sort(byNewest)
+        .slice(0, limit)
+        .map((b) => withPositions(b))
+    );
+  },
+
+  /** The bets you took a side on — not the ones you posted. */
+  async fetchBetsIJoined(userId: string, limit: number): Promise<BetWithPositions[]> {
+    const joined = new Set(
+      state.positions.filter((p) => p.user_id === userId).map((p) => p.bet_id)
+    );
+    return clone(
+      state.bets
+        .filter((b) => joined.has(b.id))
         .sort(byNewest)
         .slice(0, limit)
         .map((b) => withPositions(b))

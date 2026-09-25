@@ -248,7 +248,8 @@ export default function FeedScreen() {
   // The gap between posts, and the only thing separating them now that the
   // cards have no border. Wide enough that two bets never visually merge,
   // narrow enough that it reads as a seam rather than a margin.
-  const snapInterval = cardHeight + CARD_GAP;
+  /** Each card's real height once it has laid out. See `snapOffsets`. */
+  const [heights, setHeights] = useState<Map<string, number>>(new Map());
 
   // One flip at a threshold rather than a value driven every frame: the name
   // is either there or it is not, and a per-frame handler would run a worklet
@@ -402,17 +403,42 @@ export default function FeedScreen() {
 
   const myGroups = groups.data ?? [];
 
-  // Every row is one card plus its bottom margin, which is exactly the snap
-  // interval the list already scrolls by — so the list never has to measure a
-  // cell to know where the next one starts.
-  const getItemLayout = useCallback(
-    (_: ArrayLike<BetWithPositions> | null | undefined, index: number) => ({
-      length: snapInterval,
-      offset: snapInterval * index,
-      index,
-    }),
-    [snapInterval]
-  );
+  /**
+   * Where each card starts, measured rather than assumed.
+   *
+   * Rows used to be identical — one card was exactly one screenful — so
+   * `getItemLayout` could hand the list an offset without it measuring
+   * anything, and `snapToInterval` was that same number. A bet with no photo
+   * is shorter than one with a photo now, so neither of those holds: a fixed
+   * interval would drift further out of alignment with every card scrolled
+   * past, and a fixed `getItemLayout` would place cells at coordinates they
+   * are not at.
+   *
+   * So the cards report their own height on layout and the snap points are
+   * the running total. It costs a measure per cell, which is what
+   * `getItemLayout` existed to avoid — that is the price of two card shapes,
+   * and the list is windowed to five, so it is a measure of five views rather
+   * than of a hundred.
+   *
+   * A card that has not been measured yet counts as a full-height one: it is
+   * the taller of the two, so an unmeasured run of cards snaps slightly long
+   * rather than landing mid-card, and corrects as they mount.
+   */
+  const onCardLayout = useCallback((betId: string, measured: number) => {
+    setHeights((current) =>
+      current.get(betId) === measured ? current : new Map(current).set(betId, measured)
+    );
+  }, []);
+
+  const snapOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let running = 14; // the list's own paddingTop
+    for (const bet of bets) {
+      offsets.push(running);
+      running += (heights.get(bet.id) ?? cardHeight) + CARD_GAP;
+    }
+    return offsets;
+  }, [bets, heights, cardHeight]);
 
   // Hoisted out of the JSX so its identity only changes when something a card
   // actually draws from changes. As an inline arrow it was a new function on
@@ -432,6 +458,7 @@ export default function FeedScreen() {
           bet={item}
           currentUserId={userId}
           height={cardHeight}
+          onMeasured={onCardLayout}
           active={activeId === item.id}
           isNew={isNewSince(item.created_at, since, item.creator_id, userId)}
           onPickOption={(optionId) => pickOption(item.id, optionId)}
@@ -446,7 +473,7 @@ export default function FeedScreen() {
     // over nothing that is not already listed here, which is the same reason
     // `FeedCard`'s comparator skips its callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [userId, cardHeight, activeId, since, busy, feedComments]
+    [userId, cardHeight, activeId, since, busy, feedComments, onCardLayout]
   );
 
   return (
@@ -508,9 +535,10 @@ export default function FeedScreen() {
                 ref={listRef}
                 data={bets}
                 keyExtractor={(bet) => bet.id}
-                // A snap interval of exactly one card means a flick always lands
-                // on a whole bet rather than halfway between two.
-                snapToInterval={snapInterval}
+                // Offsets rather than one interval: a bet with no photo is a
+                // shorter card, so there is no single number that lands every
+                // flick on a whole bet. See `snapOffsets`.
+                snapToOffsets={snapOffsets}
                 decelerationRate="fast"
                 snapToAlignment="start"
                 showsVerticalScrollIndicator={false}
@@ -531,13 +559,6 @@ export default function FeedScreen() {
                 }}
                 onViewableItemsChanged={onViewableItemsChanged.current}
                 viewabilityConfig={VIEWABILITY}
-                // Every card is exactly the same height, so there is nothing
-                // for the list to measure. Without this it lays out each cell
-                // to find out where the next one goes — on a list of
-                // full-screen cards that is the work that shows up as a stutter
-                // when you flick, and it is the reason a snap could land
-                // slightly off before the layout settled.
-                getItemLayout={getItemLayout}
                 initialNumToRender={INITIAL_CARDS}
                 maxToRenderPerBatch={BATCH_CARDS}
                 windowSize={WINDOW_CARDS}

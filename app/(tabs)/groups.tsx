@@ -19,7 +19,14 @@ import { GroupsIcon, KeyIcon, SwordsIcon } from '@/components/icons';
 import { RampRing } from '@/components/ramp-ring';
 import { ContentWidth, Screen } from '@/components/screen';
 import { GroupListSkeleton } from '@/components/skeletons';
-import { AvatarStack, ErrorNotice, Money, PressableScale, selectionTap } from '@/components/ui';
+import {
+  AvatarStack,
+  ErrorNotice,
+  Money,
+  PressableScale,
+  SectionTitle,
+  selectionTap,
+} from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
@@ -64,8 +71,12 @@ export default function GroupsScreen() {
     }, [reloadGroups])
   );
 
-  const list = groups.data ?? [];
-  const live = list.length;
+  const all = groups.data ?? [];
+  // Two lists off one read. A duel *is* a group — same table, same policies,
+  // same balances — so it needs no second query, only its own heading: "Flat
+  // 4B" and "you versus Dor" are different kinds of thing to scan for.
+  const rooms = all.filter((group) => group.kind !== 'duel');
+  const duels = all.filter((group) => group.kind === 'duel');
 
   const go = (path: '/group/create' | '/challenge' | '/group/join') => {
     setAnchor(null);
@@ -92,14 +103,10 @@ export default function GroupsScreen() {
               <View className="flex-1 pr-4">
                 <AppMark size={26} />
                 <Text className="mt-3 text-[30px] font-semibold leading-[34px] tracking-[-0.9px] text-primary">
-                  Your groups
+                  Groups & challenges
                 </Text>
                 <Text className="mt-1.5 text-sm text-secondary">
-                  {live === 0
-                    ? 'The people you bet against live here.'
-                    : live === 1
-                      ? 'One room, and whoever is in it.'
-                      : `${live} rooms, and whoever is in them.`}
+                  {describeList(rooms.length, duels.length)}
                 </Text>
               </View>
               <View ref={ringRef} collapsable={false}>
@@ -119,12 +126,28 @@ export default function GroupsScreen() {
 
             {groups.loading ? (
               <GroupListSkeleton />
-            ) : list.length === 0 ? (
+            ) : all.length === 0 ? (
               <FirstRun />
             ) : (
-              list.map((group, i) => (
-                <GroupRow key={group.id} group={group} currentUserId={userId} index={i} />
-              ))
+              <>
+                {rooms.map((group, i) => (
+                  <GroupRow key={group.id} group={group} currentUserId={userId} index={i} />
+                ))}
+
+                {duels.length > 0 && (
+                  <View className={rooms.length > 0 ? 'mt-4' : ''}>
+                    <SectionTitle>Challenges</SectionTitle>
+                    {duels.map((group, i) => (
+                      <GroupRow
+                        key={group.id}
+                        group={group}
+                        currentUserId={userId}
+                        index={rooms.length + i}
+                      />
+                    ))}
+                  </View>
+                )}
+              </>
             )}
           </ContentWidth>
         </ScrollView>
@@ -133,6 +156,26 @@ export default function GroupsScreen() {
       <CreateMenu anchor={anchor} onClose={() => setAnchor(null)} onPick={go} />
     </Screen>
   );
+}
+
+/**
+ * The line under the title, which now has to cover two kinds of thing.
+ *
+ * Written out rather than assembled from fragments: "1 rooms and 2 challenges"
+ * is the shape that comes of building a sentence out of counts, and the tab is
+ * the first thing anyone opens after the feed.
+ */
+function describeList(rooms: number, duels: number): string {
+  if (rooms === 0 && duels === 0) return 'The people you bet against live here.';
+  if (rooms === 0) {
+    return duels === 1 ? 'One challenge, just the two of you.' : `${duels} challenges, one on one.`;
+  }
+  if (duels === 0) {
+    return rooms === 1 ? 'One room, and whoever is in it.' : `${rooms} rooms, and whoever is in them.`;
+  }
+  const roomWord = rooms === 1 ? '1 room' : `${rooms} rooms`;
+  const duelWord = duels === 1 ? '1 challenge' : `${duels} challenges`;
+  return `${roomWord} and ${duelWord}.`;
 }
 
 /** Where the ring sits on screen, in window coordinates. */
@@ -278,6 +321,14 @@ function GroupRow({
     avatarUrl: m.user?.avatar_url ?? null,
   }));
 
+  // A duel's stored name is "You v Them", which reads as a stutter in a list
+  // you are already in. The row is about the other person, so it says their
+  // name and wears their face.
+  const duel = group.kind === 'duel';
+  const opponent = duel ? group.members.find((m) => m.user_id !== currentUserId)?.user : null;
+  const title = opponent?.display_name ?? group.name;
+  const faceUrl = duel ? (opponent?.avatar_url ?? null) : group.avatar_url;
+
   return (
     <Animated.View
       entering={
@@ -307,7 +358,7 @@ function GroupRow({
             member avatars inside a rounded box, which read as a crowd rather
             than as the group's own face — and made every row look different
             depending on how many people were in it. */}
-        <GroupFace avatarUrl={group.avatar_url} size={48} radius={14} />
+        <GroupFace avatarUrl={faceUrl} size={48} radius={14} round={duel} />
       </PressableScale>
 
       <Link
@@ -325,12 +376,19 @@ function GroupRow({
               numberOfLines={1}
               className="text-base font-semibold tracking-[-0.4px] text-primary"
             >
-              {group.name}
+              {title}
             </Text>
             {/* Who is in it, as faces rather than as a count. The names are
                 the group; "6 people" is a number about it. */}
             <View className="mt-1.5 flex-row items-center gap-2">
-              <AvatarStack people={members} size={20} max={5} />
+              {duel ? (
+                // Two faces, one of them yours, says less than the word does.
+                <Text numberOfLines={1} className="text-xs text-secondary">
+                  {opponent?.username ? `@${opponent.username}` : 'Just the two of you'}
+                </Text>
+              ) : (
+                <AvatarStack people={members} size={20} max={5} />
+              )}
               {live > 0 && (
                 <Text numberOfLines={1} className="text-xs text-secondary">
                   {live} live
