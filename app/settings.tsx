@@ -242,6 +242,28 @@ export default function SettingsScreen() {
               </View>
             )}
 
+            {/* The one place this is said.
+                It used to be a footnote on the auth screens, the feed, the new-bet
+                form, settle-up and Profile — five restatements of a denial, which
+                made "we don't do that" the loudest thing the product said about
+                itself. It is still a product and App Store commitment (CLAUDE.md
+                §1) and it is still in the terms; it lives here, in full, where
+                somebody who wants to know goes to look. */}
+            <View className="mb-7">
+              <SectionTitle>Money</SectionTitle>
+              <View className="rounded-2xl border border-hairline bg-surface px-4 py-3.5">
+                <Text className="text-subhead leading-[21px] text-secondary">
+                  Betta is a scoreboard, not a payment app. It holds no money, processes no
+                  payments, sells no currency, and has no wallet or balance you can top up.
+                </Text>
+                <Text className="mt-2.5 text-subhead leading-[21px] text-secondary">
+                  When a bet is called the app writes down an amount. That number is a note
+                  between you and your friends — you settle up between yourselves, outside
+                  the app. Marking a payment as paid only updates the running total here.
+                </Text>
+              </View>
+            </View>
+
             {/* The two documents are screens rather than links out: the text
                 ships with the build, so they open with no network and before
                 any domain exists. */}
@@ -300,10 +322,6 @@ export default function SettingsScreen() {
                 <Text className="text-subhead text-tertiary">Delete account</Text>
               </PressableScale>
             </Link>
-
-            <Text className="mt-7 text-center text-xs leading-4 text-tertiary">
-              Betta is a tracker. It holds no money, processes no payments, and sells no currency.
-            </Text>
           </ContentWidth>
         </ScrollView>
       </SafeAreaView>

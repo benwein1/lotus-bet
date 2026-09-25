@@ -381,8 +381,8 @@ export default function NewBetScreen() {
                 </View>
 
                 <Text className="mb-7 px-1 text-sm leading-[18px] text-secondary">
-                  No money changes hands and nothing lands on anybody&apos;s balance — this is the
-                  two of you holding each other to it.
+                  Nothing lands on anybody&apos;s balance — this is the two of you holding each
+                  other to it.
                 </Text>
               </>
             )}
@@ -487,12 +487,7 @@ export default function NewBetScreen() {
               onPress={submit}
               loading={busy}
               disabled={!canSubmit}
-            />
-            <Text className="mt-4 text-center text-xs leading-4 text-tertiary">
-              No money moves through Betta. You&apos;re recording a friendly wager, nothing
-              more.
-            </Text>
-          </ContentWidth>
+            />          </ContentWidth>
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>

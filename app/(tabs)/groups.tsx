@@ -432,7 +432,7 @@ function FirstRun() {
         <HowItWorks
           step="3"
           title="Call it, and settle up between yourselves"
-          body="Betta keeps the running total. No money goes through the app."
+          body="Betta keeps the running total for everyone in the group."
         />
       </View>
     </View>

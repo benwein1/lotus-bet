@@ -96,8 +96,8 @@ export function inviteMessage(groupName: string, inviterName?: string | null): s
   const who = inviterName?.trim();
   const group = groupName.trim() || 'a group';
   return who
-    ? `${who} wants you in "${group}" on Betta — bet your friends on anything, settle up however you like.`
-    : `Join "${group}" on Betta — bet your friends on anything, settle up however you like.`;
+    ? `${who} wants you in "${group}" on Betta — bet your friends on anything and keep score.`
+    : `Join "${group}" on Betta — bet your friends on anything and keep score.`;
 }
 
 /** Message and URL as one string, for anywhere that only accepts one. */

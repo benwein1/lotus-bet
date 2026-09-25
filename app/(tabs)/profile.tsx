@@ -25,7 +25,6 @@ import {
 import { useAsync } from '@/hooks/use-async';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
-import { APP_NAME } from '@/lib/legal';
 import { formatShortDate } from '@/lib/format';
 import { buildSeries, dominantCurrency } from '@/lib/profile-chart';
 import {
@@ -274,10 +273,6 @@ export default function ProfileScreen() {
                 </>
               )}
             </View>
-
-            <Text className="mt-9 text-center text-xs leading-4 text-tertiary">
-              Betta is a tracker. It holds no money, processes no payments, and sells no currency.
-            </Text>
           </ContentWidth>
         </ScrollView>
       </SafeAreaView>
@@ -373,10 +368,6 @@ function PeopleLedger({
           </ListGroup>
         </>
       )}
-
-      <Text className="mt-2.5 px-1 text-sm text-tertiary">
-        {APP_NAME} never moves money. Settle up however you already do.
-      </Text>
     </Animated.View>
   );
 }

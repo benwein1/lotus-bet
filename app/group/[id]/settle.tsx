@@ -30,7 +30,6 @@ import { transactionKey } from '@/lib/settlement';
 import { useAuth } from '@/providers/auth-provider';
 import { useColors } from '@/providers/theme-provider';
 import { motion } from '@/theme';
-import { APP_NAME } from '@/lib/legal';
 
 /**
  * "Smart Splitwise" for the group.
@@ -161,8 +160,8 @@ export default function SettleUpScreen() {
               ) : (
                 <View>
                   <Text className="mb-3 px-1 text-sm leading-[18px] text-secondary">
-                    The shortest set of payments that clears every balance. Pay each other however
-                    you normally do — cash, Bit, bank transfer — then tick it off here.
+                    The shortest set of payments that clears every balance. Tick one off once
+                    it has been paid.
                   </Text>
 
                   {settlement.transactions.map((txn, i) => {
@@ -274,11 +273,6 @@ export default function SettleUpScreen() {
                   ))}
                 </View>
               </View>
-
-              <Text className="mt-8 text-center text-xs leading-4 text-tertiary">
-                {APP_NAME} never moves money. Marking a payment as paid only updates the
-                running total here.
-              </Text>
             </>
           )}
         </ContentWidth>

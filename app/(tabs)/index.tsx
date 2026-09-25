@@ -575,7 +575,7 @@ export default function FeedScreen() {
                 }
                 renderItem={renderCard}
                 ListFooterComponent={
-                  <ContentWidth className="pb-2 pt-6">
+                  <ContentWidth className="pb-8 pt-6">
                     {/* The end of the feed is where people leave. Giving it
                         something to do is worth more than a full stop. */}
                     <BetSuggestions
@@ -584,11 +584,6 @@ export default function FeedScreen() {
                       heading="That's everything"
                       subheading="You're caught up. Start one of these in your groups and give them something to argue about."
                     />
-
-                    <Text className="mt-8 text-center text-xs leading-4 text-tertiary">
-                      Betta tracks obligations only. Settle up with your friends however you
-                      normally do.
-                    </Text>
                   </ContentWidth>
                 }
               />
