@@ -14,7 +14,7 @@ import { shareBet } from '@/lib/invites';
 import type { FeedComment } from '@/lib/queries';
 import type { BetSide, BetStatus, BetWithPositions } from '@/lib/database.types';
 import { isForfeit } from '@/lib/currency';
-import { formatCountdown } from '@/lib/format';
+import { formatCountdown, viewAllComments } from '@/lib/format';
 import { useColors, useScheme } from '@/providers/theme-provider';
 import { elevation, motion, optionColor, tabular } from '@/theme';
 
@@ -424,13 +424,13 @@ function FeedSocial({
       {commentCount > 0 && (
         <PressableScale
           accessibilityRole="button"
-          accessibilityLabel={`View all ${commentCount} comments`}
+          // The label and the text are one string, because they were two and
+          // the label said "View all 1 comments" while the text said "comment".
+          accessibilityLabel={viewAllComments(commentCount)}
           onPress={onOpen}
           className="min-h-11 justify-center"
         >
-          <Text className="text-sm text-secondary">
-            View all {commentCount} {commentCount === 1 ? 'comment' : 'comments'}
-          </Text>
+          <Text className="text-sm text-secondary">{viewAllComments(commentCount)}</Text>
         </PressableScale>
       )}
     </View>

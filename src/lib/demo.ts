@@ -299,6 +299,20 @@ function seed(): SeededState {
         currency: 'ILS',
         created_at: iso(-24 * 12),
       },
+      {
+        // A one-on-one challenge. It is a real group and nothing here treats
+        // it as anything else — the Groups tab lists it under its own heading
+        // and reads the other person off the membership, so a demo without
+        // one cannot show the half of that screen this exists to show.
+        id: 'demo-duel-1',
+        name: 'You v Yossi Cohen',
+        kind: 'duel',
+        emoji: null,
+        created_by: DEMO_USER_ID,
+        invite_code: 'DU3LXX',
+        currency: 'USD',
+        created_at: iso(-24 * 3),
+      },
     ],
     members: [
       { group_id: groupId, user_id: DOR, role: 'admin', joined_at: iso(-24 * 30) },
@@ -307,6 +321,8 @@ function seed(): SeededState {
       { group_id: groupId, user_id: YOSSI, role: 'member', joined_at: iso(-24 * 20) },
       { group_id: 'demo-group-2', user_id: DEMO_USER_ID, role: 'admin', joined_at: iso(-24 * 12) },
       { group_id: 'demo-group-2', user_id: NOA, role: 'member', joined_at: iso(-24 * 11) },
+      { group_id: 'demo-duel-1', user_id: DEMO_USER_ID, role: 'admin', joined_at: iso(-24 * 3) },
+      { group_id: 'demo-duel-1', user_id: YOSSI, role: 'admin', joined_at: iso(-24 * 3) },
     ],
     invites: [],
     extraOptions: { 'demo-bet-5': ['Yossi'] },
@@ -390,6 +406,24 @@ function seed(): SeededState {
         created_at: iso(-24 * 8),
         resolved_at: iso(-24 * 5),
       },
+      {
+        // The stake is words rather than a pot, which is the other branch of
+        // `stakeLabel` and the only one no other seeded bet reaches.
+        id: 'demo-bet-6',
+        group_id: 'demo-duel-1',
+        creator_id: YOSSI,
+        title: 'I can hold a plank longer than you',
+        description: null,
+        option_a_label: 'You can',
+        option_b_label: 'No chance',
+        total_pot_agorot: 0,
+        stake_text: 'Loser buys dinner',
+        status: 'open',
+        winning_option: null,
+        close_at: iso(20),
+        created_at: iso(-3),
+        resolved_at: null,
+      },
     ],
     media: [
       demoMedia('demo-media-1', 'demo-bet-1', groupId, DEMO_IMAGE.pitch),
@@ -408,6 +442,8 @@ function seed(): SeededState {
       { bet_id: 'demo-bet-4', user_id: DEMO_USER_ID, side: 'a' },
       { bet_id: 'demo-bet-4', user_id: DOR, side: 'b' },
       { bet_id: 'demo-bet-4', user_id: NOA, side: 'b' },
+      { bet_id: 'demo-bet-6', user_id: YOSSI, side: 'b' },
+      { bet_id: 'demo-bet-6', user_id: DEMO_USER_ID, side: 'a' },
     ],
     ledger: [
       ...history.ledger,

@@ -120,3 +120,15 @@ export function passwordProblem(password: string): string | null {
   }
   return null;
 }
+
+/**
+ * "View all 3 comments", and "View all 1 comment".
+ *
+ * One string for the visible text and the accessibility label. They were two
+ * expressions with the plural spelled out in only one of them, so a thread
+ * with a single comment read "View all 1 comment" and announced itself as
+ * "View all 1 comments".
+ */
+export function viewAllComments(count: number): string {
+  return `View all ${count} ${count === 1 ? 'comment' : 'comments'}`;
+}
