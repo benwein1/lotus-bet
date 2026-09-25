@@ -201,7 +201,7 @@ export default function FeedScreen() {
                         // name until the next read fills it in. A nameless
                         // line is not drawn at all, which is better than one
                         // that says "Someone".
-                        created_at: new Date().toISOString(),
+                        joined_at: new Date().toISOString(),
                         user: null,
                       },
                     ],

@@ -296,7 +296,8 @@ export interface BetWithPositions extends BetRow {
     user_id: string;
     side: BetSide | null;
     option_id: string;
-    created_at: string;
+    /** The column's real name on `bet_positions`. */
+    joined_at: string;
     user: { id: string; display_name: string; avatar_url: string | null } | null;
   }[];
   /** Ordered by `position`. Always at least two. */

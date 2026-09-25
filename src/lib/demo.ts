@@ -513,7 +513,7 @@ function withPositions(bet: BetRow, includeGroup = false): BetWithPositions {
         // The demo has no clock on a position and no need of one: the card
         // only uses this to say "4m", and in a fake backend everything
         // happened just now.
-        created_at: new Date().toISOString(),
+        joined_at: new Date().toISOString(),
         user: (() => {
           const u: UserRow | undefined = USERS[p.user_id];
           return u ? { id: u.id, display_name: u.display_name, avatar_url: u.avatar_url } : null;

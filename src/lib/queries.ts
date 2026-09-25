@@ -340,12 +340,18 @@ export async function leaveGroup(groupId: string, userId: string): Promise<void>
 // that also points at `bets` twice.
 const BET_SELECT =
   '*, options:bet_options!bet_options_bet_id_fkey(*), ' +
-  // `created_at` and the picker's name ride along because the feed card's
+  // `joined_at` and the picker's name ride along because the feed card's
   // footer says who moved last and when. It is a name and a timestamp on rows
   // the select already returns, not a second list: the group's *members* are
   // still deliberately absent (see `fetchBet`), because those are a hundred
   // rosters the feed never renders.
-  'positions:bet_positions(user_id, side, option_id, created_at, ' +
+  //
+  // It is `joined_at` and not `created_at`, which is what this said first.
+  // A column that does not exist fails the select exactly the way an ambiguous
+  // embed does — PostgREST returns no rows at all — so the feed went empty
+  // rather than merely undated. `__tests__/bet-select.test.ts` now reads every
+  // column named here against the migrations for that reason.
+  'positions:bet_positions(user_id, side, option_id, joined_at, ' +
   'user:users!bet_positions_user_id_fkey(id, display_name, avatar_url)), ' +
   'media:bet_media(*), likes:bet_likes(user_id), comments:bet_comments(count)';
 /**

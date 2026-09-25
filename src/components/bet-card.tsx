@@ -329,12 +329,12 @@ function FeedSocial({
 }) {
   const latest = (bet.positions ?? [])
     .slice()
-    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+    .sort((a, b) => (a.joined_at < b.joined_at ? 1 : -1))[0];
   // No name, no line. Realtime hands over a row without its embeds, so a
   // just-arrived position has a timestamp and nobody attached to it, and
   // "Someone picked a side" is worse than silence.
   const actor = latest?.user?.display_name ?? null;
-  const actorAt = latest?.created_at ?? null;
+  const actorAt = latest?.joined_at ?? null;
   const shown = comments.slice(-2);
 
   if (!(actor && actorAt) && shown.length === 0) return null;
