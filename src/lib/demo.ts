@@ -271,6 +271,8 @@ function seed(): SeededState {
   const groupId = 'demo-group-1';
   const now = Date.now();
   const iso = (offsetHours: number) => new Date(now + offsetHours * 3_600_000).toISOString();
+  // Bets and ledger rows together: every ledger read joins back to its bet.
+  const history = settledHistory(groupId, now);
 
   return {
     profile: { ...demoProfile },
@@ -309,6 +311,7 @@ function seed(): SeededState {
     invites: [],
     extraOptions: { 'demo-bet-5': ['Yossi'] },
     bets: [
+      ...history.bets,
       {
         id: 'demo-bet-1',
         group_id: groupId,
@@ -407,6 +410,7 @@ function seed(): SeededState {
       { bet_id: 'demo-bet-4', user_id: NOA, side: 'b' },
     ],
     ledger: [
+      ...history.ledger,
       {
         id: 'demo-ledger-1',
         bet_id: 'demo-bet-4',
@@ -478,6 +482,100 @@ function seed(): SeededState {
     ],
     blocked: [],
   };
+}
+
+/**
+ * Half a year of settled bets, so the Profile chart has a line to draw.
+ *
+ * Without these the demo has exactly one settled bet, and one point is not a
+ * chart: `normalise` draws it as a flat rule and the month axis has nothing to
+ * span, so the screen that is supposed to show a running total shows a
+ * horizontal line. The demo exists to show what the app looks like with
+ * something in it.
+ *
+ * It returns the **bets as well as** the ledger rows, and that is not
+ * decoration. Every read of the ledger in here joins back to the bet it came
+ * from, so a ledger row whose bet does not exist is not an orphan that gets
+ * skipped — it blanks the whole history, and with it the chart and the net.
+ *
+ * Two properties keep the books honest:
+ *
+ * - **The deltas sum to zero**, so the account's net is still whatever the
+ *   entries *after* this leave it at — the headline figure and the "last 30
+ *   days" caption are unchanged, because every row here is older than that.
+ * - **Every row has a counterparty** in the same bet for the same amount with
+ *   the opposite sign, so `group_balances` still nets to zero across the
+ *   group. A ledger that did not would make settle-up suggest a payment that
+ *   settles nothing.
+ */
+function settledHistory(
+  groupId: string,
+  now: number
+): { bets: BetRow[]; ledger: BetLedgerEntryRow[] } {
+  // Weeks back, what the bet did to the demo account, and what it was about.
+  // Deliberately jagged, and deliberately zero-sum.
+  const runs: [weeks: number, deltaAgorot: number, title: string][] = [
+    [22, 2500, 'Does the new keeper last the season?'],
+    [20, -1000, 'Rain on the day of the barbecue'],
+    [18, 3000, 'Yossi finishes the marathon under four hours'],
+    [16, -2000, 'Dor remembers to book the pitch'],
+    [14, 1500, 'Noa beats her own PB'],
+    [12, -3500, 'We actually leave the house before 9'],
+    [10, 2000, 'The landlord answers within a week'],
+    [9, -1500, 'Nobody argues about the bill'],
+    [8, 2000, 'Israel score first on Sunday'],
+    [7, -3000, 'The new place is better than the old one'],
+    [6, -1000, 'Someone forgets the charger'],
+    [5, 1000, 'We make it to the second half'],
+  ];
+
+  const bets: BetRow[] = [];
+  const ledger: BetLedgerEntryRow[] = [];
+
+  runs.forEach(([weeks, delta, title], index) => {
+    const betId = `demo-history-${index + 1}`;
+    const at = new Date(now - weeks * 7 * 24 * 3_600_000).toISOString();
+    const opened = new Date(now - (weeks + 1) * 7 * 24 * 3_600_000).toISOString();
+    // Alternated so neither friend ends up carrying the whole history.
+    const other = index % 2 === 0 ? DOR : NOA;
+
+    bets.push({
+      id: betId,
+      group_id: groupId,
+      creator_id: index % 3 === 0 ? DEMO_USER_ID : other,
+      title,
+      description: null,
+      option_a_label: 'Yes',
+      option_b_label: 'No',
+      total_pot_agorot: Math.abs(delta) * 2,
+      status: 'resolved',
+      winning_option: delta > 0 ? 'a' : 'b',
+      close_at: at,
+      created_at: opened,
+      resolved_at: at,
+    });
+
+    ledger.push(
+      {
+        id: `${betId}-me`,
+        bet_id: betId,
+        group_id: groupId,
+        user_id: DEMO_USER_ID,
+        amount_agorot: delta,
+        created_at: at,
+      },
+      {
+        id: `${betId}-them`,
+        bet_id: betId,
+        group_id: groupId,
+        user_id: other,
+        amount_agorot: -delta,
+        created_at: at,
+      }
+    );
+  });
+
+  return { bets, ledger };
 }
 
 // --- Helpers ----------------------------------------------------------------
@@ -994,10 +1092,16 @@ export const demo = {
       state.ledger
         .filter((e) => e.user_id === userId)
         .sort(byNewest)
-        .map((entry) => {
-          const bet = state.bets.find((b) => b.id === entry.bet_id)!;
-          const group = state.groups.find((g) => g.id === entry.group_id)!;
-          return {
+        // A ledger row whose bet or group is missing is dropped rather than
+        // dereferenced. The real schema cascades a deleted bet's entries away
+        // so it cannot happen there, but this used to be a `!` on both lookups
+        // and a single bad fixture row threw — which emptied the history, and
+        // with it the Profile chart and the net, rather than losing one line.
+        .flatMap((entry) => {
+          const bet = state.bets.find((b) => b.id === entry.bet_id);
+          const group = state.groups.find((g) => g.id === entry.group_id);
+          if (!bet || !group) return [];
+          return [{
             id: entry.id,
             amount_agorot: entry.amount_agorot,
             created_at: entry.created_at,
@@ -1010,7 +1114,7 @@ export const demo = {
               resolved_at: bet.resolved_at,
             },
             group: { id: group.id, name: group.name, emoji: group.emoji },
-          };
+          }];
         })
     );
   },

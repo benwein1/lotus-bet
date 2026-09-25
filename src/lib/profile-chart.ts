@@ -23,6 +23,14 @@ export type LedgerPoint = {
 export type ChartSeries = {
   /** Running total after each settled bet, oldest first, in minor units. */
   points: number[];
+  /**
+   * When each point happened, same order and same length as `points`.
+   *
+   * Parallel to `points` rather than folded into it because `normalise` and
+   * every test around it work on plain numbers, and the axis is the only
+   * thing that ever needs a date.
+   */
+  dates: string[];
   /** Where the line ends — the same number the heading prints. */
   net: number;
   /** How much of `net` landed in the last 30 days. */
@@ -73,6 +81,7 @@ export function buildSeries(
     .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 
   const points: number[] = [];
+  const dates: string[] = [];
   let running = 0;
   let recent = 0;
   const cutoff = now - 30 * DAY;
@@ -80,10 +89,11 @@ export function buildSeries(
   for (const entry of mine) {
     running += entry.amountAgorot;
     points.push(running);
+    dates.push(entry.at);
     if (Date.parse(entry.at) >= cutoff) recent += entry.amountAgorot;
   }
 
-  return { points, net: running, recent, currency, count: mine.length };
+  return { points, dates, net: running, recent, currency, count: mine.length };
 }
 
 /**

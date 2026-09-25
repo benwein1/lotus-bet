@@ -242,19 +242,18 @@ export function TicketIcon(props: IconProps) {
 }
 
 /**
- * Settings, as sliders rather than a cog.
+ * Settings, as the cog the board draws.
  *
- * A cog at 21px is a circle with radiating ticks, which is also a sun — and
- * that is exactly what it was read as. Three tracks with a knob on each is
- * unmistakable at any size and cannot be mistaken for the weather.
+ * This was three sliders for a while, on the grounds that a cog at 21px is a
+ * circle with radiating ticks and reads as a sun. The teeth here are a single
+ * closed path with flat lobes rather than spokes, which is what stops that
+ * happening — and it is what the approved design uses, so the app uses it.
  */
 export function SettingsIcon(props: IconProps) {
   return (
     <Icon {...props}>
-      <Path d="M4 7.5h4.4M12.6 7.5H20" />
-      <Circle cx="10.5" cy="7.5" r="2.1" />
-      <Path d="M4 16.5h7.4M15.6 16.5H20" />
-      <Circle cx="13.5" cy="16.5" r="2.1" />
+      <Circle cx="12" cy="12" r="3.2" />
+      <Path d="M19.4 13.5a7.7 7.7 0 000-3l1.7-1.3-1.8-3.1-2 .8a7.7 7.7 0 00-2.6-1.5L14.4 3h-3.6l-.3 2.4a7.7 7.7 0 00-2.6 1.5l-2-.8L4 9.2l1.7 1.3a7.7 7.7 0 000 3L4 14.8l1.8 3.1 2-.8a7.7 7.7 0 002.6 1.5l.3 2.4h3.6l.3-2.4a7.7 7.7 0 002.6-1.5l2 .8 1.8-3.1z" />
     </Icon>
   );
 }

@@ -237,7 +237,6 @@ export default function GroupDetailScreen() {
                   >
                     <GroupFace
                       avatarUrl={data.avatar_url}
-                      members={members}
                       size={56}
                       radius={18}
                     />
@@ -246,7 +245,7 @@ export default function GroupDetailScreen() {
                     </View>
                   </PressableScale>
                 ) : (
-                  <GroupFace avatarUrl={data.avatar_url} members={members} size={56} radius={18} />
+                  <GroupFace avatarUrl={data.avatar_url} size={56} radius={18} />
                 )}
 
                 <View className="min-w-0 flex-1">

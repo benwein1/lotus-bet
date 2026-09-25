@@ -50,17 +50,17 @@ import { useColors } from '@/providers/theme-provider';
 import { motion } from '@/theme';
 
 /** How much of the next card shows under the current one. */
-const SLIVER = 64;
+const SLIVER = 26;
 
 /**
  * The seam between two posts.
  *
- * It is the only separator left: the cards have no border and no radius, so
- * without this gap two bets would butt against each other and read as one. 16
- * was the old value when the cards were also inset 20pt each side — edge to
- * edge it has to do all the work alone, so it is wider.
+ * Small on purpose. The card has its own border and its own 28pt corners
+ * again, so the gap no longer has to do the separating by itself — it only
+ * has to stop two cards touching. A wide one made the feed read as a list of
+ * small cards with air around them rather than as one bet at a time.
  */
-const CARD_GAP = 22;
+const CARD_GAP = 10;
 
 /**
  * Held outside the component because `FlatList` treats this as fixed after
@@ -240,6 +240,10 @@ export default function FeedScreen() {
   // sliver of the next card — that sliver is the whole reason the feed reads
   // as scrollable rather than as one screen.
   const available = listHeight ?? height - tabInset;
+  // One bet, nearly the whole feed. What is subtracted is only the floating
+  // bar the list scrolls under and a sliver of the next card — the sliver is
+  // the whole reason the feed reads as scrollable rather than as one screen,
+  // so it is small but never nothing.
   const cardHeight = Math.max(360, available - tabInset - SLIVER);
   // The gap between posts, and the only thing separating them now that the
   // cards have no border. Wide enough that two bets never visually merge,

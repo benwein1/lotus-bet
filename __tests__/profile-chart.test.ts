@@ -47,11 +47,38 @@ describe('buildSeries', () => {
   it('is empty when nothing has settled', () => {
     expect(buildSeries([], 'USD', NOW)).toEqual({
       points: [],
+      dates: [],
       net: 0,
       recent: 0,
       currency: 'USD',
       count: 0,
     });
+  });
+
+  it('dates line up with points, one per settled bet and in the same order', () => {
+    // The axis is drawn from `dates` and the line from `points`, at the same
+    // indices — so if these two ever disagree in length or order the months
+    // print under the wrong part of the shape.
+    const series = buildSeries(
+      [
+        { amountAgorot: 100, at: '2026-03-01T00:00:00Z', currency: 'USD' },
+        { amountAgorot: 200, at: '2026-05-01T00:00:00Z', currency: 'USD' },
+        // Out of order on the way in, and in another currency: one is sorted,
+        // the other dropped, and `dates` has to follow both.
+        { amountAgorot: 900, at: '2026-04-01T00:00:00Z', currency: 'EUR' },
+        { amountAgorot: 300, at: '2026-04-01T00:00:00Z', currency: 'USD' },
+      ],
+      'USD',
+      NOW
+    );
+
+    expect(series.dates).toHaveLength(series.points.length);
+    expect(series.dates).toEqual([
+      '2026-03-01T00:00:00Z',
+      '2026-04-01T00:00:00Z',
+      '2026-05-01T00:00:00Z',
+    ]);
+    expect(series.points).toEqual([100, 400, 600]);
   });
 });
 

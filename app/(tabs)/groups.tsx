@@ -1,7 +1,15 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { Link, useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { Modal, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Modal,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -11,7 +19,7 @@ import { GroupsIcon, KeyIcon, SwordsIcon } from '@/components/icons';
 import { RampRing } from '@/components/ramp-ring';
 import { ContentWidth, Screen } from '@/components/screen';
 import { GroupListSkeleton } from '@/components/skeletons';
-import { ErrorNotice, Money, PressableScale, selectionTap } from '@/components/ui';
+import { AvatarStack, ErrorNotice, Money, PressableScale, selectionTap } from '@/components/ui';
 import { useAsync } from '@/hooks/use-async';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
@@ -39,7 +47,12 @@ export default function GroupsScreen() {
   const userId = session?.user.id ?? '';
   const router = useRouter();
   const tabInset = useTabBarInset();
-  const [menuOpen, setMenuOpen] = useState(false);
+  // Where the ring actually is on screen, measured when it is pressed. The
+  // menu hangs off this rather than off the top of the window, so the button
+  // stays put and the card opens underneath it — which is what makes the two
+  // read as one control rather than as a screen that jumped.
+  const ringRef = useRef<View>(null);
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
 
   const groups = useAsync(fetchMyGroups, [userId]);
   const { reload: reloadGroups } = groups;
@@ -55,7 +68,7 @@ export default function GroupsScreen() {
   const live = list.length;
 
   const go = (path: '/group/create' | '/challenge' | '/group/join') => {
-    setMenuOpen(false);
+    setAnchor(null);
     router.push(path);
   };
 
@@ -89,13 +102,17 @@ export default function GroupsScreen() {
                       : `${live} rooms, and whoever is in them.`}
                 </Text>
               </View>
-              <RampRing
-                label="Create something"
-                onPress={() => {
-                  selectionTap();
-                  setMenuOpen(true);
-                }}
-              />
+              <View ref={ringRef} collapsable={false}>
+                <RampRing
+                  label="Create something"
+                  onPress={() => {
+                    selectionTap();
+                    ringRef.current?.measureInWindow((x, y, width, height) =>
+                      setAnchor({ x, y, width, height })
+                    );
+                  }}
+                />
+              </View>
             </View>
 
             {groups.error && <ErrorNotice message={groups.error} />}
@@ -113,29 +130,46 @@ export default function GroupsScreen() {
         </ScrollView>
       </SafeAreaView>
 
-      <CreateMenu open={menuOpen} onClose={() => setMenuOpen(false)} onPick={go} />
+      <CreateMenu anchor={anchor} onClose={() => setAnchor(null)} onPick={go} />
     </Screen>
   );
+}
+
+/** Where the ring sits on screen, in window coordinates. */
+interface Anchor {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 /**
  * The three things the ring makes, as three names.
  *
  * Each row used to carry a line of explanation underneath it. They are gone:
- * with the descriptions removed the card sits at 206 rather than 262 wide and
- * every row is the same height, so the menu reads as three equal choices
- * instead of a list of justifications.
+ * without the descriptions every row is the same height, so the menu reads as
+ * three equal choices instead of a list of justifications.
+ *
+ * **It hangs off the ring, not off the window.** The menu used to lay itself
+ * out from the top of the screen with its own copy of the ring above it, so
+ * opening it moved the button — the one thing that must not move, because the
+ * button is what the menu belongs to. It is now placed from the ring's
+ * measured rect, and the rotated ring is drawn at exactly that rect, so the
+ * plus turns into a close where it already was and the card unrolls beneath
+ * it.
  */
 function CreateMenu({
-  open,
+  anchor,
   onClose,
   onPick,
 }: {
-  open: boolean;
+  /** Null while closed: there is nothing to hang the menu off yet. */
+  anchor: Anchor | null;
   onClose: () => void;
   onPick: (path: '/group/create' | '/challenge' | '/group/join') => void;
 }) {
   const colors = useColors();
+  const { width: windowWidth } = useWindowDimensions();
   const items = [
     { label: 'New group', Icon: GroupsIcon, path: '/group/create' as const },
     { label: 'Challenge one person', Icon: SwordsIcon, path: '/challenge' as const },
@@ -143,12 +177,33 @@ function CreateMenu({
   ];
 
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={anchor !== null}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
       <Pressable className="flex-1 bg-scrim" onPress={onClose} accessibilityLabel="Close">
-        <SafeAreaView edges={['top']} className="flex-1">
-          <View className="items-end px-6 pt-3">
-            <RampRing label="Close" rotated onPress={onClose} />
-            <View className="mt-3 w-[206px] overflow-hidden rounded-3xl border border-hairline-strong bg-surface2">
+        {anchor && (
+          <>
+            {/* The same button, in the same place, now a close. */}
+            <View style={{ position: 'absolute', left: anchor.x, top: anchor.y }}>
+              <RampRing label="Close" rotated onPress={onClose} />
+            </View>
+
+            {/* Right-aligned to the ring, so the card and the button share an
+                edge however wide the screen is. */}
+            <View
+              style={{
+                position: 'absolute',
+                top: anchor.y + anchor.height + 10,
+                right: Math.max(0, windowWidth - (anchor.x + anchor.width)),
+              }}
+              // 236, not the board's 206: "Challenge one person" ellipsised at 206, and
+              // a menu that truncates one of three choices is worse than a
+              // slightly wider card.
+              className="w-[236px] overflow-hidden rounded-3xl border border-hairline-strong bg-surface2"
+            >
               {items.map((item, i) => (
                 <PressableScale
                   key={item.label}
@@ -170,8 +225,8 @@ function CreateMenu({
                 </PressableScale>
               ))}
             </View>
-          </View>
-        </SafeAreaView>
+          </>
+        )}
       </Pressable>
     </Modal>
   );
@@ -230,7 +285,7 @@ function GroupRow({
           ? FadeIn.duration(motion.duration.fast)
           : FadeInDown.delay(Math.min(index, 6) * motion.stagger).duration(motion.duration.base)
       }
-      className="mb-2.5 flex-row items-center gap-3 overflow-hidden rounded-2xl border border-hairline bg-surface py-3 pl-[19px] pr-4"
+      className="mb-2.5 flex-row items-center gap-[13px] overflow-hidden rounded-2xl border border-hairline bg-surface py-[15px] pl-[19px] pr-4"
     >
       <LinearGradient
         colors={[colors.markFrom, colors.markTo]}
@@ -248,7 +303,11 @@ function GroupRow({
           router.push({ pathname: '/group/[id]', params: { id: group.id, tab: 'people' } })
         }
       >
-        <GroupFace avatarUrl={group.avatar_url} members={members} />
+        {/* A square, photo or not. The placeholder used to be a huddle of
+            member avatars inside a rounded box, which read as a crowd rather
+            than as the group's own face — and made every row look different
+            depending on how many people were in it. */}
+        <GroupFace avatarUrl={group.avatar_url} size={48} radius={14} />
       </PressableScale>
 
       <Link
@@ -268,10 +327,16 @@ function GroupRow({
             >
               {group.name}
             </Text>
-            <Text numberOfLines={1} className="mt-1 text-xs text-secondary">
-              {live > 0 ? `${live} live  ·  ` : ''}
-              {group.members.length === 1 ? '1 person' : `${group.members.length} people`}
-            </Text>
+            {/* Who is in it, as faces rather than as a count. The names are
+                the group; "6 people" is a number about it. */}
+            <View className="mt-1.5 flex-row items-center gap-2">
+              <AvatarStack people={members} size={20} max={5} />
+              {live > 0 && (
+                <Text numberOfLines={1} className="text-xs text-secondary">
+                  {live} live
+                </Text>
+              )}
+            </View>
           </View>
           <BalancePreview balance={balance} currency={group.currency} />
         </PressableScale>

@@ -135,21 +135,15 @@ function FeedCardImpl({
         on a hairline over `surface`, the media a 162pt panel inset 10 from the
         card's own edges, and one 3pt rule under the two figures.
       */}
-      <View className="overflow-hidden rounded-4xl border border-hairline bg-surface">
+      <View className="flex-1 overflow-hidden rounded-4xl border border-hairline bg-surface">
         <View className="flex-row items-center gap-2.5 px-4 pt-[15px]">
           {bet.group && (
             <>
-              {/* The group's photo, or its initials in its own derived colour.
-                  `GroupFace` falls back to a stack of member avatars, and the
-                  feed deliberately does not embed members (it reads a hundred
-                  bets), so here the fallback would be an empty grey disc that
-                  reads as something still loading. An emoji was the older
-                  guess and rendered differently on every platform. */}
-              {bet.group.avatar_url ? (
-                <GroupFace avatarUrl={bet.group.avatar_url} members={[]} size={30} radius={999} />
-              ) : (
-                <Avatar id={bet.group.id} name={bet.group.name} size={30} />
-              )}
+              {/* The same face the Groups tab draws, round here and square
+                  there, so one group is recognisably one object across the
+                  app. An emoji was the older fallback and rendered
+                  differently on every platform. */}
+              <GroupFace avatarUrl={bet.group.avatar_url} size={30} radius={999} />
               <View className="min-w-0 flex-1">
                 <Text numberOfLines={1} className="text-[14px] font-semibold text-primary">
                   {bet.group.name}
@@ -180,8 +174,14 @@ function FeedCardImpl({
           )}
         </View>
 
+        {/* The photo takes whatever the card has spare.
+            162 is the board's height and the floor here, not the value: the
+            card fills its slot in the feed, and everything else in it — the
+            group row, the question, the bar, the buttons, the footer — is
+            sized by what it says. The picture is the one part that can grow
+            into the difference without changing what anything means. */}
         {hasMedia && (
-          <View className="mx-2.5 mt-[13px] h-[162px] overflow-hidden rounded-[18px]">
+          <View className="mx-2.5 mt-[13px] min-h-[162px] flex-1 overflow-hidden rounded-[18px]">
             <BetMediaView media={media} active={active} className="absolute inset-0" />
           </View>
         )}
@@ -289,6 +289,11 @@ function FeedCardImpl({
             </View>
           )}
         </View>
+
+        {/* With no photo there is nothing to grow, so this takes the slack
+            instead and the footer stays on the card's bottom edge rather than
+            floating halfway up it. */}
+        {!hasMedia && <View className="flex-1" />}
 
         {/* The social footer: what just happened, and the last two things
             anybody said. It sits on `surface2` behind a hairline so the card

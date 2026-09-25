@@ -355,7 +355,6 @@ export default function BetDetailScreen() {
                     {data.group?.avatar_url ? (
                       <GroupFace
                         avatarUrl={data.group.avatar_url}
-                        members={[]}
                         size={26}
                         radius={999}
                       />

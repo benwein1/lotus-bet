@@ -1,30 +1,35 @@
 import { Image } from 'expo-image';
+import { cssInterop } from 'nativewind';
 import { View } from 'react-native';
 
-import { AvatarStack } from '@/components/ui';
+import { GroupsIcon } from '@/components/icons';
+import { useColors } from '@/providers/theme-provider';
+
+// `className` is silently dropped on expo-image without registration.
+cssInterop(Image, { className: 'style' });
 
 /**
- * A group's face in a list: the photo it was given, or the faces of the people
- * in it.
+ * A group's face: its photo, or a placeholder where it has none.
  *
- * There is no third case on purpose. A group with no photo used to get an
- * emoji, and an emoji is a guess — it renders differently on every platform
- * and it tells you nothing the name does not. The members are real data and
- * they answer the only question the slot is there to answer: whose group is
- * this. Nothing is invented, and the slot is never empty, which is what lets
- * it also be the way in to the group's profile.
+ * The placeholder used to be a huddle of the members' own avatars. It read as
+ * a crowd rather than as the group's face, and — worse — it made every row in
+ * a list a different shape, because a group of two drew two circles and a
+ * group of six drew two circles and a number. One glyph on `surface3` is the
+ * same object at every size and in every row, which is what a placeholder is
+ * for. Who is in the group is said properly elsewhere, as a row of faces
+ * under the name.
  */
 export function GroupFace({
   avatarUrl,
-  members,
   size = 40,
   radius = 12,
 }: {
   avatarUrl?: string | null;
-  members: { id?: string; name: string; avatarUrl?: string | null }[];
   size?: number;
   radius?: number;
 }) {
+  const colors = useColors();
+
   if (avatarUrl) {
     return (
       <Image
@@ -41,7 +46,7 @@ export function GroupFace({
       style={{ width: size, height: size, borderRadius: radius }}
       className="items-center justify-center bg-surface3"
     >
-      <AvatarStack people={members} max={2} size={Math.round(size * 0.52)} />
+      <GroupsIcon size={Math.round(size * 0.46)} color={colors.textTertiary} />
     </View>
   );
 }
