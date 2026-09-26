@@ -34,7 +34,7 @@ import { discardUploads, signMedia, uploadBetMedia, type PickedMedia } from './m
 import { announceBetResolved, announceGroupJoin, announceNewBet } from './notifications';
 import { computeBetPayouts } from './payout';
 import { prepareContent } from './content-rules';
-import { isMissingColumn, isMissingFunction } from './postgrest';
+import { isMissingColumn, isMissingFunction, isUnknownWriteColumn } from './postgrest';
 import { personBalances, type BalanceLine } from './settlement';
 import { supabase } from './supabase';
 
@@ -643,27 +643,46 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
   // turns them into options 0 and 1, so a bet is never left unjoinable even if
   // the inserts below fail — and a client built before options existed still
   // reads the bet correctly.
-  const bet = unwrap(
-    await supabase
-      .from('bets')
-      .insert({
-        group_id: input.groupId,
-        creator_id: input.creatorId,
-        title: checkedTitle.text,
-        description: checkedDescription,
-        option_a_label: labels[0],
-        option_b_label: labels[1],
-        // Zero when there is a forfeit: the constraint refuses both, and the
-        // payout maths then computes no ledger entries, which is the right
-        // answer for a bet that moves no money.
-        total_pot_agorot: checkedStake ? 0 : input.totalPotAgorot,
-        stake_text: checkedStake,
-        close_at: input.closeAt,
-        visibility: (input.inviteeIds?.length ?? 0) > 0 ? 'private' : 'group',
-      })
-      .select()
-      .single()
-  ) as BetRow;
+  const row = {
+    group_id: input.groupId,
+    creator_id: input.creatorId,
+    title: checkedTitle.text,
+    description: checkedDescription,
+    option_a_label: labels[0],
+    option_b_label: labels[1],
+    // Zero when there is a forfeit: the constraint refuses both, and the
+    // payout maths then computes no ledger entries, which is the right
+    // answer for a bet that moves no money.
+    total_pot_agorot: checkedStake ? 0 : input.totalPotAgorot,
+    close_at: input.closeAt,
+    visibility: (input.inviteeIds?.length ?? 0) > 0 ? 'private' : 'group',
+  };
+
+  const post = (values: Record<string, unknown>) =>
+    supabase.from('bets').insert(values).select().single();
+
+  let { data, error } = await post({ ...row, stake_text: checkedStake });
+
+  // A project without `…_stake_text.sql` applied has no `stake_text`, and
+  // PostgREST rejects the whole insert rather than ignoring the unknown key —
+  // so posting *any* bet failed with "Could not find the 'stake_text' column
+  // of 'bets' in the schema cache", including a plain money bet that never
+  // wanted the column. The retry drops it, exactly as the profile write drops
+  // `profile_completed`.
+  //
+  // Only for a money bet. A forfeit has nowhere else to live: dropping the
+  // column would post a bet with a zero pot and no stake at all, which reads
+  // as free and is worse than saying what is wrong.
+  if (error && isUnknownWriteColumn(error, 'stake_text')) {
+    if (checkedStake) {
+      throw new Error(
+        'Bets staked on something other than money need a database update that has not been applied yet. Set an amount instead, or apply the stake_text migration.'
+      );
+    }
+    ({ data, error } = await post(row));
+  }
+
+  const bet = unwrap({ data, error }) as BetRow;
 
   // Invitees go in before anything else. The bet row already carries
   // `visibility = 'private'`, so it is invisible to the group from the instant
