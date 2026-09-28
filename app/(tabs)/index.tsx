@@ -34,6 +34,8 @@ import { syncDeadlineReminders, toReminderBet } from '@/lib/reminders';
 import { useForegroundRefresh } from '@/hooks/use-foreground-refresh';
 import { useFeedRealtime, type PositionPayload } from '@/hooks/use-group-realtime';
 import { isNewSince, useLastSeen } from '@/hooks/use-last-seen';
+import { countAttention, describeAttention, orderForViewer } from '@/lib/attention';
+import { setAttentionCount } from '@/lib/attention-store';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTabBarInset } from '@/hooks/use-tab-bar-inset';
 import type { BetSide, BetWithPositions } from '@/lib/database.types';
@@ -266,12 +268,26 @@ export default function FeedScreen() {
   }, [scrolled, reduced, wordmark]);
   const wordmarkStyle = useAnimatedStyle(() => ({ opacity: wordmark.value }));
 
-  const bets = useMemo(() => {
-    const all = feed.data ?? [];
-    const mine = all.filter((bet) => bet.positions?.some((p) => p.user_id === userId));
-    const rest = all.filter((bet) => !bet.positions?.some((p) => p.user_id === userId));
-    return [...mine, ...rest];
-  }, [feed.data, userId]);
+  // What is waiting on you, first. See `attention.ts` — this replaces a
+  // partition that put every bet you had *already answered* above every bet
+  // you had not, which buried the only cards on the screen that needed a
+  // human. `now` is pinned per pass so a deadline cannot expire between two
+  // comparisons inside the same sort.
+  const bets = useMemo(
+    () => orderForViewer(feed.data ?? [], userId, Date.now()),
+    [feed.data, userId]
+  );
+
+  /** How much of the feed is waiting on this person, and for what. */
+  const attention = useMemo(() => countAttention(bets, userId, Date.now()), [bets, userId]);
+  const attentionLine = describeAttention(attention);
+
+  // Published for the tab bar, which cannot see the feed's rows once you have
+  // navigated away — and being right while the feed is unmounted is the
+  // badge's whole job. See `attention-store.ts`.
+  useEffect(() => {
+    setAttentionCount(attention.total);
+  }, [attention.total]);
 
   const betIdsKey = bets.map((bet) => bet.id).join(',');
   useEffect(() => {
@@ -502,6 +518,41 @@ export default function FeedScreen() {
             <DemoBadge />
           </View>
         </View>
+
+        {/* What the feed is waiting on you for.
+
+            The ordering already floats these to the top, so this row is not
+            navigation — it is the answer to "is there anything for me here",
+            given before you scroll. It disappears the moment you are caught
+            up, which is the point: an empty state you earn reads as done,
+            where a permanent bar reads as nagging.
+
+            Tappable because the row states a fact about the top of the list
+            and the list may not be at the top. 44pt of height, per the touch
+            target minimum. */}
+        {attentionLine && (
+          <Animated.View
+            entering={reduced ? FadeIn.duration(motion.duration.fast) : FadeInDown.duration(220)}
+            className="px-gutter pb-1"
+          >
+            <PressableScale
+              scaleTo={0.99}
+              onPress={() => {
+                tap();
+                listRef.current?.scrollToOffset({ offset: 0, animated: !reduced });
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`${attentionLine}. Go to the top of the feed.`}
+              className="min-h-11 flex-row items-center gap-2.5 rounded-2xl border border-accent-soft bg-accent-soft px-3.5 py-2.5"
+            >
+              <View className="h-1.5 w-1.5 rounded-full bg-accent" />
+              <Text className="flex-1 text-sm font-semibold text-accent" numberOfLines={1}>
+                {attentionLine}
+              </Text>
+              <ChevronUpIcon size={14} color={colors.accent} />
+            </PressableScale>
+          </Animated.View>
+        )}
 
         {feed.error && (
           <View className="px-gutter">

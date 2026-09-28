@@ -10,6 +10,7 @@ import { clearMediaCache } from '@/lib/media';
 import { registerForPushNotifications } from '@/lib/notifications';
 import { prepareContent } from '@/lib/content-rules';
 import { TERMS_VERSION } from '@/lib/legal';
+import { clearAttentionCount } from '@/lib/attention-store';
 import { isUnknownWriteColumn } from '@/lib/postgrest';
 import { USER_COLUMNS, confirmMinimumAge } from '@/lib/queries';
 import { isRecoveryRedirect, recoveryTokens } from '@/lib/auth-links';
@@ -463,6 +464,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Whoever uses this device next must not inherit a working link to the
         // last person's photos.
         clearMediaCache();
+        // Same reason, for the tab badge: it is derived from the outgoing
+        // account's feed and would otherwise greet the next person with a
+        // count of bets they cannot see.
+        clearAttentionCount();
 
         if (demoActive) {
           disableDemoMode();

@@ -172,7 +172,12 @@ src/
   lib/age.ts                pure: the 16+ rule, shared with the SQL that enforces it
   lib/payout.ts             re-export ONLY — see §5
   lib/settlement.ts         balance netting + greedy debt simplification
-  lib/queries.ts            every Supabase read/write the app makes
+  lib/attention.ts          pure: what is waiting on you, and the feed's order
+  lib/attention-store.ts    …and the one number the tab badge reads
+  lib/queries/              every Supabase read/write, one module per domain:
+                            core · account · groups · bets · settlement ·
+                            challenges · social · profile, re-exported by
+                            index.ts so `@/lib/queries` is still the import
   lib/media.ts              picking, uploading and signing bet media
   lib/media-rules.ts        …and its pure half, which is what the tests hold
   lib/currency.ts           minor units ↔ a string, per group; the picker's list
@@ -226,9 +231,17 @@ __tests__/                  payout · settlement · format · theme · odds · o
                             suggestions · legal · feed-and-money
 ```
 
-**All Supabase access goes through `src/lib/queries.ts`.** Screens never
-build queries inline. If a table isn't touched in that file, the client
-never reads it — which is what makes the RLS surface auditable.
+**All Supabase access goes through `src/lib/queries/`.** Screens never build
+queries inline. If a table isn't touched in there, the client never reads it —
+which is what makes the RLS surface auditable.
+
+It was one 1,470-line file and is now a directory of eight, one per part of
+the product, re-exported from `index.ts`. Every `@/lib/queries` import kept
+working, so no call site moved. `core.ts` holds what they all share — the
+readable-column lists, the `unwrap`, the optional-group-column retry — and is
+the only module without a domain. `__tests__/bet-select.test.ts` reads every
+`.ts` in the directory rather than one filename, so a select added in a new
+module is covered the day it lands.
 
 ---
 
@@ -585,6 +598,37 @@ should have to learn how to argue with their friends. What that means here:
   shortcut. On the hero, a single tap does nothing, so it costs nothing.
 - The heart is **accent blue**, never red. Red is money you owe. This is
   restated here because it is the first thing anyone copying Instagram changes.
+
+### What is waiting on you
+
+The loop is: somebody posts a bet, friends take sides, the creator calls it,
+the ledger moves, people settle up. Every step is a human doing something, and
+nothing used to say *which step was waiting on the person holding the phone*.
+
+Two things broke because of it. A bet nobody answers is a bet that never
+happened — it looks exactly like the fifteen already decided, scrolls past, and
+the deadline takes it. And **a bet nobody calls never becomes money owed**:
+only the creator can call one, nothing reminded them, so the ledger stopped
+moving, so settle-up had nothing in it.
+
+`lib/attention.ts` is the one definition — pure, `now` as a parameter, no
+Supabase and no React. A bet is waiting on you to **answer** (live, and you
+have no side) or to **call** (you created it, nothing more can be staked, no
+result). The two can never both apply, because the first is live and the second
+is closed.
+
+Four surfaces read it and none of them re-derives it: the feed's order, the
+pill on both cards, the summary row at the top of the feed, and the dot on the
+Feed tab. `attention-store.ts` is how the last one works — one integer,
+published by the feed, read through `useSyncExternalStore`, cleared on sign-out
+like the signed-URL cache. It is the whole of the app's global state.
+
+**`orderForViewer` replaced a real bug.** The feed used to re-partition the
+list into "bets I have a position in" first, *after* the query had ordered it
+by `feedBand` — two sorts with different opinions, the second winning. A locked
+bet you had already answered outranked a live one you had not, so the most
+actionable card on the screen sank to the bottom. The ordering is now one
+function, and it composes `feedBand` rather than copying it.
 
 ### Making it feel fast
 

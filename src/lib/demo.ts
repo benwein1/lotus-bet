@@ -407,6 +407,25 @@ function seed(): SeededState {
         resolved_at: iso(-24 * 5),
       },
       {
+        // Locked, and the demo user's own — the only shape that produces the
+        // "Call it" signal, which is the half of `attention.ts` no other
+        // seeded bet reaches. Without one, the design loop can only ever see
+        // "Your turn".
+        id: 'demo-bet-7',
+        group_id: groupId,
+        creator_id: DEMO_USER_ID,
+        title: 'Does the new keeper keep a clean sheet?',
+        description: null,
+        option_a_label: 'Clean sheet',
+        option_b_label: 'He concedes',
+        total_pot_agorot: 3000,
+        status: 'locked',
+        winning_option: null,
+        close_at: iso(-2),
+        created_at: iso(-30),
+        resolved_at: null,
+      },
+      {
         // The stake is words rather than a pot, which is the other branch of
         // `stakeLabel` and the only one no other seeded bet reaches.
         id: 'demo-bet-6',
@@ -444,6 +463,9 @@ function seed(): SeededState {
       { bet_id: 'demo-bet-4', user_id: NOA, side: 'b' },
       { bet_id: 'demo-bet-6', user_id: YOSSI, side: 'b' },
       { bet_id: 'demo-bet-6', user_id: DEMO_USER_ID, side: 'a' },
+      { bet_id: 'demo-bet-7', user_id: DEMO_USER_ID, side: 'a' },
+      { bet_id: 'demo-bet-7', user_id: NOA, side: 'b' },
+      { bet_id: 'demo-bet-7', user_id: DOR, side: 'b' },
     ],
     ledger: [
       ...history.ledger,
