@@ -427,7 +427,7 @@ function FirstRun() {
         <HowItWorks
           step="2"
           title="Post a bet with two sides"
-          body="Set one pot for the whole thing. It doesn't grow as people join."
+          body="Set one amount for the whole thing. It doesn't grow as people join."
         />
         <HowItWorks
           step="3"
