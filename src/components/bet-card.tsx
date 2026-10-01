@@ -13,6 +13,7 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { shareBet } from '@/lib/invites';
 import type { FeedComment } from '@/lib/queries';
 import type { BetSide, BetStatus, BetWithPositions } from '@/lib/database.types';
+import { attentionFor } from '@/lib/attention';
 import { isForfeit } from '@/lib/currency';
 import { formatCountdown, viewAllComments } from '@/lib/format';
 import { useColors, useScheme } from '@/providers/theme-provider';
@@ -132,6 +133,9 @@ function FeedCardImpl({
   // column read as a single stream rather than alternating photographs and
   // pages of type. See `bet-cover.tsx`.
   const joinable = bet.status === 'open' && Boolean(onPickOption);
+  // Derived here rather than passed: the card already holds the bet and the
+  // viewer, and a prop would be a second copy of a rule that has one home.
+  const waitingOn = attentionFor(bet, currentUserId);
 
   // A sheet when the feed offers one, the bet screen otherwise. Reading three
   // sentences should not cost you the photo you were looking at, the scroll
@@ -187,11 +191,21 @@ function FeedCardImpl({
               </View>
             </>
           )}
-          {/* "New" displaces "Live": both say the bet is open, and two pills
-              in a corner is clutter. */}
-          {isNew && bet.status === 'open' ? (
-            <View className="rounded-full bg-accent px-2.5 py-1">
-              <Text className="text-xs font-semibold text-accent-ink">New</Text>
+          {/* One pill, and a strict order of precedence.
+
+              "Waiting on you" outranks everything because it is the only one
+              that asks for something; "New" outranks "Live" because both say
+              the bet is open and two pills in a corner is clutter. See
+              `attention.ts` for what counts as waiting. */}
+          {waitingOn ? (
+            <View className="flex-row items-center gap-1.5 rounded-full bg-accent px-2.5 py-1">
+              <Text className="text-xs font-semibold text-accent-ink">
+                {waitingOn === 'answer' ? 'Your turn' : 'Call it'}
+              </Text>
+            </View>
+          ) : isNew && bet.status === 'open' ? (
+            <View className="rounded-full bg-accent-soft px-2.5 py-1">
+              <Text className="text-xs font-semibold text-accent">New</Text>
             </View>
           ) : bet.status === 'open' ? (
             <View className="flex-row items-center gap-1.5 rounded-full bg-surface3 px-2.5 py-1">
@@ -551,6 +565,7 @@ export function BetCard({
   index?: number;
 }) {
   const colors = useColors();
+  const compactWaitingOn = attentionFor(bet, currentUserId);
   const reduced = useReducedMotion();
   const slices = betSlices(bet);
   const picked = myOptionId(bet, currentUserId);
@@ -601,7 +616,17 @@ export function BetCard({
                   )
                 )}
               </View>
-              <Badge label={bet.status} tone={STATUS_TONE[bet.status]} />
+              {/* Same precedence as the feed card: what is waiting on you
+                  outranks what the bet merely is. */}
+              {compactWaitingOn ? (
+                <View className="rounded-full bg-accent px-2.5 py-1">
+                  <Text className="text-xs font-semibold text-accent-ink">
+                    {compactWaitingOn === 'answer' ? 'Your turn' : 'Call it'}
+                  </Text>
+                </View>
+              ) : (
+                <Badge label={bet.status} tone={STATUS_TONE[bet.status]} />
+              )}
             </View>
 
             <Text numberOfLines={3} className="mt-2 text-lg font-semibold text-primary">
