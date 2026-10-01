@@ -353,7 +353,7 @@ export default function NewBetScreen() {
                 </View>
 
                 <Text className="mb-7 px-1 text-sm leading-[18px] text-secondary">
-                  One fixed pot for the whole bet — it doesn&apos;t grow as more people join. The
+                  One fixed amount for the whole bet — it doesn&apos;t grow as more people join. The
                   winning side splits {potAgorot ? formatMoney(potAgorot, currency) : 'it'} between
                   them; the losing side covers the same amount between them.
                 </Text>

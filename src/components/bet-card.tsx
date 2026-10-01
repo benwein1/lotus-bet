@@ -636,7 +636,13 @@ export function BetCard({
             <View className="mt-2.5 flex-row items-center gap-4">
               <View className="flex-row items-baseline gap-1.5">
                 <Money agorot={bet.total_pot_agorot} currency={bet.group?.currency} size="sm" tone="accent" />
-                <Text className="text-sm text-secondary">pot</Text>
+                {/* "total", not "pot". The concept is unchanged — one fixed
+                    amount for the whole bet — but "pot" is a card-room word,
+                    and the one place this app says a number out loud is the
+                    worst place to borrow gambling vocabulary. Guideline 5.3
+                    is read off the screens, not off the schema, so the column
+                    is still `total_pot_agorot`. */}
+                <Text className="text-sm text-secondary">total</Text>
               </View>
 
               {countdown && (
