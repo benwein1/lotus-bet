@@ -2592,3 +2592,71 @@ begin;
   );
   rollback to s;
 rollback;
+
+\echo '--- 56. Resolution refuses an anonymous caller, and is not reachable by anon ---'
+-- Two defects stacked here once, and either alone would have been contained:
+-- `creator_id <> auth.uid()` is NULL when nobody is signed in, and PL/pgSQL
+-- treats a NULL IF as false, so the guard passed every anonymous caller; and
+-- the function kept EXECUTE for `anon` because its revoke named `public` only,
+-- which is a different grantee. Both halves are asserted, because fixing one
+-- and not the other still leaves a way in.
+begin;
+  -- Reachability: no function that writes the ledger may be anon-callable.
+  select 'ledger rpc anon-callable' as check, count(*) as rows
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('resolve_bet_with_entries', 'revoke_group_invite')
+     and has_function_privilege('anon', p.oid, 'execute');
+
+  -- No NULL-unsafe comparison against auth.uid() survives anywhere in the
+  -- schema. This is the class, not the instance: it is how both got written.
+  select 'null-unsafe auth.uid comparisons' as check, count(*) as rows
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.prosrc ~ '(<>|!=)\s*auth\.uid\(\)'
+     and p.proname in ('resolve_bet_with_entries', 'revoke_group_invite');
+rollback;
+
+begin;
+  -- Behaviour: the guard must refuse rather than fall through. `anon` is the
+  -- role a client holds before it signs in, and auth.uid() is NULL for it.
+  set local role postgres;
+  insert into public.bets (
+    id, group_id, creator_id, title, option_a_label, option_b_label, total_pot_agorot
+  ) values (
+    'ddddddd1-0000-4000-8000-000000000056',
+    'bbbbbbbb-0000-4000-8000-000000000000',
+    'aaaaaaaa-0000-4000-8000-000000000000',
+    'Anonymous resolution must fail', 'Yes', 'No', 1000
+  );
+
+  -- Isolate the *guard* from the grant. As `authenticated` with no subject
+  -- claim the caller holds EXECUTE but `auth.uid()` is NULL — which is exactly
+  -- the state the old `<>` comparison fell through. Going in as `anon` instead
+  -- proves only that the revoke works: the call is refused earlier, by
+  -- `can_see_bet` on the options subquery, so it never reaches this check.
+  set local role authenticated;
+  set local request.jwt.claim.sub = '';
+  savepoint s;
+  -- Expected: "Not signed in". Before the fix this resolved the bet.
+  select public.resolve_bet_with_entries(
+    'ddddddd1-0000-4000-8000-000000000056',
+    (select id from public.bet_options
+      where bet_id = 'ddddddd1-0000-4000-8000-000000000056' and position = 0),
+    '[]'::jsonb
+  );
+  rollback to s;
+
+  -- And a signed-in non-creator is still refused, which is the check's
+  -- original job and must survive the fix.
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  savepoint s2;
+  select public.resolve_bet_with_entries(
+    'ddddddd1-0000-4000-8000-000000000056',
+    (select id from public.bet_options
+      where bet_id = 'ddddddd1-0000-4000-8000-000000000056' and position = 0),
+    '[]'::jsonb
+  );
+  rollback to s2;
+rollback;

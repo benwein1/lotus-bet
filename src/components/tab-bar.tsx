@@ -6,6 +6,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring } from '@/compon
 import { GroupsIcon, HomeIcon, ProfileIcon, type IconProps } from '@/components/icons';
 import { Glass } from '@/components/screen';
 import { selectionTap } from '@/components/ui';
+import { useAttentionCount } from '@/lib/attention-store';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { TAB_BAR_HEIGHT } from '@/hooks/use-tab-bar-inset';
 import { useColors } from '@/providers/theme-provider';
@@ -44,6 +45,7 @@ export function FloatingTabBar({
   onSelect: (tab: (typeof TABS)[number]) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const waiting = useAttentionCount();
 
   return (
     <View
@@ -62,6 +64,10 @@ export function FloatingTabBar({
             label={tab.label}
             Icon={tab.Icon}
             focused={tab.name === active}
+            // Only the feed carries one, and only while you are elsewhere: a
+            // badge on the tab you are looking at counts things already on
+            // screen, which reads as the app talking to itself.
+            badge={tab.name === 'index' && tab.name !== active ? waiting : 0}
             onPress={() => {
               if (tab.name === active) return;
               selectionTap();
@@ -115,11 +121,14 @@ function TabButton({
   Icon,
   focused,
   onPress,
+  badge = 0,
 }: {
   label: string;
   Icon: (props: IconProps) => React.ReactElement;
   focused: boolean;
   onPress: () => void;
+  /** How many things are waiting behind this tab. 0 draws nothing. */
+  badge?: number;
 }) {
   const colors = useColors();
   const reduced = useReducedMotion();
@@ -136,7 +145,9 @@ function TabButton({
         // web could not tell which tab was current. The ARIA prop is
         // understood on all three platforms.
         aria-selected={focused}
-        accessibilityLabel={label}
+        accessibilityLabel={
+          badge > 0 ? `${label}, ${badge} waiting on you` : label
+        }
         // Responder handlers rather than a Pressable: the highlight has to
         // land on touch-down, before the navigation on release.
         onStartShouldSetResponder={() => true}
@@ -172,6 +183,20 @@ function TabButton({
             active={focused}
             color={focused ? colors.markInk : colors.textSecondary}
           />
+          {/* A dot, not a number. The count is already a sentence at the top
+              of the feed; here it only has to say "there is something". A
+              numeral at this size is a two-character label on a 24pt glyph,
+              which is unreadable and makes the bar look like a dashboard.
+
+              Positioned over the glyph's own box rather than the button's, so
+              it sits on the icon at any tab width. `zIndex` for the same
+              reason the glyph needs one — see the note above. */}
+          {badge > 0 && (
+            <View
+              pointerEvents="none"
+              className="absolute -right-1 -top-0.5 h-2.5 w-2.5 rounded-full border border-chrome bg-accent"
+            />
+          )}
         </View>
       </View>
     </Animated.View>

@@ -151,7 +151,15 @@ function selectConstant(source: string, name: string): string {
 
 describe('the client selects only columns that exist', () => {
   const tables = schemaColumns();
-  const source = readFileSync(join(ROOT, 'src', 'lib', 'queries.ts'), 'utf8');
+  // Every query module, concatenated. `queries.ts` used to be one file and
+  // this read it by name; it is a directory now, so the source is every `.ts`
+  // in it — which also means a select added in a *new* module is covered the
+  // day it lands rather than the day somebody remembers to add it here.
+  const QUERIES_DIR = join(ROOT, 'src', 'lib', 'queries');
+  const source = readdirSync(QUERIES_DIR)
+    .filter((file) => file.endsWith('.ts'))
+    .map((file) => readFileSync(join(QUERIES_DIR, file), 'utf8'))
+    .join('\n');
 
   it('reads a schema out of the migrations at all', () => {
     // A parser that silently matched nothing would make every assertion below

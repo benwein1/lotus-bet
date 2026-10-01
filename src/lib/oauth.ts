@@ -58,13 +58,31 @@ function redirectTo(): string {
   return `${linkTargets().scheme}://`;
 }
 
-/** Whether the native Apple sheet can be shown at all. iOS 13+, iOS only. */
+/**
+ * Whether the native Apple sheet can be shown at all. iOS 13+, iOS only.
+ *
+ * **On iOS this fails open, and that direction is the whole point.** Guideline
+ * 4.8 requires an app offering a third-party login to also offer Sign in with
+ * Apple, so if this returns false on an iOS device the screen shows Google
+ * alone — which is not a degraded experience, it is an automatic rejection.
+ *
+ * The check cannot legitimately be false there: Sign in with Apple ships on
+ * every iOS 13+ device and this app's deployment target is well above that. So
+ * the only way `isAvailableAsync` says no on iOS is a transient failure to ask
+ * — and hiding the required button because one native call was unhappy trades
+ * a recoverable error for an unrecoverable one. If it is genuinely broken the
+ * button says so when tapped, which a reviewer can see and we can fix.
+ *
+ * Off iOS it stays false: Apple's *web* OAuth flow needs a service ID and key
+ * this project does not have, so the button there would fail at the
+ * destination with no way back.
+ */
 export async function appleSignInAvailable(): Promise<boolean> {
   if (Platform.OS !== 'ios') return false;
   try {
     return await AppleAuthentication.isAvailableAsync();
   } catch {
-    return false;
+    return true;
   }
 }
 
