@@ -68,7 +68,7 @@ Not oversights — each is genuinely outside what this environment can reach.
 
 | Task | What | Why not | What you do |
 | --- | --- | --- | --- |
-| **t09** | Open the three legal URLs | The environment's network policy denied the host at the gateway (403 on CONNECT). The **pages themselves are verified** — they build, render, substitute your email, carry no placeholders and load no external assets | Open the three URLs in a browser. 30 seconds. **After t04**, or they may be stale |
+| **t09** | Open the three legal URLs | The environment's network policy denied the host at the gateway (403 on CONNECT). The **pages themselves are verified** — they build, render, substitute your email, carry no placeholders and load no external assets | Open them in a browser, 30 seconds. You can do it **today** via the branch preview URLs in `06-urls/urls.md` — no need to wait for t04 |
 | **t11** | Confirm Google is still enabled | Same network block on the auth settings endpoint. **Evidence it works: 14 Google identities, most recent sign-in 25 Sep 2026** | Supabase → Authentication → Providers. Glance at the toggle |
 | **t12** | Redirect allow-list | Dashboard-only setting; no API or SQL path to it | Supabase → Authentication → URL Configuration. Add `betta://` and `https://betta.weinsteinben2.workers.dev` |
 | **t13** | Custom SMTP | Needs an account with a third-party mail provider in your name | Sign up for Resend or SendGrid, paste the SMTP details into Supabase → Authentication → Emails. **Until then, only you receive password-reset mail** — Supabase's built-in sender is rate-limited to roughly the project owner |

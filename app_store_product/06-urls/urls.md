@@ -29,6 +29,19 @@ that is not published — hence the no-external-assets check.
 confirm they load. That could not be done from the environment this was prepared
 in — its network policy denied the host at the gateway.
 
+## You can check the pages right now, without waiting for t04
+
+Cloudflare builds a preview Worker from every branch. The branch carrying this
+folder is cut from `dev`, so its preview runs **current code**:
+
+- <https://claude-friendly-bets-mvp-6qe1mw-betta.weinsteinben2.workers.dev/legal/privacy.html>
+- <https://claude-friendly-bets-mvp-6qe1mw-betta.weinsteinben2.workers.dev/legal/terms.html>
+- <https://claude-friendly-bets-mvp-6qe1mw-betta.weinsteinben2.workers.dev/legal/support.html>
+
+Open those to satisfy **t09** today. They are the same pages that will appear on
+the production domain once `main` catches up — but **do not paste a preview URL
+into App Store Connect**: it disappears when the branch does.
+
 ## ⚠️ Check this before you paste the URLs
 
 The production Worker builds from **`main`**, and `main` is currently **25
