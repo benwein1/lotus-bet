@@ -44,6 +44,32 @@ create table if not exists auth.users (
   recovery_token varchar(255) not null default ''
 );
 
+-- --- auth.identities ---------------------------------------------------------
+-- Modelled because leaving it out made the harness MORE forgiving than the
+-- platform, which is the failure mode §7 of CLAUDE.md already records once.
+--
+-- GoTrue resolves a password sign-in through this table, not through
+-- `auth.users` alone. The seeds wrote users and no identities, so every seeded
+-- account was unable to sign in on a real project while the harness — which
+-- never needed an identity to exercise RLS — reported them as perfectly good.
+-- The App Review credentials were dead on arrival because of it.
+--
+-- `email` is a GENERATED column on the platform, so it is reproduced as one
+-- here: a seed that tries to write it directly must fail in the harness exactly
+-- as it fails on Supabase.
+create table if not exists auth.identities (
+  provider_id text not null,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  identity_data jsonb not null,
+  provider text not null,
+  last_sign_in_at timestamptz,
+  created_at timestamptz,
+  updated_at timestamptz,
+  email text generated always as (lower(identity_data ->> 'email')) stored,
+  id uuid primary key default gen_random_uuid(),
+  unique (provider_id, provider)
+);
+
 -- The signed-in user. Tests set `request.jwt.claim.sub` to impersonate.
 create or replace function auth.uid() returns uuid
   language sql stable

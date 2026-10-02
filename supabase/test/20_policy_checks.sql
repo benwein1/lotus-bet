@@ -2660,3 +2660,37 @@ begin;
   );
   rollback to s2;
 rollback;
+
+\echo '--- 57. Every seeded account can actually sign in ---'
+-- A seeded `auth.users` row is not a usable account. GoTrue resolves a password
+-- sign-in through `auth.identities`, so a user with a good password hash and no
+-- identity row is confirmed, visible, and refused at the sign-in screen with
+-- "Invalid login credentials".
+--
+-- Both seeds shipped that way, and this harness could not see it: it never
+-- signs anybody in, so an account it could query looked complete. The App
+-- Review credentials in App Store Connect were dead on arrival — "we were
+-- unable to sign in" is a rejection, not a question.
+--
+-- Asserted over whatever the seeds created rather than a fixed list, so a new
+-- seeded account is covered the day it lands.
+begin;
+  -- Scoped to accounts carrying a real bcrypt hash, which is exactly the set
+  -- somebody is expected to sign into. The fixture's own users hold the
+  -- literal 'x' and exist only so `auth.uid()` resolves and foreign keys hold;
+  -- giving them identities would model something untrue of them.
+  select 'signable accounts with no identity' as check, count(*) as rows
+    from auth.users u
+   where u.encrypted_password like '$2%'
+     and not exists (
+       select 1 from auth.identities i
+        where i.user_id = u.id and i.provider = 'email'
+     );
+
+  -- And the identity has to point at the same address as the account, or the
+  -- sign-in resolves to nothing.
+  select 'identity email disagrees with account' as check, count(*) as rows
+    from auth.users u
+    join auth.identities i on i.user_id = u.id and i.provider = 'email'
+   where lower(u.email) is distinct from i.email;
+rollback;

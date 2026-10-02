@@ -111,6 +111,34 @@ from (values
 ) as person(id, email, name)
 on conflict (id) do nothing;
 
+-- ---------------------------------------------------------------------------
+-- The identity row, without which none of these accounts can sign in
+-- ---------------------------------------------------------------------------
+-- GoTrue resolves a password sign-in through `auth.identities`, not through
+-- `auth.users` alone. A seeded account with a good password hash and no
+-- identity row is confirmed, visible, and rejected at the sign-in screen with
+-- "Invalid login credentials" — which reads as a wrong password rather than as
+-- a half-made account, and is why it went unnoticed.
+--
+-- `identities.email` is GENERATED from `identity_data`, so it is set through
+-- that object and never named in the column list.
+insert into auth.identities (provider_id, user_id, identity_data, provider,
+                             last_sign_in_at, created_at, updated_at)
+select u.id::text, u.id,
+       jsonb_build_object('sub', u.id::text, 'email', u.email,
+                          'email_verified', true, 'phone_verified', false),
+       'email', null, now(), now()
+from auth.users u
+where u.id in (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000003',
+  '00000000-0000-4000-8000-000000000004',
+  '00000000-0000-4000-8000-000000000005')
+  and not exists (select 1 from auth.identities i
+                   where i.user_id = u.id and i.provider = 'email');
+
+
 -- Belt and braces: if the signup trigger is not installed on this project the
 -- insert above leaves no profile behind, and every join below would fail on a
 -- foreign key. This fills the gap and is a no-op when the trigger did its job.

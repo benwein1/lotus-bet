@@ -135,6 +135,39 @@ from (values
 ) as person(id, email, name, password)
 on conflict (id) do nothing;
 
+-- ---------------------------------------------------------------------------
+-- The identity row, which is what password sign-in actually resolves through
+-- ---------------------------------------------------------------------------
+-- An `auth.users` row alone is not a usable account. GoTrue matches a password
+-- sign-in through `auth.identities`, so a seeded user with a perfectly good
+-- password hash and no identity row gets "Invalid login credentials" — the
+-- account exists, is confirmed, and cannot sign in.
+--
+-- That is how it shipped: every account created through the app had an identity
+-- row and all five seeded ones had none, so the credentials written into App
+-- Store Connect were dead on arrival. "We were unable to sign in" is a
+-- rejection, not a question.
+--
+-- `identities.email` is a GENERATED column derived from `identity_data`, so it
+-- is written by setting `identity_data` and never listed directly — naming it
+-- fails with "cannot insert a non-DEFAULT value into column email".
+insert into auth.identities (provider_id, user_id, identity_data, provider,
+                             last_sign_in_at, created_at, updated_at)
+select u.id::text, u.id,
+       jsonb_build_object('sub', u.id::text, 'email', u.email,
+                          'email_verified', true, 'phone_verified', false),
+       'email', null, now(), now()
+from auth.users u
+where u.id in (
+  '00000000-0000-4000-9000-000000000000',
+  '00000000-0000-4000-9000-000000000001',
+  '00000000-0000-4000-9000-000000000002',
+  '00000000-0000-4000-9000-000000000003',
+  '00000000-0000-4000-9000-000000000004')
+  and not exists (select 1 from auth.identities i
+                   where i.user_id = u.id and i.provider = 'email');
+
+
 -- Belt and braces: if the signup trigger is not installed on this project the
 -- insert above leaves no profile behind, and every join below fails on a
 -- foreign key. This fills the gap and is a no-op when the trigger did its job.
