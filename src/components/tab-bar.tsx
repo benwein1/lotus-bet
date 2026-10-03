@@ -53,6 +53,14 @@ export function FloatingTabBar({
       style={{ paddingBottom: Math.max(insets.bottom, 14) }}
       className="absolute inset-x-0 bottom-0 items-center px-gutter"
     >
+      {/* The fade belongs to the bar, not to the screen.
+          It used to be a separate export that each screen mounted for itself,
+          and only the two pushed screens ever did — so on the three tabs the
+          last row of a list simply ended underneath the blur. Drawing it here
+          means every screen that has the bar has the fade, and none of them
+          has to remember. */}
+      <TabBarScrim />
+
       <Glass
         intensity={Platform.OS === 'web' ? 24 : 60}
         style={[elevation.floating, { height: TAB_BAR_HEIGHT }]}
@@ -88,7 +96,7 @@ export function FloatingTabBar({
  * `rgba()` stops rather than an eight-digit hex, which does not reliably reach
  * zero and leaves a seam.
  */
-export function TabBarScrim() {
+function TabBarScrim() {
   const colors = useColors();
 
   return (
@@ -194,7 +202,12 @@ function TabButton({
           {badge > 0 && (
             <View
               pointerEvents="none"
-              className="absolute -right-1 -top-0.5 h-2.5 w-2.5 rounded-full border border-chrome bg-accent"
+              // `brand`, not `accent`. Spring Mint is what this app paints
+              // status and selection with — the live dot, the open badge — and
+              // blue is what it paints actions with. "There is something
+              // waiting behind this tab" is status; the tab itself is the
+              // action, and it is already the thing you press.
+              className="absolute -right-1 -top-0.5 h-2.5 w-2.5 rounded-full border border-chrome bg-brand"
             />
           )}
         </View>

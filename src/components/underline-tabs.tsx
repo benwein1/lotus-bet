@@ -59,6 +59,11 @@ export function UnderlineTabs<T extends string>({
             aria-selected={active}
             accessibilityLabel={tab.label}
             scaleTo={0.97}
+            // Three equal columns is a claim about this tab's share of the
+            // ROW, and the row sees the outer box — everything in `className`
+            // lands on the inner one. Without this the three labels bunch at
+            // the left instead of dividing the width.
+            grow={even}
             onPress={() => {
               if (active) return;
               selectionTap();

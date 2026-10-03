@@ -36,7 +36,7 @@ import {
 import { OddsBar } from '@/components/odds-bar';
 import { ContentWidth, Screen } from '@/components/screen';
 import { DetailTopBar } from '@/components/detail-top-bar';
-import { FloatingTabBar, TabBarScrim } from '@/components/tab-bar';
+import { FloatingTabBar } from '@/components/tab-bar';
 import {
   Avatar,
   AvatarStack,
@@ -675,7 +675,6 @@ export default function BetDetailScreen() {
         </KeyboardAvoidingView>
 
         <DetailTopBar onBack={() => router.back()} onMedia={media.length > 0} />
-        <TabBarScrim />
         <FloatingTabBar active="index" onSelect={(t) => router.navigate(t.href)} />
 
         {/* Which side was right, asked with the same two labels and the same

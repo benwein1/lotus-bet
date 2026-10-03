@@ -564,7 +564,6 @@ export function BetCard({
   /** Position in the list, used to stagger the entrance. */
   index?: number;
 }) {
-  const colors = useColors();
   const compactWaitingOn = attentionFor(bet, currentUserId);
   const reduced = useReducedMotion();
   const slices = betSlices(bet);
@@ -591,31 +590,38 @@ export function BetCard({
           accessibilityRole="button"
           accessibilityLabel={`Bet: ${bet.title}`}
           style={elevation.card}
-          className={`mb-3 overflow-hidden rounded-3xl border border-hairline-strong bg-surface ${
+          className={`mb-3 overflow-hidden rounded-[20px] border border-hairline-strong bg-surface ${
             isCancelled ? 'opacity-50' : ''
           }`}
         >
           {media.length > 0 && <BetMediaView media={media} className="h-40 w-full" />}
 
-          <View className="p-5">
-            <View className="flex-row items-center justify-between gap-3">
-              <View className="flex-1 flex-row items-center gap-1.5">
+          {/* One meta line above the question, then the question, then the
+              bar. The amount sits up here beside the countdown rather than
+              under the title: a row of small type reads as a caption, and
+              putting the figure in it stops the title and the number competing
+              for the same rank. */}
+          <View className="p-[15px]">
+            <View className="flex-row items-center gap-2">
+              <View className="min-w-0 flex-1 flex-row items-center gap-1.5">
                 {showGroup && bet.group ? (
                   <>
                     <GroupFace avatarUrl={bet.group.avatar_url} size={20} radius={7} />
-                    <Text numberOfLines={1} className="flex-1 text-sm text-secondary">
+                    <Text numberOfLines={1} className="min-w-0 flex-1 text-sm text-secondary">
                       {bet.group.name}
                     </Text>
                   </>
                 ) : (
-                  bet.status === 'open' && (
-                    <>
-                      <LiveDot />
-                      <Text className="text-sm text-secondary">Live</Text>
-                    </>
-                  )
+                  bet.status === 'open' && <LiveDot />
+                )}
+
+                {countdown && (
+                  <Text style={tabular} numberOfLines={1} className="text-sm text-secondary">
+                    {countdown.replace('Closes in ', '')}
+                  </Text>
                 )}
               </View>
+
               {/* Same precedence as the feed card: what is waiting on you
                   outranks what the bet merely is. */}
               {compactWaitingOn ? (
@@ -625,37 +631,24 @@ export function BetCard({
                   </Text>
                 </View>
               ) : (
-                <Badge label={bet.status} tone={STATUS_TONE[bet.status]} />
+                bet.status !== 'open' && (
+                  <Badge label={bet.status} tone={STATUS_TONE[bet.status]} />
+                )
               )}
+
+              <Money
+                agorot={bet.total_pot_agorot}
+                currency={bet.group?.currency}
+                size="sm"
+                tone="neutral"
+              />
             </View>
 
-            <Text numberOfLines={3} className="mt-2 text-lg font-semibold text-primary">
+            <Text numberOfLines={3} className="mt-2.5 text-base font-semibold leading-[22px] text-primary">
               {bet.title}
             </Text>
 
-            <View className="mt-2.5 flex-row items-center gap-4">
-              <View className="flex-row items-baseline gap-1.5">
-                <Money agorot={bet.total_pot_agorot} currency={bet.group?.currency} size="sm" tone="accent" />
-                {/* "total", not "pot". The concept is unchanged — one fixed
-                    amount for the whole bet — but "pot" is a card-room word,
-                    and the one place this app says a number out loud is the
-                    worst place to borrow gambling vocabulary. Guideline 5.3
-                    is read off the screens, not off the schema, so the column
-                    is still `total_pot_agorot`. */}
-                <Text className="text-sm text-secondary">total</Text>
-              </View>
-
-              {countdown && (
-                <View className="flex-row items-center gap-1.5">
-                  <ClockIcon size={13} color={colors.textSecondary} />
-                  <Text style={tabular} className="text-sm text-secondary">
-                    {countdown.replace('Closes in ', '')}
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            <View className="mt-4">
+            <View className="mt-3.5">
               <OddsBar
                 slices={slices}
                 winningId={isResolved ? bet.winning_option_id ?? null : null}

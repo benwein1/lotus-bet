@@ -21,7 +21,7 @@ import {
 } from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
 import { DetailTopBar } from '@/components/detail-top-bar';
-import { FloatingTabBar, TabBarScrim } from '@/components/tab-bar';
+import { FloatingTabBar } from '@/components/tab-bar';
 import { BetCardSkeleton } from '@/components/skeletons';
 import {
   Avatar,
@@ -498,7 +498,6 @@ export default function GroupDetailScreen() {
         </ScrollView>
 
         <DetailTopBar onBack={() => router.back()} />
-        <TabBarScrim />
         <FloatingTabBar active="groups" onSelect={(t) => router.navigate(t.href)} />
       </Screen>
     </>
