@@ -24,7 +24,10 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png",
         "backgroundColor": "#000000"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -73,7 +76,10 @@
     },
     "extra": {
       "router": {},
-      "eas": {}
-    }
+      "eas": {
+        "projectId": "3eff8fde-c944-4da9-b957-c0973933adbf"
+      }
+    },
+    "owner": "benben9611"
   }
 }
