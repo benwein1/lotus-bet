@@ -18,9 +18,16 @@ obligations; users settle up outside the app (cash, Bit, bank transfer).
 This is a deliberate product and App Store compliance decision, not an
 oversight and not a gap to fill. Do not add payment features, "wallet
 balance" UI, or anything that could read as holding funds — even if a task
-description seems to imply it. The disclaimer text on the auth, new-bet,
-settle-up and profile screens is load-bearing; don't delete it during a
-redesign.
+description seems to imply it.
+
+**Saying so is confined to one place, on the owner's call.** The statement
+used to appear as a footnote on the auth shell, the end of the feed, the
+new-bet form, settle-up and Profile — five restatements of a denial, which
+made "we don't do that" the loudest thing the product said about itself. It
+now lives once, in **Settings → Money**, and in the terms, which `legal-text
+.json` still states in full and `__tests__/legal.test.ts` still guards. The
+commitment did not change; the repetition did. Do not scatter it back through
+the screens during a redesign — add to the Settings block instead.
 
 Other standing scope boundaries:
 
@@ -165,7 +172,12 @@ src/
   lib/age.ts                pure: the 16+ rule, shared with the SQL that enforces it
   lib/payout.ts             re-export ONLY — see §5
   lib/settlement.ts         balance netting + greedy debt simplification
-  lib/queries.ts            every Supabase read/write the app makes
+  lib/attention.ts          pure: what is waiting on you, and the feed's order
+  lib/attention-store.ts    …and the one number the tab badge reads
+  lib/queries/              every Supabase read/write, one module per domain:
+                            core · account · groups · bets · settlement ·
+                            challenges · social · profile, re-exported by
+                            index.ts so `@/lib/queries` is still the import
   lib/media.ts              picking, uploading and signing bet media
   lib/media-rules.ts        …and its pure half, which is what the tests hold
   lib/currency.ts           minor units ↔ a string, per group; the picker's list
@@ -219,9 +231,17 @@ __tests__/                  payout · settlement · format · theme · odds · o
                             suggestions · legal · feed-and-money
 ```
 
-**All Supabase access goes through `src/lib/queries.ts`.** Screens never
-build queries inline. If a table isn't touched in that file, the client
-never reads it — which is what makes the RLS surface auditable.
+**All Supabase access goes through `src/lib/queries/`.** Screens never build
+queries inline. If a table isn't touched in there, the client never reads it —
+which is what makes the RLS surface auditable.
+
+It was one 1,470-line file and is now a directory of eight, one per part of
+the product, re-exported from `index.ts`. Every `@/lib/queries` import kept
+working, so no call site moved. `core.ts` holds what they all share — the
+readable-column lists, the `unwrap`, the optional-group-column retry — and is
+the only module without a domain. `__tests__/bet-select.test.ts` reads every
+`.ts` in the directory rather than one filename, so a select added in a new
+module is covered the day it lands.
 
 ---
 
@@ -579,6 +599,37 @@ should have to learn how to argue with their friends. What that means here:
 - The heart is **accent blue**, never red. Red is money you owe. This is
   restated here because it is the first thing anyone copying Instagram changes.
 
+### What is waiting on you
+
+The loop is: somebody posts a bet, friends take sides, the creator calls it,
+the ledger moves, people settle up. Every step is a human doing something, and
+nothing used to say *which step was waiting on the person holding the phone*.
+
+Two things broke because of it. A bet nobody answers is a bet that never
+happened — it looks exactly like the fifteen already decided, scrolls past, and
+the deadline takes it. And **a bet nobody calls never becomes money owed**:
+only the creator can call one, nothing reminded them, so the ledger stopped
+moving, so settle-up had nothing in it.
+
+`lib/attention.ts` is the one definition — pure, `now` as a parameter, no
+Supabase and no React. A bet is waiting on you to **answer** (live, and you
+have no side) or to **call** (you created it, nothing more can be staked, no
+result). The two can never both apply, because the first is live and the second
+is closed.
+
+Four surfaces read it and none of them re-derives it: the feed's order, the
+pill on both cards, the summary row at the top of the feed, and the dot on the
+Feed tab. `attention-store.ts` is how the last one works — one integer,
+published by the feed, read through `useSyncExternalStore`, cleared on sign-out
+like the signed-URL cache. It is the whole of the app's global state.
+
+**`orderForViewer` replaced a real bug.** The feed used to re-partition the
+list into "bets I have a position in" first, *after* the query had ordered it
+by `feedBand` — two sorts with different opinions, the second winning. A locked
+bet you had already answered outranked a live one you had not, so the most
+actionable card on the screen sank to the bottom. The ordering is now one
+function, and it composes `feedBand` rather than copying it.
+
 ### Making it feel fast
 
 The rule is *remove work*, not *add caching*. `useAsync` stays small and there
@@ -668,9 +719,10 @@ a child so the exit scale belongs to the mark alone. The name fades up once the
 mark has settled; the hold is longer than it used to be because a word nobody
 can read is not worth showing.
 
-**The money disclaimer is in the shell, not in the screens.** It is load-bearing
-(§1) and putting it in one place is what stops a future redesign of one screen
-quietly dropping it.
+**The money disclaimer is no longer in the shell.** It used to sit under the
+form on every pre-sign-in screen, and it is now in Settings → Money only — see
+§1. The entrance says what the app *is*; it no longer opens with what it is
+not.
 
 ---
 
@@ -1391,12 +1443,23 @@ is worth rebuilding whenever doing design work:
    `'dark'` contexts so **both schemes** get walked.
 4. Screenshot each route and read the console for errors.
 
-Three things learned the hard way: the **dev server and the export build
+Four things learned the hard way: the **dev server and the export build
 differ** (the `darkMode` crash only reproduces on the dev server);
 **colours in a downscaled screenshot mislead** — verify computed styles rather
-than eyeballing a PNG; and when a scheme looks wrong, probe
+than eyeballing a PNG; when a scheme looks wrong, probe
 `document.documentElement.className` and `getPropertyValue('--c-canvas')`
-before touching any component.
+before touching any component; and **an export build strips React's own
+warnings**, so reading the console of one proves nothing about them. The
+`transform-origin` error on the animated mark printed on every `npm start` and
+on no export, which is how a mark whose petals pivoted around the wrong point
+survived several screenshot passes. A console check has to run against
+`expo start`, not against `/tmp/web-demo`.
+
+`react-native-svg` writes `transform-origin` itself, from any of `origin`,
+`originX` and `originY` (`web/utils/prepare.js`), and React rejects the
+hyphenated name — so there is no spelling of that prop that is clean on the
+web. Express a pivot as a translate/untranslate sandwich around the animated
+group instead; `animated-mark.tsx` is the worked example.
 
 ---
 

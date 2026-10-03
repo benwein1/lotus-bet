@@ -97,3 +97,37 @@ describe('theme', () => {
     }
   });
 });
+
+/**
+ * The native splash is drawn by the OS, before any JavaScript runs, so its
+ * background comes from `app.json` rather than from the palette. That makes it
+ * the one colour in the app that can drift away from `theme-colors.json`
+ * without anything failing — and it did: the splash stayed `#FFFFFF` when the
+ * light canvas became Linen, so every cold launch flashed white and then
+ * jumped, at exactly the moment `AnimatedSplash` exists to make seamless.
+ *
+ * It is only visible on a real cold start, which is why it survived a design
+ * pass and is asserted here instead.
+ */
+describe('native splash', () => {
+  const splash = (() => {
+    const app = JSON.parse(
+      readFileSync(join(__dirname, '..', 'app.json'), 'utf8')
+    ) as { expo: { plugins: unknown[] } };
+
+    const entry = app.expo.plugins.find(
+      (p): p is [string, { backgroundColor: string; dark?: { backgroundColor: string } }] =>
+        Array.isArray(p) && p[0] === 'expo-splash-screen'
+    );
+    if (!entry) throw new Error('expo-splash-screen is not configured in app.json');
+    return entry[1];
+  })();
+
+  it('starts on the same ground the app paints in light mode', () => {
+    expect(splash.backgroundColor.toUpperCase()).toBe(palette.light.canvas.toUpperCase());
+  });
+
+  it('starts on the same ground the app paints in dark mode', () => {
+    expect(splash.dark?.backgroundColor.toUpperCase()).toBe(palette.dark.canvas.toUpperCase());
+  });
+});

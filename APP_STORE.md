@@ -549,7 +549,7 @@ costs you your place in it.
 | --- | --- | --- |
 | `name` | "Betta" | See §2.1 |
 | `version` | `0.1.0` | Bump to `1.0.0` for release — **P0** |
-| `ios.bundleIdentifier` | `com.betta.app` | Fine; must match App Store Connect. Changing it later means a new app |
+| `ios.bundleIdentifier` | `app.betta.mobile` | Fine; must match App Store Connect. Changing it later means a new app |
 | `ios.supportsTablet` | `false` | Fine — no iPad screenshots needed |
 | `ITSAppUsesNonExemptEncryption` | `false` | **Correct and valuable** — pre-answers export compliance, see §4.2 |
 | `orientation` | `portrait` | Consistent with the design |

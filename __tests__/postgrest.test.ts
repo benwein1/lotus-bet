@@ -53,6 +53,18 @@ describe('isUnknownWriteColumn', () => {
     expect(isUnknownWriteColumn({ code: 'PGRST204', message: '' }, 'anything')).toBe(true);
   });
 
+  it('matches the stake_text rejection posting a bet hit', () => {
+    // Verbatim from a project that had not had `…_stake_text.sql` applied.
+    // Every bet failed here, not only a forfeit one, because the client sends
+    // the column as null on a money bet and PostgREST refuses the whole insert.
+    expect(
+      isUnknownWriteColumn(
+        { message: "Could not find the 'stake_text' column of 'bets' in the schema cache" },
+        'stake_text'
+      )
+    ).toBe(true);
+  });
+
   it('also covers the plain undefined-column case', () => {
     expect(
       isUnknownWriteColumn({ code: '42703', message: 'column "x" does not exist' }, 'x')

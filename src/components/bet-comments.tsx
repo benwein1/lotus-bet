@@ -108,10 +108,10 @@ export function BetComments({
   const shown = expanded ? thread.rows : thread.rows.slice(-PREVIEW_COUNT);
 
   return (
-    <View className="mt-7">
-      <Text className="mb-3 text-lg font-semibold text-primary">
-        {total === 0 ? 'Comments' : total === 1 ? '1 comment' : `${total} comments`}
-      </Text>
+    // A hairline and nothing else. The board gives this section no title: the
+    // avatars and the remarks say what it is, and a "2 comments" headline set
+    // at Title 3 was the largest thing on the lower half of the screen.
+    <View className="mt-[18px] border-t border-hairline pt-4">
 
       {thread.error && (
         <View className="mb-3">
@@ -139,20 +139,7 @@ export function BetComments({
         </PressableScale>
       ) : (
         <View>
-          {hidden > 0 && !expanded && (
-            <PressableScale
-              scaleTo={1}
-              onPress={() => setExpanded(true)}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={`View all ${total} comments`}
-              className="mb-3 self-start py-1"
-            >
-              <Text className="text-subhead text-secondary">View all {total} comments</Text>
-            </PressableScale>
-          )}
-
-          <View className="gap-3.5">
+          <View className="gap-[13px]">
             {shown.map((comment) => (
               <CommentRow
                 key={comment.id}
@@ -165,16 +152,20 @@ export function BetComments({
             ))}
           </View>
 
-          {expanded && hidden > 0 && (
+          {hidden > 0 && (
             <PressableScale
               scaleTo={1}
-              onPress={() => setExpanded(false)}
+              onPress={() => setExpanded((was) => !was)}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel="Show fewer comments"
-              className="mt-3 self-start py-1"
+              accessibilityLabel={
+                expanded ? 'Show fewer comments' : `View all ${total} comments`
+              }
+              className="min-h-11 self-start justify-center"
             >
-              <Text className="text-subhead text-secondary">Show fewer</Text>
+              <Text className="text-sm text-secondary">
+                {expanded ? 'Show fewer' : `View all ${total} comments`}
+              </Text>
             </PressableScale>
           )}
         </View>
@@ -578,22 +569,25 @@ function CommentRow({
                 ? 'Press and hold to report or block'
                 : undefined
         }
-        className="flex-row gap-3"
+        className="flex-row gap-[9px]"
       >
         <Avatar
           id={comment.user_id}
           name={name}
           uri={comment.author?.avatar_url ?? null}
-          size={32}
+          size={24}
         />
 
+        {/* Name, remark and age in one flowing paragraph. The age used to sit
+            on a line of its own, which cost a line per comment and made ten
+            comments twice as tall as the bet they were about. */}
         <View className="flex-1">
-          <Text className="text-subhead leading-5 text-primary">
+          <Text className="text-sm leading-[19px] text-primary">
             <Text className="font-semibold">{name}</Text>
             <Text>{'  '}</Text>
             <Text>{comment.body}</Text>
+            <Text className="text-xs text-secondary">{'  '}{pendingWrite ? 'Sending' : age}</Text>
           </Text>
-          <Text className="mt-1 text-2xs text-tertiary">{pendingWrite ? 'Sending' : age}</Text>
         </View>
       </PressableScale>
     </Animated.View>

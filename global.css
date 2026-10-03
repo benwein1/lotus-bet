@@ -10,16 +10,16 @@
    colour scheme; it applies on native as well as on the web. */
 @layer base {
   :root {
-    --c-canvas: #FFFFFF;
-    --c-sunken: #F2F2F7;
+    --c-canvas: #F5F2EA;
+    --c-sunken: #EDE8DC;
     --c-surface: #FFFFFF;
-    --c-surface2: #F5F5F8;
-    --c-surface3: #EAEAEF;
-    --c-hairline: #E2E2E7;
-    --c-hairline-strong: #C9C9D0;
+    --c-surface2: #F1EDE2;
+    --c-surface3: #E6E0D2;
+    --c-hairline: #DED8C9;
+    --c-hairline-strong: #C5BFAE;
     --c-text: #000000;
-    --c-text-secondary: #6C6C74;
-    --c-text-tertiary: #75757A;
+    --c-text-secondary: #66666C;
+    --c-text-tertiary: #6B6B70;
     --c-text-inverse: #FFFFFF;
     --c-accent: #086CD0;
     --c-accent-strong: #0A5AAF;
@@ -41,12 +41,15 @@
     --c-side-b-soft: #FDECEC;
     --c-side-b-ink: #FFFFFF;
     --c-side-b-on-media: #FF7076;
-    --c-chrome: rgba(255, 255, 255, 0.88);
+    --c-chrome: rgba(252, 250, 245, 0.88);
     --c-chrome-edge: rgba(0, 0, 0, 0.12);
     --c-scrim: rgba(0, 0, 0, 0.45);
     --c-on-media: #FFFFFF;
     --c-on-media-soft: rgba(255, 255, 255, 0.78);
     --c-on-media-faint: rgba(255, 255, 255, 0.55);
+    --c-mark-from: #22B573;
+    --c-mark-to: #2E92FF;
+    --c-mark-ink: #04140A;
   }
 
   .dark:root {
@@ -87,5 +90,8 @@
     --c-on-media: #FFFFFF;
     --c-on-media-soft: rgba(255, 255, 255, 0.78);
     --c-on-media-faint: rgba(255, 255, 255, 0.55);
+    --c-mark-from: #22B573;
+    --c-mark-to: #2E92FF;
+    --c-mark-ink: #04140A;
   }
 }

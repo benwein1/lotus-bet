@@ -40,11 +40,12 @@ export interface OddsSlice {
  * it — three lines of type become one. Everything it drops is still on the bet
  * screen, which is the only other caller and stays `full`.
  *
- * **The labels stay.** Dropping them too would leave "65%  35%" with nothing
- * saying what either number is about, and on a bet that is locked or resolved
- * the option buttons are gone from the card as well, so there would be no
- * second copy anywhere. Beside the figure they cost no height and keep the
- * bar readable on its own.
+ * **The labels stay by default.** Dropping them would leave "65%  35%" with
+ * nothing saying what either number is about, and on a bet that is locked or
+ * resolved the option buttons are gone from the card as well, so there would be
+ * no second copy anywhere. Beside the figure they cost no height and keep the
+ * bar readable on its own. `showNames={false}` is the exception a caller opts
+ * into when it prints the names itself, immediately under the bar.
  */
 export function OddsBar({
   slices,
@@ -52,6 +53,10 @@ export function OddsBar({
   size = 'md',
   onMedia = false,
   compact = false,
+  showNames = true,
+  barPx,
+  figurePx,
+  gapPx,
 }: {
   slices: OddsSlice[];
   /** Once resolved, everything that lost falls back to a rule. */
@@ -65,6 +70,20 @@ export function OddsBar({
    * screen keep the full bar without saying so.
    */
   compact?: boolean;
+  /**
+   * Drop the option names, leaving the two figures and the track.
+   *
+   * The bet screen passes this: the labels are on the option cards a few
+   * pixels below, in the colour they belong to and on the thing you press, so
+   * printing them again above the bar is the same two words twice.
+   */
+  showNames?: boolean;
+  /** Track thickness in px. The design's bar is a 3px rule, not a pill. */
+  barPx?: number;
+  /** Figure size in px, when the scale's own steps are not what was drawn. */
+  figurePx?: number;
+  /** Space between the figures and the track, when the drawn rhythm differs. */
+  gapPx?: number;
 }) {
   const colors = useColors();
   const scheme = useScheme();
@@ -73,7 +92,7 @@ export function OddsBar({
   const total = slices.reduce((sum, slice) => sum + slice.count, 0);
   const shares = percentages(slices);
 
-  const barHeight = size === 'sm' ? 6 : size === 'lg' ? 10 : 8;
+  const barHeight = barPx ?? (size === 'sm' ? 6 : size === 'lg' ? 10 : 8);
   const muted = onMedia ? 'text-on-media-faint' : 'text-tertiary';
   const trackColor = onMedia ? 'rgba(255,255,255,0.22)' : colors.surface3;
 
@@ -85,7 +104,10 @@ export function OddsBar({
         : `Split of the ${total} people who've picked a side`;
 
   return (
-    <View className={compact ? 'gap-2' : size === 'sm' ? 'gap-2' : 'gap-2.5'}>
+    <View
+      style={gapPx === undefined ? undefined : { gap: gapPx }}
+      className={gapPx !== undefined ? '' : compact ? 'gap-2' : size === 'sm' ? 'gap-2' : 'gap-2.5'}
+    >
       {/* Naming the denominator once is what stops a percentage being read as
           a probability. It is the share of the people who have picked, not how
           likely anything is. The feed drops it: there the bar is a glance, and
@@ -105,6 +127,8 @@ export function OddsBar({
           onMedia={onMedia}
           scheme={scheme}
           compact={compact}
+          showNames={showNames}
+          figurePx={figurePx}
         />
       ) : null}
 
@@ -166,6 +190,8 @@ function TwoUp({
   onMedia,
   scheme,
   compact,
+  showNames,
+  figurePx,
 }: {
   slices: OddsSlice[];
   shares: number[];
@@ -174,6 +200,8 @@ function TwoUp({
   onMedia: boolean;
   scheme: ColorScheme;
   compact: boolean;
+  showNames: boolean;
+  figurePx?: number;
 }) {
   const pctClass = size === 'lg' ? 'text-2xl' : size === 'sm' ? 'text-lg' : 'text-xl';
   const label = onMedia ? 'text-on-media-soft' : 'text-secondary';
@@ -184,7 +212,24 @@ function TwoUp({
       {slices.map((slice, index) => {
         const lost = winningId !== null && winningId !== slice.id;
         const color = optionColor(index, slices.length, scheme, onMedia);
-        const figure = (
+        const figure = figurePx ? (
+          <Text
+            style={[
+              tabular,
+              lost ? null : { color },
+              { fontSize: figurePx, lineHeight: figurePx, letterSpacing: -0.7 },
+            ]}
+            className={`font-bold ${lost ? muted : ''}`}
+          >
+            {shares[index]}
+            <Text
+              style={[lost ? null : { color }, { fontSize: Math.round(figurePx * 0.53) }]}
+              className={`font-semibold ${lost ? muted : ''}`}
+            >
+              %
+            </Text>
+          </Text>
+        ) : (
           <Text
             style={[tabular, lost ? null : { color }]}
             className={`font-bold ${pctClass} ${lost ? muted : ''}`}
@@ -200,6 +245,17 @@ function TwoUp({
             {slice.label}
           </Text>
         );
+
+        // Checked before `compact`, not after: the feed card asks for both, and
+        // a compact branch that ran first would print the option names the
+        // caller just said to drop.
+        if (!showNames) {
+          return (
+            <View key={slice.id} className={index === 0 ? '' : 'items-end'}>
+              {figure}
+            </View>
+          );
+        }
 
         if (compact) {
           return (

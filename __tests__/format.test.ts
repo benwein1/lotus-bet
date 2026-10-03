@@ -5,6 +5,7 @@ import {
   isValidEmail,
   passwordProblem,
   positionPercentages,
+  viewAllComments,
 } from '@/lib/format';
 
 describe('positionPercentages', () => {
@@ -109,5 +110,13 @@ describe('formatRelativeShort', () => {
 
   it('returns empty string for junk rather than throwing', () => {
     expect(formatRelativeShort('not-a-date', now)).toBe('');
+  });
+});
+
+describe('viewAllComments', () => {
+  it('says "comment" for one and "comments" for the rest', () => {
+    expect(viewAllComments(1)).toBe('View all 1 comment');
+    expect(viewAllComments(2)).toBe('View all 2 comments');
+    expect(viewAllComments(0)).toBe('View all 0 comments');
   });
 });

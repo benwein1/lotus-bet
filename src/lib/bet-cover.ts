@@ -91,3 +91,67 @@ export function betCover(betId: string, colors: Palette): BetCover {
  */
 export const COVER_PETAL =
   'M256 366 C 206 292, 200 208, 256 122 C 312 208, 306 292, 256 366 Z';
+
+/**
+ * The ground a bet with no photo gets in the Profile grid.
+ *
+ * Six teals, all sampled off the app's own mark ramp. The ramp runs green
+ * (`markFrom`) to blue (`markTo`), so every colour between the two ends *is*
+ * a teal — the family was already in the brand and did not need inventing.
+ * Each tile takes a different pair of positions along it, so a grid of
+ * text-only bets reads as a set rather than as one colour repeated.
+ *
+ * Every pair sits in the middle stretch of the ramp, roughly 0.3 to 0.75.
+ * Reaching either end gives a tile that is plainly the logo's green or the
+ * logo's blue, and a grid with one of each in it is not a family — it is the
+ * gradient, pulled apart.
+ *
+ * It replaces a flat `surface2` box, which was the same grey as the page and
+ * made a bet without a picture look like a tile that had failed to load.
+ *
+ * Deterministic on the bet id for the same reason `betCover` is: the grid
+ * re-renders on every refetch, and a tile that changed colour while you looked
+ * at it would be worse than a grey one.
+ */
+export function tileCover(betId: string, colors: Palette): { colors: [string, string] } {
+  const stops = TILE_STOPS[hash(`${betId}tile`) % TILE_STOPS.length] ?? TILE_STOPS[0]!;
+  return {
+    colors: [rampAt(colors, stops[0]), rampAt(colors, stops[1])],
+  };
+}
+
+/**
+ * Where along the ramp each tile's two stops sit, 0 = `markFrom`, 1 = `markTo`.
+ *
+ * None of them span the whole ramp: a 0→1 gradient is the logo, and a grid of
+ * six logos is not a background. Each pair covers a short stretch, so a tile
+ * is recognisably one colour with depth rather than a rainbow.
+ */
+const TILE_STOPS: ReadonlyArray<readonly [number, number]> = [
+  [0.3, 0.5],
+  [0.45, 0.66],
+  [0.36, 0.58],
+  [0.52, 0.74],
+  [0.32, 0.55],
+  [0.48, 0.7],
+];
+
+/** One point on the mark's green-to-blue ramp, as `#rrggbb`. */
+function rampAt(colors: Palette, t: number): string {
+  const from = rgb(colors.markFrom);
+  const to = rgb(colors.markTo);
+  if (!from || !to) return colors.markFrom;
+
+  const mix = (a: number, b: number) => Math.round(a + (b - a) * t);
+  const channel = (value: number) => value.toString(16).padStart(2, '0');
+  return `#${channel(mix(from[0], to[0]))}${channel(mix(from[1], to[1]))}${channel(
+    mix(from[2], to[2])
+  )}`;
+}
+
+function rgb(hex: string): [number, number, number] | null {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) return null;
+  const value = parseInt(match[1]!, 16);
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+}

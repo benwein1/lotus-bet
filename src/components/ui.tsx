@@ -302,7 +302,14 @@ export function Money({
 }: {
   agorot: number;
   currency?: string | null;
-  size?: 'sm' | 'md' | 'lg' | 'xl' | 'hero';
+  /**
+   * `pot`, `betPot` and `net` are the three sizes the design boards drew that
+   * the Apple scale has no step for — 22, 20 and 40. They are spelled out
+   * rather than rounded to the nearest step because the feed card, the bet
+   * hero and the profile balance are the three places a figure is the largest
+   * thing in its block, and a 2px difference shows there.
+   */
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'hero' | 'pot' | 'betPot' | 'net';
   /** Omit to colour by direction. */
   tone?: 'neutral' | 'positive' | 'negative' | 'accent' | 'onMedia';
   sign?: boolean;
@@ -314,6 +321,9 @@ export function Money({
     lg: 'text-2xl',
     xl: 'text-4xl',
     hero: 'text-5xl',
+    pot: 'text-[22px] leading-[26px] tracking-[-0.26px]',
+    betPot: 'text-[20px] leading-[24px] tracking-[-0.3px]',
+    net: 'text-[40px] leading-[40px] tracking-[-1px]',
   } as const;
 
   const resolved = tone ?? (agorot > 0 ? 'positive' : agorot < 0 ? 'negative' : 'neutral');

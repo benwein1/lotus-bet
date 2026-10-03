@@ -67,8 +67,30 @@ const AnimatedG = Animated.createAnimatedComponent(G);
 /** The petal, pointing up from the base. Verbatim from `assets/logo/mark.svg`. */
 const PETAL = 'M256 366 C 206 292, 200 208, 256 122 C 312 208, 306 292, 256 366 Z';
 
-/** Where every petal pivots, in the 512 viewBox. */
-const PIVOT = '256, 366';
+/**
+ * Where every petal pivots, in the 512 viewBox — and why it is not `origin`.
+ *
+ * `origin`, `originX` and `originY` all reach the DOM through
+ * react-native-svg's web shim as a **`transform-origin` attribute**
+ * (`web/utils/prepare.js`), and React rejects a hyphenated property name on an
+ * element it is building: *"Invalid DOM property `transform-origin`. Did you
+ * mean `transformOrigin`?"*. That is the library's spelling, not ours, so
+ * there is no prop spelling that avoids it — the pivot has to be expressed as
+ * a transform instead.
+ *
+ * So the petal sits in a translate/untranslate sandwich: the outer group moves
+ * the coordinate system to the fan base, the animated group rotates and scales
+ * about (0, 0), and the inner group puts the geometry back. That is what
+ * `origin` was doing anyway, spelled in the one way both platforms agree on,
+ * and it leaves `PETAL` verbatim from `assets/logo/mark.svg` rather than
+ * rewriting the path around a new origin.
+ *
+ * Worth knowing how long it hid: React strips that warning from a production
+ * build, so it only ever printed on a dev server. Everywhere else the petals
+ * quietly swung around the middle of the box.
+ */
+const PIVOT_X = 256;
+const PIVOT_Y = 366;
 const BOX = 512;
 
 /**
@@ -223,16 +245,19 @@ function Petal({
   }));
 
   return (
-    <AnimatedG
-      // `origin` is the fan base in viewBox units, so the petal swings from
-      // where it is joined rather than from the middle of the box.
-      origin={PIVOT}
-      rotation={still ? petal.angle : undefined}
-      scale={still ? 1 : undefined}
-      animatedProps={still ? undefined : animatedProps}
-    >
-      <Path d={PETAL} fill={fill} />
-    </AnimatedG>
+    // Move the origin to the fan base, turn about it, put the geometry back.
+    // See `PIVOT_X` for why this is not the `origin` prop.
+    <G transform={`translate(${PIVOT_X} ${PIVOT_Y})`}>
+      <AnimatedG
+        rotation={still ? petal.angle : undefined}
+        scale={still ? 1 : undefined}
+        animatedProps={still ? undefined : animatedProps}
+      >
+        <G transform={`translate(${-PIVOT_X} ${-PIVOT_Y})`}>
+          <Path d={PETAL} fill={fill} />
+        </G>
+      </AnimatedG>
+    </G>
   );
 }
 

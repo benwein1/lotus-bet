@@ -2475,3 +2475,222 @@ begin;
      and p.proname = 'my_totals_by_currency'
      and has_function_privilege('anon', p.oid, 'execute');
 rollback;
+
+\echo '--- 55. a bet whose stake is words, not money ---'
+-- The constraint pair, and the one thing that was actually load-bearing: a
+-- forfeit bet resolves with an empty ledger, which `resolve_bet_with_entries`
+-- used to refuse outright whenever both sides had been backed. Correct for a
+-- money bet and exactly wrong for this one — without the exemption a forfeit
+-- bet could be made and joined but never called.
+--
+-- Each refusal runs inside a savepoint, for the reason section 17 gives: a
+-- raised exception aborts the transaction, so without one only the first
+-- guard would ever fire.
+begin;
+  set local role postgres;
+
+  \echo '  (a) a pot and a forfeit together is refused'
+  savepoint s;
+  insert into public.bets (
+    id, group_id, creator_id, title, option_a_label, option_b_label,
+    total_pot_agorot, stake_text
+  ) values (
+    'ddddddd1-0000-4000-8000-000000000001',
+    'bbbbbbbb-0000-4000-8000-000000000000',
+    'aaaaaaaa-0000-4000-8000-000000000000',
+    'Both at once', 'Yes', 'No', 5000, 'Loser buys dinner'
+  );
+  rollback to s;
+
+  \echo '  (b) a forfeit of nothing but spaces is refused'
+  savepoint s;
+  insert into public.bets (
+    id, group_id, creator_id, title, option_a_label, option_b_label,
+    total_pot_agorot, stake_text
+  ) values (
+    'ddddddd1-0000-4000-8000-000000000002',
+    'bbbbbbbb-0000-4000-8000-000000000000',
+    'aaaaaaaa-0000-4000-8000-000000000000',
+    'Blank forfeit', 'Yes', 'No', 0, '   '
+  );
+  rollback to s;
+
+  \echo '  (c) a forfeit bet with both sides backed still resolves'
+  insert into public.bets (
+    id, group_id, creator_id, title, option_a_label, option_b_label,
+    total_pot_agorot, stake_text
+  ) values (
+    'ddddddd1-0000-4000-8000-000000000003',
+    'bbbbbbbb-0000-4000-8000-000000000000',
+    'aaaaaaaa-0000-4000-8000-000000000000',
+    'Who does the washing up', 'Me', 'You', 0, 'Loser does the washing up'
+  );
+
+  -- Both sides backed, which is precisely the shape the old guard refused.
+  insert into public.bet_positions (bet_id, user_id, option_id)
+  select 'ddddddd1-0000-4000-8000-000000000003', v.uid,
+         (select id from public.bet_options
+           where bet_id = 'ddddddd1-0000-4000-8000-000000000003' and position = v.pos)
+  from (values
+    ('aaaaaaaa-0000-4000-8000-000000000000'::uuid, 0),
+    ('00000000-0000-4000-8000-000000000001'::uuid, 1)
+  ) as v(uid, pos);
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  -- The status comes straight off what the call returns. `IS NOT NULL` on a
+  -- composite is true only when *every* column is non-null, so it would say
+  -- "this bet has a description" as much as "this returned something";
+  -- `PERFORM` is PL/pgSQL and not available here; and `limit 0` never runs
+  -- the function at all, which is how this check first passed for the wrong
+  -- reason and reported the bet still open.
+  select 'forfeit bet status' as check, status
+    from public.resolve_bet_with_entries(
+      'ddddddd1-0000-4000-8000-000000000003',
+      (select id from public.bet_options
+        where bet_id = 'ddddddd1-0000-4000-8000-000000000003' and position = 0),
+      '[]'::jsonb
+    );
+
+  \echo '  (d) and it moved no money'
+  select 'forfeit wrote ledger rows' as check, count(*) as rows
+    from public.bet_ledger_entries
+   where bet_id = 'ddddddd1-0000-4000-8000-000000000003';
+
+  \echo '  (e) a money bet with both sides backed still cannot resolve empty'
+  -- The exemption is for forfeits and nothing else. A money bet that tried to
+  -- resolve without moving the pot would be the original bug back again, so
+  -- the same shape is set up with a pot and must still be refused.
+  set local role postgres;
+  insert into public.bets (
+    id, group_id, creator_id, title, option_a_label, option_b_label, total_pot_agorot
+  ) values (
+    'ddddddd1-0000-4000-8000-000000000004',
+    'bbbbbbbb-0000-4000-8000-000000000000',
+    'aaaaaaaa-0000-4000-8000-000000000000',
+    'A money bet', 'Yes', 'No', 4000
+  );
+  insert into public.bet_positions (bet_id, user_id, option_id)
+  select 'ddddddd1-0000-4000-8000-000000000004', v.uid,
+         (select id from public.bet_options
+           where bet_id = 'ddddddd1-0000-4000-8000-000000000004' and position = v.pos)
+  from (values
+    ('aaaaaaaa-0000-4000-8000-000000000000'::uuid, 0),
+    ('00000000-0000-4000-8000-000000000001'::uuid, 1)
+  ) as v(uid, pos);
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  savepoint s;
+  select public.resolve_bet_with_entries(
+    'ddddddd1-0000-4000-8000-000000000004',
+    (select id from public.bet_options
+      where bet_id = 'ddddddd1-0000-4000-8000-000000000004' and position = 0),
+    '[]'::jsonb
+  );
+  rollback to s;
+rollback;
+
+\echo '--- 56. Resolution refuses an anonymous caller, and is not reachable by anon ---'
+-- Two defects stacked here once, and either alone would have been contained:
+-- `creator_id <> auth.uid()` is NULL when nobody is signed in, and PL/pgSQL
+-- treats a NULL IF as false, so the guard passed every anonymous caller; and
+-- the function kept EXECUTE for `anon` because its revoke named `public` only,
+-- which is a different grantee. Both halves are asserted, because fixing one
+-- and not the other still leaves a way in.
+begin;
+  -- Reachability: no function that writes the ledger may be anon-callable.
+  select 'ledger rpc anon-callable' as check, count(*) as rows
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('resolve_bet_with_entries', 'revoke_group_invite')
+     and has_function_privilege('anon', p.oid, 'execute');
+
+  -- No NULL-unsafe comparison against auth.uid() survives anywhere in the
+  -- schema. This is the class, not the instance: it is how both got written.
+  select 'null-unsafe auth.uid comparisons' as check, count(*) as rows
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.prosrc ~ '(<>|!=)\s*auth\.uid\(\)'
+     and p.proname in ('resolve_bet_with_entries', 'revoke_group_invite');
+rollback;
+
+begin;
+  -- Behaviour: the guard must refuse rather than fall through. `anon` is the
+  -- role a client holds before it signs in, and auth.uid() is NULL for it.
+  set local role postgres;
+  insert into public.bets (
+    id, group_id, creator_id, title, option_a_label, option_b_label, total_pot_agorot
+  ) values (
+    'ddddddd1-0000-4000-8000-000000000056',
+    'bbbbbbbb-0000-4000-8000-000000000000',
+    'aaaaaaaa-0000-4000-8000-000000000000',
+    'Anonymous resolution must fail', 'Yes', 'No', 1000
+  );
+
+  -- Isolate the *guard* from the grant. As `authenticated` with no subject
+  -- claim the caller holds EXECUTE but `auth.uid()` is NULL — which is exactly
+  -- the state the old `<>` comparison fell through. Going in as `anon` instead
+  -- proves only that the revoke works: the call is refused earlier, by
+  -- `can_see_bet` on the options subquery, so it never reaches this check.
+  set local role authenticated;
+  set local request.jwt.claim.sub = '';
+  savepoint s;
+  -- Expected: "Not signed in". Before the fix this resolved the bet.
+  select public.resolve_bet_with_entries(
+    'ddddddd1-0000-4000-8000-000000000056',
+    (select id from public.bet_options
+      where bet_id = 'ddddddd1-0000-4000-8000-000000000056' and position = 0),
+    '[]'::jsonb
+  );
+  rollback to s;
+
+  -- And a signed-in non-creator is still refused, which is the check's
+  -- original job and must survive the fix.
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+  savepoint s2;
+  select public.resolve_bet_with_entries(
+    'ddddddd1-0000-4000-8000-000000000056',
+    (select id from public.bet_options
+      where bet_id = 'ddddddd1-0000-4000-8000-000000000056' and position = 0),
+    '[]'::jsonb
+  );
+  rollback to s2;
+rollback;
+
+\echo '--- 57. Every seeded account can actually sign in ---'
+-- A seeded `auth.users` row is not a usable account. GoTrue resolves a password
+-- sign-in through `auth.identities`, so a user with a good password hash and no
+-- identity row is confirmed, visible, and refused at the sign-in screen with
+-- "Invalid login credentials".
+--
+-- Both seeds shipped that way, and this harness could not see it: it never
+-- signs anybody in, so an account it could query looked complete. The App
+-- Review credentials in App Store Connect were dead on arrival — "we were
+-- unable to sign in" is a rejection, not a question.
+--
+-- Asserted over whatever the seeds created rather than a fixed list, so a new
+-- seeded account is covered the day it lands.
+begin;
+  -- Scoped to accounts carrying a real bcrypt hash, which is exactly the set
+  -- somebody is expected to sign into. The fixture's own users hold the
+  -- literal 'x' and exist only so `auth.uid()` resolves and foreign keys hold;
+  -- giving them identities would model something untrue of them.
+  select 'signable accounts with no identity' as check, count(*) as rows
+    from auth.users u
+   where u.encrypted_password like '$2%'
+     and not exists (
+       select 1 from auth.identities i
+        where i.user_id = u.id and i.provider = 'email'
+     );
+
+  -- And the identity has to point at the same address as the account, or the
+  -- sign-in resolves to nothing.
+  select 'identity email disagrees with account' as check, count(*) as rows
+    from auth.users u
+    join auth.identities i on i.user_id = u.id and i.provider = 'email'
+   where lower(u.email) is distinct from i.email;
+rollback;

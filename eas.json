@@ -5,26 +5,37 @@
     "appVersionSource": "remote"
   },
   "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal",
-      "channel": "development",
-      "ios": { "simulator": true }
-    },
-    "preview": {
-      "distribution": "internal",
-      "channel": "preview"
-    },
-    "production": {
-      "distribution": "store",
-      "channel": "production",
-      "autoIncrement": true,
+    "base": {
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://ckuyggihxeedkovswjhj.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_coNqIfqnS-Z5OfP-TrL4ag_dj5OordA",
         "EXPO_PUBLIC_WEB_ORIGIN": "https://betta.weinsteinben2.workers.dev",
         "EXPO_PUBLIC_SUPPORT_EMAIL": "weinsteinben2@gmail.com"
       }
+    },
+    "development": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "ios": { "simulator": true }
+    },
+    "device": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development"
+    },
+    "preview": {
+      "extends": "base",
+      "distribution": "internal",
+      "channel": "preview"
+    },
+    "production": {
+      "extends": "base",
+      "distribution": "store",
+      "channel": "production",
+      "autoIncrement": true
     }
   },
   "submit": {

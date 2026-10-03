@@ -58,14 +58,34 @@ function redirectTo(): string {
   return `${linkTargets().scheme}://`;
 }
 
-/** Whether the native Apple sheet can be shown at all. iOS 13+, iOS only. */
+/**
+ * Whether the native Apple sheet can be shown at all. iOS 13+, iOS only.
+ *
+ * **On iOS this does not ask, it asserts.** Guideline 4.8 requires an app
+ * offering a third-party login to also offer Sign in with Apple, so a screen
+ * showing Google alone is not a degraded experience — it is an automatic
+ * rejection. The button has to be there.
+ *
+ * It used to call `isAvailableAsync` and fail open in a `catch`, which does not
+ * work and hid the button on a real device. **`isAvailableAsync` returns
+ * `false` rather than throwing when the native module is missing** — Expo
+ * checks for the module and bails before reaching the native call — so the
+ * `catch` never ran and the one case worth surviving was the one that silently
+ * removed the button.
+ *
+ * There is no legitimate `false` on iOS. Sign in with Apple ships on every iOS
+ * 13+ device and this app's deployment target is far above that, so the only
+ * answers the call can give are "yes" and "this build is broken". The second is
+ * a build problem, and the cost of the two ways of reporting it is wildly
+ * uneven: a visible button that errors when tapped is diagnosable in seconds,
+ * while a missing button looks like a design decision and ships.
+ *
+ * Off iOS it stays false: Apple's *web* OAuth flow needs a service ID and key
+ * this project does not have, so the button there would fail at the
+ * destination with no way back.
+ */
 export async function appleSignInAvailable(): Promise<boolean> {
-  if (Platform.OS !== 'ios') return false;
-  try {
-    return await AppleAuthentication.isAvailableAsync();
-  } catch {
-    return false;
-  }
+  return Platform.OS === 'ios';
 }
 
 export interface OAuthResult {

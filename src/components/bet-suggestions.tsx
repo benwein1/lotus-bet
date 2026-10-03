@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 
-import { GroupGlyph } from '@/components/group-glyph';
+import { GroupFace } from '@/components/group-face';
 import { PlusIcon, SparkIcon } from '@/components/icons';
 import { Button, PressableScale, tap } from '@/components/ui';
 import { DEFAULT_CURRENCY, asCurrency, formatMoney } from '@/lib/currency';
@@ -143,13 +143,7 @@ export function BetSuggestions({
                 index === groups.length - 1 ? '' : 'border-b border-hairline'
               }`}
             >
-              <GroupGlyph
-                emoji={group.emoji}
-                avatarUrl={group.avatar_url}
-                name={group.name}
-                size={34}
-                radius={11}
-              />
+              <GroupFace avatarUrl={group.avatar_url} size={34} radius={11} />
               <Text numberOfLines={1} className="flex-1 text-base text-primary">
                 {group.name}
               </Text>

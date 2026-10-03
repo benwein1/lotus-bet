@@ -113,8 +113,6 @@ export default function DeleteAccountScreen() {
                   person ended up owing, and your friends&apos; balances are worked out from
                   those lines. Removing yours would quietly change what{' '}
                   <Text className="font-semibold text-primary">they</Text> owe each other.
-                  Settle up with them the way you normally would — the app has never held
-                  any money.
                 </Text>
               </View>
 

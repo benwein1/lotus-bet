@@ -77,11 +77,10 @@ export default function SignInScreen() {
   return (
     <AuthShell
       title="Settle it."
-      // Says what the app is for and what it pointedly is not, in one breath.
       // "Keeps score" rather than "place bets": this is a scoreboard between
       // friends, not a sportsbook, and the first sentence is where that has to
       // be unmistakable.
-      subtitle="Bet your friends on anything. Betta keeps score and remembers who owes whom — you settle up however you already do."
+      subtitle="Bet your friends on anything. Betta keeps score and remembers who owes whom."
       showDemoEntry={DEMO_AVAILABLE}
       footer={
         <View className="w-full gap-4">

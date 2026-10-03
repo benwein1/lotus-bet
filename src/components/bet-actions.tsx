@@ -33,6 +33,7 @@ export function BetActions({
   onMedia = false,
   onPressShare,
   size = 'md',
+  gap = 20,
 }: {
   liked: boolean;
   likeCount: number;
@@ -49,6 +50,11 @@ export function BetActions({
   /** Opens the OS share sheet. Omitted where a bet has no shareable link. */
   onPressShare?: () => void;
   size?: 'sm' | 'md';
+  /**
+   * Space between the three controls. The feed sets them 20 apart and the bet
+   * screen 16, because there the row shares a line with the pot.
+   */
+  gap?: 16 | 20;
 }) {
   const colors = useColors();
   const reduced = useReducedMotion();
@@ -69,7 +75,9 @@ export function BetActions({
   const pop = useSharedValue(1);
   const heartStyle = useAnimatedStyle(() => ({ transform: [{ scale: pop.value }] }));
 
-  const iconSize = size === 'sm' ? 20 : 24;
+  // 22, not 24: the board's glyph. At 24 the row was visibly heavier than
+  // the 13pt counts beside it.
+  const iconSize = size === 'sm' ? 20 : 22;
   const label = onMedia ? 'text-on-media-soft' : 'text-secondary';
   const restingColor = onMedia ? colors.onMediaSoft : colors.textSecondary;
 
@@ -97,7 +105,7 @@ export function BetActions({
   }
 
   return (
-    <View className="flex-row items-center gap-5">
+    <View className={`flex-row items-center ${gap === 16 ? 'gap-4' : 'gap-5'}`}>
       <PressableScale
         onPress={() => void toggle()}
         hitSlop={10}

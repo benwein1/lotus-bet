@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import Animated, { FadeIn } from '@/components/animated';
 
-import { GroupGlyph } from '@/components/group-glyph';
+import { GroupFace } from '@/components/group-face';
 import { ContentWidth, Screen } from '@/components/screen';
 import { Button, ErrorNotice, Loading } from '@/components/ui';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -101,12 +101,7 @@ export default function JoinByLinkScreen() {
             </Animated.View>
           ) : group ? (
             <Animated.View entering={reduced ? undefined : FadeIn} className="items-center gap-5">
-              <GroupGlyph
-                name={group.name}
-                emoji={group.emoji}
-                avatarUrl={group.avatar_url ?? null}
-                size={84}
-              />
+              <GroupFace avatarUrl={group.avatar_url ?? null} size={84} radius={26} />
               <View className="items-center gap-1.5">
                 <Text className="text-center text-2xl font-bold text-primary">
                   You&apos;re in

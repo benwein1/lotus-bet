@@ -159,6 +159,9 @@ function RootNavigator() {
       <Stack.Screen name="bet/[id]" options={{ title: '' }} />
       {/* Pushed rather than presented as a sheet: it is a decision with a lot
           to read, and a sheet invites dismissing it by reflex. */}
+      {/* Pushed rather than a tab, so it takes the whole screen with no
+          bar floating over it: there is one way back and it is at the top. */}
+      <Stack.Screen name="settings" options={{ title: 'Settings' }} />
       <Stack.Screen name="delete-account" options={{ title: 'Delete account' }} />
       {/* Guideline 1.2 wants the rules and a contact published, and 5.1.1 wants
           the privacy policy reachable from inside the app. These render text
