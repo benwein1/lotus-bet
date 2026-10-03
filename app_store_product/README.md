@@ -60,6 +60,12 @@ and what you still have to check.
 ### `07-build-and-submit/commands.md` — t06, t07, t15, t17, t35
 Every command in order, with what each one does and what to expect.
 
+### `08-apple-sign-in/SETUP.md` — t10, t12, t19
+The Guideline 4.8 blocker, start to finish: two clicks in Apple Developer, three
+fields in Supabase, and how to prove it worked. **The code is already done** —
+this is configuration only. It also decodes the two failure messages, so a typo
+in one field does not read as an app bug.
+
 ---
 
 ## Four things I could not do from here, and why

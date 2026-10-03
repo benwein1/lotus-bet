@@ -10,14 +10,14 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.betta.app",
+      "bundleIdentifier": "app.betta.mobile",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
       "usesAppleSignIn": true
     },
     "android": {
-      "package": "com.betta.app",
+      "package": "app.betta.mobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
@@ -26,6 +26,7 @@
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
+        "android.permission.RECORD_AUDIO",
         "android.permission.RECORD_AUDIO"
       ]
     },
@@ -80,6 +81,12 @@
         "projectId": "3eff8fde-c944-4da9-b957-c0973933adbf"
       }
     },
-    "owner": "benben9611"
+    "owner": "benben9611",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/3eff8fde-c944-4da9-b957-c0973933adbf"
+    }
   }
 }
