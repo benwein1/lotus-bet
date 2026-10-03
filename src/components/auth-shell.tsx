@@ -9,7 +9,6 @@ import Animated, {
   withSpring,
 } from '@/components/animated';
 
-import { DemoEntry } from '@/components/demo-entry';
 import { AppMark, WordmarkGlow } from '@/components/app-mark';
 import { ContentWidth, Screen } from '@/components/screen';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -51,15 +50,12 @@ export function AuthShell({
    * avatar, because by then the thing being introduced is them, not the app.
    */
   hero,
-  /** Shown under the disclaimer in development only. */
-  showDemoEntry = false,
 }: {
   title: string;
   subtitle: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
   hero?: React.ReactNode;
-  showDemoEntry?: boolean;
 }) {
   const reduced = useReducedMotion();
 
@@ -126,15 +122,17 @@ export function AuthShell({
                     over, which is the whole reason this shell exists. It also
                     sits outside `markStyle`, so the keyboard shrinking the mark
                     does not shrink the light around it. */}
-                <Animated.View style={markStyle} className="mb-6">
-                  <View
-                    pointerEvents="none"
-                    className="absolute inset-0 items-center justify-center"
-                  >
-                    <WordmarkGlow width={HALO.width} height={HALO.height} />
-                  </View>
-                  {hero ?? <AppMark size={84} />}
-                </Animated.View>
+                <View className="mb-6">
+                  <Animated.View style={markStyle}>
+                    <View
+                      pointerEvents="none"
+                      className="absolute inset-0 items-center justify-center"
+                    >
+                      <WordmarkGlow width={HALO.width} height={HALO.height} />
+                    </View>
+                    {hero ?? <AppMark size={84} />}
+                  </Animated.View>
+                </View>
 
                 {/* Large Title, centred, with the tight tracking the scale
                     already applies at this size. One statement, not a slogan
@@ -152,7 +150,6 @@ export function AuthShell({
 
               <View className="mt-10 items-center gap-5">
                 {footer}
-                {showDemoEntry && <DemoEntry />}
               </View>
             </ContentWidth>
           </ScrollView>

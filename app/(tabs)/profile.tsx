@@ -6,7 +6,6 @@ import Animated, { FadeIn, FadeInDown } from '@/components/animated';
 
 import { AvatarPicker } from '@/components/avatar-picker';
 import { BetGrid } from '@/components/bet-grid';
-import { DemoBadge } from '@/components/demo-entry';
 import { SettingsIcon } from '@/components/icons';
 import { NetChart } from '@/components/net-chart';
 import { ContentWidth, Screen } from '@/components/screen';
@@ -150,7 +149,6 @@ export default function ProfileScreen() {
         >
           <ContentWidth>
             <View className="h-11 flex-row items-center justify-end gap-3 pt-1">
-              <DemoBadge />
               <PressableScale
                 accessibilityRole="button"
                 accessibilityLabel="Settings"

@@ -4,7 +4,6 @@ import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 
 import type { UserRow } from '@/lib/database.types';
-import { demo, demoProfile, demoSession, disableDemoMode, enableDemoMode, isDemoMode } from '@/lib/demo';
 import { passwordResetRedirectTo } from '@/lib/invites';
 import { clearMediaCache } from '@/lib/media';
 import { registerForPushNotifications } from '@/lib/notifications';
@@ -90,9 +89,6 @@ interface AuthContextValue {
   ) => Promise<void>;
   refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
-  /** TEMPORARY: sign in against in-memory data, with no backend. */
-  enterDemo: (fresh?: boolean) => void;
-  demo: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -109,7 +105,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => Boolean(openedWithUrl && isRecoveryRedirect(openedWithUrl))
   );
   const [loading, setLoading] = useState(true);
-  const [demoActive, setDemoActive] = useState(false);
 
   const loadProfile = useCallback(async (userId: string) => {
     // Named columns, never `*`. `email`, `phone` and `expo_push_token` are
@@ -130,7 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || isDemoMode()) {
+    if (!isSupabaseConfigured) {
       setLoading(false);
       return;
     }
@@ -188,7 +183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // redirect gate would otherwise get a frame in which it drops you on the
   // feed, which is the exact bug this flow exists to fix.
   useEffect(() => {
-    if (Platform.OS === 'web' || !isSupabaseConfigured || isDemoMode()) return;
+    if (Platform.OS === 'web' || !isSupabaseConfigured) return;
 
     let active = true;
 
@@ -217,7 +212,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!session?.user.id || isDemoMode()) return;
+    if (!session?.user.id) return;
     void loadProfile(session.user.id);
     // Terms acceptance is recorded *here*, on any session that arrives without
     // one, rather than inside the sign-in button's handler.
@@ -247,29 +242,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       profile,
       recovering,
       loading,
-      demo: demoActive,
       needsProfileSetup:
-        !demoActive && Boolean(session) && Boolean(profile) && !profileIsComplete(profile!),
+        Boolean(session) && Boolean(profile) && !profileIsComplete(profile!),
       needsAgeCheck:
-        !demoActive &&
         Boolean(session) &&
         Boolean(profile) &&
         profile!.age_verified_at !== undefined &&
         profile!.age_verified_at === null,
 
       async confirmAge(dateOfBirth: string) {
-        if (demoActive) return;
         await confirmMinimumAge(dateOfBirth);
         // The gate reads `profile`, so it stays shut until this lands.
         if (session) await loadProfile(session.user.id);
-      },
-
-      enterDemo(fresh = false) {
-        enableDemoMode(fresh);
-        setSession(demoSession as unknown as Session);
-        setProfile(demoProfile);
-        setDemoActive(true);
-        setLoading(false);
       },
 
       async signIn(email: string, password: string) {
@@ -391,12 +375,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
 
       async updatePassword(password: string) {
-        // Demo mode has no GoTrue to talk to. Pretend it worked and release the
-        // latch, so the screen can be walked without a project behind it.
-        if (demoActive) {
-          setRecovering(false);
-          return;
-        }
         const { error } = await supabase.auth.updateUser({ password });
         if (error) throw new Error(friendlyAuthError(error.message));
         // The session is already signed in at full strength — recovery only
@@ -405,10 +383,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
 
       async updateProfile(patch) {
-        if (demoActive) {
-          setProfile(await demo.updateProfile(patch));
-          return;
-        }
         if (!session?.user.id) throw new Error('Not signed in.');
 
         // A display name is the one piece of text that follows you onto every
@@ -452,10 +426,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
 
       async refreshProfile() {
-        if (demoActive) {
-          setProfile(demo.currentProfile());
-          return;
-        }
         if (session?.user.id) await loadProfile(session.user.id);
       },
 
@@ -469,18 +439,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // count of bets they cannot see.
         clearAttentionCount();
 
-        if (demoActive) {
-          disableDemoMode();
-          setDemoActive(false);
-          setSession(null);
-          setProfile(null);
-          return;
-        }
         await supabase.auth.signOut();
         setProfile(null);
       },
     }),
-    [session, profile, loading, demoActive, loadProfile, recovering]
+    [session, profile, loading, loadProfile, recovering]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

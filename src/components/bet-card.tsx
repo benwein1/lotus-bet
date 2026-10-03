@@ -511,12 +511,28 @@ function OptionPick({
   onPress: () => void;
 }) {
   const scheme = useScheme();
+  const colors = useColors();
   const color = optionColor(index, count, scheme, onMedia);
   // The first side is filled and the rest are outlined on their own soft
   // ground. It is not a selected state — it is the shape the board draws,
   // and it gives the row a weight on the side the question is phrased from.
   const filled = index === 0;
   const ink = scheme === 'dark' ? '#00190C' : '#FFFFFF';
+
+  // The whole box — size, radius, border and fill — is one object on one
+  // layer. `PressableScale` puts `style` on the pressable it springs and
+  // `className` on the view inside it, so a border declared here with a
+  // radius declared in a class drew a square rule around a rounded fill. The
+  // inner view keeps the content layout and nothing else.
+  const box = {
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: filled ? color : index === 1 ? colors.sideBSoft : colors.surface2,
+    borderColor: color,
+    borderWidth: selected ? 2 : filled ? 0 : 1,
+    flexBasis: count === 2 ? 0 : ('47%' as const),
+    flexGrow: 1,
+  };
 
   return (
     <PressableScale
@@ -526,16 +542,10 @@ function OptionPick({
       accessibilityRole="button"
       accessibilityState={{ selected, busy }}
       accessibilityLabel={selected ? `Withdraw from ${label}` : `Back ${label}`}
-      style={{
-        backgroundColor: filled ? color : undefined,
-        borderColor: color,
-        borderWidth: selected ? 2 : filled ? 0 : 1,
-        flexBasis: count === 2 ? 0 : '47%',
-        flexGrow: 1,
-      }}
-      className={`h-12 items-center justify-center rounded-[14px] px-3 ${
-        filled ? '' : index === 1 ? 'bg-sideB-soft' : 'bg-surface2'
-      } ${busy ? 'opacity-60' : ''}`}
+      style={box}
+      className={`h-full w-full items-center justify-center px-3 ${
+        busy ? 'opacity-60' : ''
+      }`}
     >
       <Text
         numberOfLines={1}

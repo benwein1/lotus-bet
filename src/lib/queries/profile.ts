@@ -12,7 +12,6 @@ import type {
   MyStatsRow,
   PersonBalance,
 } from '../database.types';
-import { demo, isDemoMode } from '../demo';
 import { asCurrency, type Currency } from '../currency';
 import { isMissingFunction } from '../postgrest';
 import { personBalances, type BalanceLine } from '../settlement';
@@ -32,7 +31,6 @@ import { BET_SELECT, attachSignedMedia } from './bets';
  * disagree, which they would within a week if this were reimplemented in SQL.
  */
 export async function fetchMyPersonBalances(userId: string): Promise<PersonBalance[]> {
-  if (isDemoMode()) return demo.fetchMyPersonBalances(userId);
 
   const { data, error } = await supabase.rpc('my_group_balances');
   if (error) throw new Error(error.message);
@@ -105,7 +103,6 @@ export interface HistoryEntry {
 }
 
 export async function fetchMyHistory(userId: string): Promise<HistoryEntry[]> {
-  if (isDemoMode()) return demo.fetchMyHistory(userId);
   const data = await withGroupColumnFallback((extras) =>
     supabase
       .from('bet_ledger_entries')
@@ -141,7 +138,6 @@ export async function fetchMyBets(
   userId: string,
   limit = MY_BETS_PAGE
 ): Promise<BetWithPositions[]> {
-  if (isDemoMode()) return demo.fetchMyBets(userId, limit);
 
   const { data, error } = await supabase
     .from('bets')
@@ -169,7 +165,6 @@ export async function fetchBetsIJoined(
   userId: string,
   limit = MY_BETS_PAGE
 ): Promise<BetWithPositions[]> {
-  if (isDemoMode()) return demo.fetchBetsIJoined(userId, limit);
 
   const positions = await supabase
     .from('bet_positions')
@@ -220,7 +215,6 @@ export async function fetchFeedComments(
 ): Promise<Map<string, FeedComment[]>> {
   const grouped = new Map<string, FeedComment[]>();
   if (betIds.length === 0) return grouped;
-  if (isDemoMode()) return demo.fetchFeedComments(betIds);
 
   const { data, error } = await supabase
     .from('bet_comments')
@@ -243,7 +237,6 @@ export async function fetchFeedComments(
 }
 
 export async function fetchMyStats(): Promise<MyStatsRow | null> {
-  if (isDemoMode()) return demo.fetchMyStats();
   const { data, error } = await supabase.rpc('my_stats');
   if (error) throw new Error(error.message);
 
@@ -275,7 +268,6 @@ export interface CurrencyTotal {
  * necessarily has.
  */
 export async function fetchMyTotalsByCurrency(): Promise<CurrencyTotal[]> {
-  if (isDemoMode()) return demo.fetchMyTotalsByCurrency();
 
   const { data, error } = await supabase.rpc('my_totals_by_currency');
   if (error) {
@@ -300,7 +292,6 @@ export async function fetchMyTotalsByCurrency(): Promise<CurrencyTotal[]> {
 
 /** The signed results the resolve-bet function wrote for one bet. */
 export async function fetchBetLedger(betId: string): Promise<BetLedgerEntryRow[]> {
-  if (isDemoMode()) return demo.fetchBetLedger(betId);
   const { data, error } = await supabase
     .from('bet_ledger_entries')
     .select('*')

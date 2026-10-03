@@ -10,7 +10,6 @@ import type {
   GroupRow,
   UserRow,
 } from '../database.types';
-import { demo, isDemoMode } from '../demo';
 import { DEFAULT_CURRENCY, type Currency } from '../currency';
 import { announceGroupJoin } from '../notifications';
 import { prepareContent } from '../content-rules';
@@ -50,7 +49,6 @@ export interface GroupWithMembers extends GroupRow {
  * no second list — the screen groups them under their own heading.
  */
 export async function fetchMyGroups(): Promise<GroupWithMembers[]> {
-  if (isDemoMode()) return demo.fetchMyGroups();
   const { data, error } = await supabase
     .from('groups')
     .select(`*, members:group_members(*, user:users(${USER_PUBLIC_COLUMNS}))`)
@@ -62,7 +60,6 @@ export async function fetchMyGroups(): Promise<GroupWithMembers[]> {
 
 /** Every group including duels — what the Profile ledger needs to name them. */
 export async function fetchAllMyGroups(): Promise<GroupWithMembers[]> {
-  if (isDemoMode()) return demo.fetchAllMyGroups();
   const { data, error } = await supabase
     .from('groups')
     .select(`*, members:group_members(*, user:users(${USER_PUBLIC_COLUMNS}))`)
@@ -73,7 +70,6 @@ export async function fetchAllMyGroups(): Promise<GroupWithMembers[]> {
 }
 
 export async function fetchGroup(groupId: string): Promise<GroupWithMembers> {
-  if (isDemoMode()) return demo.fetchGroup(groupId);
   return unwrap(
     await supabase
       .from('groups')
@@ -94,7 +90,6 @@ export async function createGroup(
   const checked = prepareContent(name, { strict: true });
   if (!checked.ok) throw new Error(checked.message);
 
-  if (isDemoMode()) return demo.createGroup(checked.text, emoji, currency);
   return unwrap(
     await supabase
       .rpc('create_group', { p_name: checked.text, p_emoji: emoji, p_currency: currency })
@@ -111,7 +106,6 @@ export async function updateGroupAvatar(
   groupId: string,
   avatarUrl: string | null
 ): Promise<GroupRow> {
-  if (isDemoMode()) return demo.updateGroupAvatar(groupId, avatarUrl);
 
   const { data, error } = await supabase
     .from('groups')
@@ -134,7 +128,6 @@ export async function updateGroupAvatar(
 }
 
 export async function joinGroupWithCode(code: string): Promise<GroupRow> {
-  if (isDemoMode()) return demo.joinGroupWithCode(code);
   const group = unwrap(
     await supabase.rpc('join_group_with_code', { p_code: code }).single()
   ) as GroupRow;
@@ -153,20 +146,17 @@ export async function joinGroupWithCode(code: string): Promise<GroupRow> {
  * two devices would make two links. See `create_group_invite`.
  */
 export async function createGroupInvite(groupId: string): Promise<GroupInviteRow> {
-  if (isDemoMode()) return demo.createGroupInvite(groupId);
   return unwrap(
     await supabase.rpc('create_group_invite', { p_group_id: groupId }).single()
   ) as GroupInviteRow;
 }
 
 export async function revokeGroupInvite(token: string): Promise<void> {
-  if (isDemoMode()) return demo.revokeGroupInvite(token);
   const { error } = await supabase.rpc('revoke_group_invite', { p_token: token });
   if (error) throw new Error(error.message);
 }
 
 export async function joinGroupWithInvite(token: string): Promise<GroupRow> {
-  if (isDemoMode()) return demo.joinGroupWithInvite(token);
   const group = unwrap(
     await supabase.rpc('join_group_with_invite', { p_token: token }).single()
   ) as GroupRow;
@@ -179,7 +169,6 @@ export async function joinGroupWithInvite(token: string): Promise<GroupRow> {
 }
 
 export async function leaveGroup(groupId: string, userId: string): Promise<void> {
-  if (isDemoMode()) return demo.leaveGroup(groupId, userId);
   const { error } = await supabase
     .from('group_members')
     .delete()

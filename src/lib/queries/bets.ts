@@ -11,7 +11,6 @@ import type {
   BetRow,
   BetWithPositions,
 } from '../database.types';
-import { demo, isDemoMode } from '../demo';
 import { orderFeed } from '../feed-order';
 import { discardUploads, signMedia, uploadBetMedia, type PickedMedia } from '../media';
 import { announceBetResolved, announceNewBet } from '../notifications';
@@ -149,15 +148,6 @@ export async function fetchGroupBets(
   groupId: string,
   pastLimit = GROUP_HISTORY_PAGE
 ): Promise<GroupBets> {
-  if (isDemoMode()) {
-    const all = await demo.fetchGroupBets(groupId);
-    return splitGroupBets(
-      all.filter((bet) => bet.status !== 'resolved' && bet.status !== 'cancelled'),
-      all.filter((bet) => bet.status === 'resolved' || bet.status === 'cancelled'),
-      pastLimit
-    );
-  }
-
   const [live, past] = await Promise.all([
     supabase
       .from('bets')
@@ -204,7 +194,6 @@ function splitGroupBets(
 
 /** Every bet across every group the user is in — the Home feed's raw input. */
 export async function fetchFeedBets(userId?: string): Promise<BetWithPositions[]> {
-  if (isDemoMode()) return demo.fetchFeedBets();
   // One extra round trip for the block list, in parallel with the feed itself
   // rather than before it. See `blockedIds` for why this filter lives here and
   // not in a policy.
@@ -236,7 +225,6 @@ export async function fetchFeedBets(userId?: string): Promise<BetWithPositions[]
 }
 
 export async function fetchBet(betId: string): Promise<BetDetail> {
-  if (isDemoMode()) return demo.fetchBet(betId) as unknown as Promise<BetDetail>;
   const bet = (await withGroupColumnFallback((extras) =>
     supabase.from('bets').select(betDetailSelect(extras)).eq('id', betId).single()
   )) as unknown as BetDetail;
@@ -277,10 +265,6 @@ export const MIN_BET_OPTIONS = 2;
 export const MAX_BET_OPTIONS = 8;
 
 export async function createBet(input: NewBetInput): Promise<BetRow> {
-  // The filter runs before the demo short-circuit, for the same reason it does
-  // in `postBetComment`: demo mode must never be more permissive than the real
-  // backend.
-  //
   // The title is a question everybody in the group reads, and the option
   // labels sit on the buttons they press, so both go through the filter. The
   // description is speech and gets the ordinary threshold.
@@ -313,16 +297,6 @@ export async function createBet(input: NewBetInput): Promise<BetRow> {
   }
   if (labels.length < MIN_BET_OPTIONS) {
     throw new Error('A bet needs at least two options.');
-  }
-
-  if (isDemoMode()) {
-    return demo.createBet({
-      ...input,
-      title: checkedTitle.text,
-      description: checkedDescription,
-      stakeText: checkedStake,
-      optionLabels: labels,
-    });
   }
 
   // The first two labels go on the bet row, where they always have. A trigger
@@ -478,19 +452,16 @@ export async function addBetProof(
   existingProofCount = 0
 ): Promise<void> {
   if (media.length === 0) return;
-  if (isDemoMode()) return demo.addBetProof(bet.id, media, existingProofCount);
   await attachMediaToBet(bet, media, uploaderId, 'proof', existingProofCount);
 }
 
 export async function deleteBetMedia(mediaId: string): Promise<void> {
-  if (isDemoMode()) return demo.deleteBetMedia(mediaId);
   const { error } = await supabase.from('bet_media').delete().eq('id', mediaId);
   if (error) throw new Error(error.message);
 }
 
 /** Back one of a bet's options. Switching sides is the same call. */
 export async function joinBetOption(betId: string, optionId: string): Promise<void> {
-  if (isDemoMode()) return demo.joinBetOption(betId, optionId);
   const { error } = await supabase.rpc('join_bet_option', {
     p_bet_id: betId,
     p_option_id: optionId,
@@ -499,19 +470,16 @@ export async function joinBetOption(betId: string, optionId: string): Promise<vo
 }
 
 export async function leaveBet(betId: string): Promise<void> {
-  if (isDemoMode()) return demo.leaveBet(betId);
   const { error } = await supabase.rpc('leave_bet', { p_bet_id: betId });
   if (error) throw new Error(error.message);
 }
 
 export async function lockBet(betId: string): Promise<void> {
-  if (isDemoMode()) return demo.lockBet(betId);
   const { error } = await supabase.rpc('lock_bet', { p_bet_id: betId });
   if (error) throw new Error(error.message);
 }
 
 export async function cancelBet(betId: string): Promise<void> {
-  if (isDemoMode()) return demo.cancelBet(betId);
   const { error } = await supabase.rpc('cancel_bet', { p_bet_id: betId });
   if (error) throw new Error(error.message);
 }
@@ -544,7 +512,6 @@ export async function resolveBet(
   betId: string,
   winningOptionId: string
 ): Promise<ResolveBetResult> {
-  if (isDemoMode()) return demo.resolveBet(betId, winningOptionId);
 
   // Read the bet back rather than trusting what the screen is holding: the
   // ledger is written from these positions, so they have to be the current

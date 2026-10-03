@@ -845,7 +845,7 @@ function OptionCard({
   );
 
   // Two fill the row; three or more take half and wrap.
-  const sizing = { flexBasis: count === 2 ? 0 : '47%' as const, flexGrow: 1 };
+  const sizing = { flexBasis: count === 2 ? 0 : ('47%' as const), flexGrow: 1 };
 
   if (!pressable) {
     return (
@@ -875,16 +875,24 @@ function OptionCard({
       // The side you are on is outlined *and* filled, in its own colour: a
       // 2pt rule alone over the same ground as the other square read as a
       // focus ring rather than as a choice already made.
+      //
+      // The whole box lives in this one object, radius included.
+      // `PressableScale` puts `style` on the pressable and `className` on the
+      // view inside it, so a border here with a radius in a class drew a
+      // square rule around a rounded card.
       style={{
         ...sizing,
+        height: 114,
+        borderRadius: 18,
         borderWidth: selected ? 2 : 1,
-        ...(selected
-          ? { borderColor: color, backgroundColor: optionSoftColor(index, count, scheme) }
-          : null),
+        borderColor: selected ? color : colors.hairline,
+        backgroundColor: selected
+          ? optionSoftColor(index, count, scheme)
+          : colors.surface,
       }}
-      className={`h-[114px] rounded-[18px] px-[15px] pb-[13px] pt-[15px] ${
-        selected ? '' : 'border-hairline bg-surface'
-      } ${disabled ? 'opacity-50' : ''}`}
+      className={`h-full w-full px-[15px] pb-[13px] pt-[15px] ${
+        disabled ? 'opacity-50' : ''
+      }`}
     >
       {body}
     </PressableScale>

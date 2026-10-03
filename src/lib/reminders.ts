@@ -18,7 +18,6 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-import { isDemoMode } from './demo';
 import type { BetWithPositions } from './database.types';
 import { dueReminders, reminderBody, type ReminderBet } from './reminder-rules';
 
@@ -46,15 +45,15 @@ export function toReminderBet(bet: BetWithPositions, userId: string | null): Rem
 /**
  * Rebuild the scheduled reminders to match `bets`.
  *
- * Silent about everything: no permission, no device, demo mode, a platform
- * without local notifications — all no-ops. A missed reminder is a small loss;
+ * Silent about everything: no permission, no device, a platform without
+ * local notifications — all no-ops. A missed reminder is a small loss;
  * an error thrown into a feed refresh is a bigger one.
  */
 export async function syncDeadlineReminders(
   bets: ReminderBet[],
   enabled: boolean
 ): Promise<number> {
-  if (Platform.OS === 'web' || isDemoMode()) return 0;
+  if (Platform.OS === 'web') return 0;
 
   try {
     await cancelDeadlineReminders();
@@ -86,7 +85,7 @@ export async function syncDeadlineReminders(
 
 /** Drop every reminder this module scheduled, leaving anything else alone. */
 export async function cancelDeadlineReminders(): Promise<void> {
-  if (Platform.OS === 'web' || isDemoMode()) return;
+  if (Platform.OS === 'web') return;
   try {
     const scheduled = await Notifications.getAllScheduledNotificationsAsync();
     await Promise.all(

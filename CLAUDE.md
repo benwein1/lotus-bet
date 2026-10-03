@@ -1386,58 +1386,56 @@ causes, both now guarded in `src/hooks/use-group-realtime.ts`:
 
 ---
 
-## 8. TEMPORARY: offline demo mode
+## 8. Offline demo mode — removed
 
-`src/lib/demo.ts` is an in-memory fake of the whole backend, so the app can be
-opened and clicked through with no Supabase project, no email provider and no
-network. The way in is a small "Skip sign-in, use demo data" button on the
-sign-in screen and on the setup screen (`src/components/demo-entry.tsx`).
+`src/lib/demo.ts` was an in-memory fake of the whole backend, reached by a
+"Skip sign-in, use demo data" button and gated on `DEMO_AVAILABLE` (`__DEV__`,
+or an explicit `EXPO_PUBLIC_ENABLE_DEMO=1`). **It is deleted** — both files,
+and every `isDemoMode` guard in `src/lib/queries/`, `notifications.ts`,
+`reminders.ts`, `use-group-realtime.ts` and the auth provider.
 
-It is scaffolding, not a feature. Three properties keep it honest:
+It went because the gate had already failed once. Metro inlines
+`process.env.EXPO_PUBLIC_*` as literals and *caches* them, so an export run
+after a demo export inherited `"1"` and shipped the button — and the variable
+name was nowhere in the output, because the value was folded in rather than the
+name. Grepping the bundle found nothing; the only honest check was a human
+loading the built page and looking for the button. A gate that has failed, that
+grep cannot see, and that only a person can check is not a gate, so the code is
+gone instead.
 
-- The entry point renders only when `DEMO_AVAILABLE` — `__DEV__`, or an
-  explicit `EXPO_PUBLIC_ENABLE_DEMO=1` for testing an exported bundle.
-
-  **It reached a deployable build once, so this is not automatic.** Metro
-  inlines `process.env.EXPO_PUBLIC_*` as literals and *caches them*, so an
-  export run after any demo export inherits `"1"` and ships the "Skip sign-in"
-  button — with the variable itself nowhere in the output, because the value
-  was folded in, not the name. Grepping the bundle for the flag finds nothing;
-  grepping for the button's text always finds it, because the component is
-  imported either way. The only honest check is to load the built page and look
-  for the button. `build:web` therefore passes `--clear`, and any deploy path
-  must keep doing so.
-- Resolving a bet runs the real `computeBetPayouts`, so the demo cannot drift
-  into a second implementation of the money maths.
-- Demo media is inlined as SVG data URIs rather than fetched, so the offline
-  claim stays true.
-
-**To remove it:** delete `src/lib/demo.ts` and `src/components/demo-entry.tsx`,
-then grep for `isDemoMode`, `DemoEntry` and `DemoBadge` — every call site is a
-one-line guard.
+What that costs is §9: the screenshot loop below used demo mode to walk the app
+without a project, and it cannot any more. §9 says what is left.
 
 ---
 
 ## 9. How to verify UI work without a backend
 
-There is no committed E2E harness. This loop has found several real bugs and
-is worth rebuilding whenever doing design work:
+There is no committed E2E harness, and with demo mode gone (§8) **there is no
+longer any way to walk a signed-in screen without a real project.** Be honest
+about which half of the loop you are in:
 
-1. Export with demo mode and a placeholder project, so the sign-in screen
-   renders and the demo button is available:
+- **Pre-sign-in screens** — sign-in, sign-up, profile setup, reset-password,
+  the legal pages — still walk with nothing but a placeholder project, because
+  they render before any query runs. That is most of the auth work.
+- **Everything behind the gate** needs a real Supabase project with seeded
+  data (`supabase/seed/test_members.sql`), or a device.
+
+Either way the loop below is what has found real bugs and is worth rebuilding
+whenever doing design work:
+
+1. Export against a placeholder project, so the sign-in screen renders:
 
    ```bash
-   EXPO_PUBLIC_ENABLE_DEMO=1 \
    EXPO_PUBLIC_SUPABASE_URL=https://demo.supabase.co \
    EXPO_PUBLIC_SUPABASE_ANON_KEY=demo-anon-key \
-   npx expo export --platform web --output-dir /tmp/web-demo
+   npx expo export --platform web --output-dir /tmp/web-check
    ```
 
-   Metro caches the inlined `process.env.EXPO_PUBLIC_*` values — if a flag
+   Metro caches the inlined `process.env.EXPO_PUBLIC_*` values — if one
    doesn't take, re-export with `--clear`.
 
 2. Serve it with SPA fallback so deep links resolve:
-   `npx http-server /tmp/web-demo -p 8124 -P "http://127.0.0.1:8124?"`
+   `npx http-server /tmp/web-check -p 8124 -P "http://127.0.0.1:8124?"`
 3. Drive it with Playwright (Chromium is preinstalled under
    `/opt/pw-browsers/`; use `--no-sandbox`), with `colorScheme: 'light'` and
    `'dark'` contexts so **both schemes** get walked.
@@ -1453,7 +1451,7 @@ warnings**, so reading the console of one proves nothing about them. The
 `transform-origin` error on the animated mark printed on every `npm start` and
 on no export, which is how a mark whose petals pivoted around the wrong point
 survived several screenshot passes. A console check has to run against
-`expo start`, not against `/tmp/web-demo`.
+`expo start`, not against `/tmp/web-check`.
 
 `react-native-svg` writes `transform-origin` itself, from any of `origin`,
 `originX` and `originY` (`web/utils/prepare.js`), and React rejects the

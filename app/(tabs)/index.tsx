@@ -24,7 +24,6 @@ import { BetCommentsSheet } from '@/components/bet-comments';
 import { NotificationPrimer } from '@/components/notification-primer';
 import { ReportSheet, type ReportTarget } from '@/components/report-sheet';
 import { BetSuggestions } from '@/components/bet-suggestions';
-import { DemoBadge } from '@/components/demo-entry';
 import { ChevronUpIcon } from '@/components/icons';
 import { ContentWidth, Screen } from '@/components/screen';
 import { BetFeedSkeleton } from '@/components/skeletons';
@@ -507,16 +506,15 @@ export default function FeedScreen() {
           {/* A soft blue bloom behind the name, as drawn. It is the one
               decorative mark in the app and it belongs to the wordmark, so it
               fades out with it rather than staying behind a lone glyph. */}
-          <Animated.View pointerEvents="none" style={wordmarkStyle} className="absolute">
-            <WordmarkGlow />
-          </Animated.View>
+          <View pointerEvents="none" className="absolute">
+            <Animated.View style={wordmarkStyle}>
+              <WordmarkGlow />
+            </Animated.View>
+          </View>
           <AppMark size={24} />
           <Animated.View style={wordmarkStyle}>
             <Text className="text-lg font-extrabold tracking-[-0.6px] text-primary">Betta</Text>
           </Animated.View>
-          <View className="absolute right-gutter">
-            <DemoBadge />
-          </View>
         </View>
 
         {/* What the feed is waiting on you for.

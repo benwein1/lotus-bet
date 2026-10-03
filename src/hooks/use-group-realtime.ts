@@ -1,6 +1,5 @@
 import { useEffect, useId, useMemo, useRef } from 'react';
 
-import { isDemoMode } from '@/lib/demo';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -181,8 +180,7 @@ function useRealtimeChannel(
   const instanceId = useId();
 
   useEffect(() => {
-    // Demo mode has no backend to subscribe to.
-    if (!topic || isDemoMode()) return;
+    if (!topic) return;
 
     // Leading edge, then one trailing call if anything arrived during the
     // window. The trailing call is load-bearing for the same reason it is in

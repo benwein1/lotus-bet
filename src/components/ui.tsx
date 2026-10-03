@@ -588,6 +588,7 @@ export function Segmented<T extends string>({
   className?: string;
 }) {
   const reduced = useReducedMotion();
+  const colors = useColors();
   const index = Math.max(0, options.findIndex((o) => o.value === value));
   const segment = useSharedValue(0);
   const offset = useSharedValue(0);
@@ -599,7 +600,18 @@ export function Segmented<T extends string>({
     offset.value = reduced ? target : withSpring(target, motion.press);
   }, [index, offset, reduced, segment]);
 
+  // Everything the thumb needs is in this one object, including the parts that
+  // never move. A Reanimated style and a `className` on the same component do
+  // not both survive the merge on native (CLAUDE.md §4) — and the half that
+  // went was the half that gave the thumb a fill, so the control rendered as
+  // an empty track with no selection visible at all.
   const thumb = useAnimatedStyle(() => ({
+    position: 'absolute',
+    top: 2,
+    bottom: 2,
+    left: 2,
+    borderRadius: 7,
+    backgroundColor: colors.surface,
     width: segment.value,
     transform: [{ translateX: offset.value }],
   }));
@@ -614,10 +626,7 @@ export function Segmented<T extends string>({
         offset.value = width * index;
       }}
     >
-      <Animated.View
-        style={thumb}
-        className="absolute bottom-0.5 left-0.5 top-0.5 rounded-[7px] bg-surface"
-      />
+      <Animated.View style={thumb} />
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -704,13 +713,20 @@ export function LiveDot({ className = '' }: { className?: string }) {
     );
   }, [pulse, reduced]);
 
-  const style = useAnimatedStyle(() => ({ opacity: pulse.value }));
+  const style = useAnimatedStyle(() => ({
+    opacity: pulse.value,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.brand,
+  }));
 
+  // The className rides a plain wrapper: the animated view itself must carry
+  // nothing but its animated style.
   return (
-    <Animated.View
-      style={[style, { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.brand }]}
-      className={className}
-    />
+    <View className={className}>
+      <Animated.View style={style} />
+    </View>
   );
 }
 
@@ -824,6 +840,7 @@ export function Skeleton({
 }) {
   const shimmer = useSharedValue(0.5);
   const reduced = useReducedMotion();
+  const colors = useColors();
 
   useEffect(() => {
     if (reduced) return;
@@ -837,13 +854,20 @@ export function Skeleton({
     );
   }, [shimmer, reduced]);
 
-  const style = useAnimatedStyle(() => ({ opacity: shimmer.value }));
+  const style = useAnimatedStyle(() => ({
+    opacity: shimmer.value,
+    width: width ?? '100%',
+    height: height ?? '100%',
+    borderRadius: radius,
+    backgroundColor: colors.surface3,
+  }));
 
+  // `className` carries the size and the radius at most call sites, so it stays
+  // on the wrapper and the fill clips to it.
   return (
-    <Animated.View
-      style={[style, { width: width ?? '100%', height, borderRadius: radius }]}
-      className={`bg-surface3 ${className}`}
-    />
+    <View className={`overflow-hidden ${className}`}>
+      <Animated.View style={style} />
+    </View>
   );
 }
 

@@ -10,7 +10,7 @@ import { useAttentionCount } from '@/lib/attention-store';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { TAB_BAR_HEIGHT } from '@/hooks/use-tab-bar-inset';
 import { useColors } from '@/providers/theme-provider';
-import { elevation, motion } from '@/theme';
+import { motion } from '@/theme';
 
 /** The three destinations, in bar order. Route names, as the navigator has them. */
 export type TabName = 'index' | 'groups' | 'profile';
@@ -61,9 +61,14 @@ export function FloatingTabBar({
           has to remember. */}
       <TabBarScrim />
 
+      {/* No drop shadow, as drawn. The bar reads as floating from the blur,
+          the lit `chrome-edge` and the fade above it — and a black shadow at
+          28px is invisible against the dark canvas while printing a grey
+          smudge around the pill on the light one, which is the one scheme
+          where it was doing anything at all. */}
       <Glass
         intensity={Platform.OS === 'web' ? 24 : 60}
-        style={[elevation.floating, { height: TAB_BAR_HEIGHT }]}
+        style={{ height: TAB_BAR_HEIGHT }}
         className="flex-row items-center gap-1 rounded-full p-[7px]"
       >
         {TABS.map((tab) => (

@@ -341,13 +341,14 @@ function SheetBody({
               : SlideInDown.springify().damping(22).stiffness(190)
           }
           // The sheet's own height travels INSIDE the animated style rather
-          // than beside it. This view is cssInterop-registered, so NativeWind
-          // writes `style` here too, and an array pairing a Reanimated style
-          // with static objects did not survive that merge on native — the
-          // static half went, and that half is what gives the sheet a size.
+          // than beside it, and every class moves to the wrapper below. This
+          // view is cssInterop-registered, so NativeWind writes `style` here
+          // too, and the two writers do not both survive on native — whichever
+          // half loses is simply gone, which cost the sheet first its size and
+          // then its ground.
           style={dragStyle}
-          className="overflow-hidden rounded-t-4xl border-t border-hairline-strong bg-canvas"
         >
+          <View className="flex-1 overflow-hidden rounded-t-4xl border-t border-hairline-strong bg-canvas">
           <GestureDetector gesture={drag}>
             <View className="px-gutter pb-3 pt-2.5">
               <View className="mb-3 h-1 w-9 self-center rounded-full bg-hairline-strong" />
@@ -431,6 +432,7 @@ function SheetBody({
               />
             </View>
           </SafeAreaView>
+          </View>
         </Animated.View>
       </View>
 

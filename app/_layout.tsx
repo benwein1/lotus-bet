@@ -7,12 +7,10 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AnimatedSplash } from '@/components/animated-splash';
-import { DemoEntry } from '@/components/demo-entry';
 import { AppMark } from '@/components/app-mark';
 import { ChevronLeftIcon } from '@/components/icons';
 import { Screen } from '@/components/screen';
 import { PressableScale } from '@/components/ui';
-import { isDemoMode } from '@/lib/demo';
 import { takePendingInvite } from '@/lib/invites';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { AuthProvider, useAuth } from '@/providers/auth-provider';
@@ -73,7 +71,7 @@ function RootNavigator() {
   // Single redirect gate: signed out -> (auth), signed in without a name ->
   // profile setup, otherwise -> tabs.
   useEffect(() => {
-    if (loading || (!isSupabaseConfigured && !isDemoMode())) return;
+    if (loading || !isSupabaseConfigured) return;
 
     // `segments` is a typed tuple under typedRoutes; compare it as plain strings.
     const path = segments as readonly string[];
@@ -221,10 +219,6 @@ function SetupRequired() {
         <Text className="font-semibold text-accent">.env</Text>, fill in your Supabase URL and
         anon key, then restart the dev server.
       </Text>
-
-      <View className="mt-4">
-        <DemoEntry />
-      </View>
     </Screen>
   );
 }
