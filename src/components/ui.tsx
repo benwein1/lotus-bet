@@ -1,12 +1,13 @@
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { cssInterop } from 'nativewind';
-import { forwardRef, useCallback, useEffect, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
   Platform,
   Pressable,
+  StyleSheet,
   Text,
   TextInput,
   View,
@@ -100,17 +101,42 @@ export const PressableScale = forwardRef<View, PressableScaleProps>(function Pre
    * "control that looks live but is not" this codebase argues against
    * everywhere else. Measured at `opacity: 1` on a disabled primary button.
    */
+  /**
+   * The caller's own style is folded INTO the animated style rather than
+   * sitting beside it in an array, and that is not tidiness.
+   *
+   * `cssInterop` maps this component's `className` onto its `style` prop, so
+   * NativeWind and this component both write `style`. When what it found there
+   * was `[animatedStyle, callerStyle]` — an array whose first entry is a
+   * Reanimated shared-value object rather than a plain one — the merge did not
+   * survive on native, and the caller's half was the half that went missing.
+   * On the web it never showed, because there NativeWind emits real CSS classes
+   * and the two never meet in the same prop.
+   *
+   * What that cost: `BetGrid`'s tiles carry their size ONLY as a style
+   * (`{ width, height }` — a measured number, so it cannot be a class), and
+   * they collapsed into full-height bars on a device while looking right in
+   * every web screenshot. The social buttons lost their background the same
+   * way. Anything styled only by `className` was unaffected, which is why the
+   * back button and the option squares looked fine and hid the pattern.
+   *
+   * Flattened once outside the worklet: `useAnimatedStyle` re-runs on every
+   * frame of a press, and `StyleSheet.flatten` on each would be work per frame
+   * for a value that cannot change between renders.
+   */
+  const flat = useMemo(() => StyleSheet.flatten(style) ?? {}, [style]);
+
   const animated = useAnimatedStyle(() =>
     dims
-      ? { transform: [{ scale: scale.value }], opacity: opacity.value }
-      : { transform: [{ scale: scale.value }] }
+      ? { ...flat, transform: [{ scale: scale.value }], opacity: opacity.value }
+      : { ...flat, transform: [{ scale: scale.value }] }
   );
 
   return (
     <AnimatedPressable
       ref={ref as never}
       disabled={disabled}
-      style={[animated, style as never]}
+      style={animated}
       onPressIn={(e) => {
         // Feedback is never removed under reduced motion — an unresponsive
         // press reads as a broken app. Only the travel goes; the dim stays.

@@ -370,23 +370,24 @@ function Segment({
     fill.value = withSpring(sharePercent / 100, motion.settle);
   }, [sharePercent, reduced, fill]);
 
-  const style = useAnimatedStyle(() => ({ transform: [{ scaleX: fill.value }] }));
+  // Everything this view needs is in ONE style object, the animated transform
+  // included, rather than an array pairing the animated half with a static one.
+  // `Animated.View` is `cssInterop`-registered (src/components/animated.ts), so
+  // NativeWind writes `style` here too; an array whose first entry is a
+  // Reanimated shared-value object did not survive that merge on native, and
+  // the static half — the absolute position, the height, the colour — is what
+  // went. The bar rendered on the web and was simply absent on a device.
+  const style = useAnimatedStyle(() => ({
+    position: 'absolute',
+    left: `${offsetPercent}%`,
+    height,
+    width: '100%',
+    transformOrigin: 'left',
+    backgroundColor: color,
+    transform: [{ scaleX: fill.value }],
+  }));
 
-  return (
-    <Animated.View
-      style={[
-        style,
-        {
-          position: 'absolute',
-          left: `${offsetPercent}%`,
-          height,
-          width: '100%',
-          transformOrigin: 'left',
-          backgroundColor: color,
-        },
-      ]}
-    />
-  );
+  return <Animated.View style={style} />;
 }
 
 /**
