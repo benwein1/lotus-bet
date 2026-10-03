@@ -146,8 +146,30 @@ export function friendlyOAuthError(provider: OAuthProvider, message: string): st
     return '';
   }
 
-  if (lower.includes('unsupported provider') || lower.includes('provider is not enabled')) {
+  // Three spellings of the same configuration mistake. `signInWithOAuth`
+  // (Google's path) builds its own URL and GoTrue answers "Unsupported
+  // provider: provider is not enabled"; `signInWithIdToken` (Apple's) is
+  // refused by the server with the `provider_disabled` code, whose message is
+  // "OAuth provider is disabled for use" — different words for the identical
+  // state, and matching only the first left Apple's case falling through to
+  // the generic sentence below.
+  if (
+    lower.includes('unsupported provider') ||
+    lower.includes('provider is not enabled') ||
+    lower.includes('provider is disabled')
+  ) {
     return `${PROVIDER_LABEL[provider]} sign-in is not switched on for this project yet.`;
+  }
+
+  // The bundle identifier is missing from the provider's allowed client IDs.
+  //
+  // Worth its own sentence because it is the one failure that looks like the
+  // provider is working: the sheet opens, Apple signs a perfectly valid token,
+  // and only the exchange fails — so "could not sign you in" sends somebody
+  // looking at the app rather than at one text field in the dashboard. The
+  // audience *is* the bundle identifier, and naming it is the whole fix.
+  if (lower.includes('audience')) {
+    return `${PROVIDER_LABEL[provider]} sign-in is not finished: the app's bundle ID is missing from the provider's allowed client IDs.`;
   }
 
   if (lower.includes('network') || lower.includes('fetch')) {

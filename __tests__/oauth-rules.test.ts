@@ -120,6 +120,33 @@ describe('friendlyOAuthError', () => {
     );
   });
 
+  // The two paths word the identical state differently. `signInWithOAuth`
+  // builds its own URL and gets "provider is not enabled"; `signInWithIdToken`
+  // is refused by the server with `provider_disabled`, whose message reads
+  // "OAuth provider is disabled for use". Matching only the first sent Apple's
+  // case to the generic sentence, which is the one provider where forgetting
+  // the toggle is a Guideline 4.8 rejection rather than an inconvenience.
+  it('recognises the `provider_disabled` wording the id-token path returns', () => {
+    expect(friendlyOAuthError('apple', 'OAuth provider is disabled for use')).toBe(
+      'Apple sign-in is not switched on for this project yet.'
+    );
+  });
+
+  // The failure that looks like the provider is working: Apple's sheet opens,
+  // signs a valid token, and only the exchange fails. Without naming the
+  // bundle ID this reads as an app bug rather than one empty dashboard field.
+  it('points at the client-ID list when the audience does not match', () => {
+    expect(friendlyOAuthError('apple', 'Unacceptable audience in id_token')).toBe(
+      "Apple sign-in is not finished: the app's bundle ID is missing from the provider's allowed client IDs."
+    );
+  });
+
+  it('still falls back to something plain for anything else', () => {
+    expect(friendlyOAuthError('apple', 'something nobody predicted')).toBe(
+      'Could not sign you in with Apple.'
+    );
+  });
+
   it('recognises a connection failure', () => {
     expect(friendlyOAuthError('apple', 'Network request failed')).toMatch(/connection/i);
   });
