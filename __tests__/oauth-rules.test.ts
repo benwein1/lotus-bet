@@ -141,6 +141,15 @@ describe('friendlyOAuthError', () => {
     );
   });
 
+  // appleSignInAvailable asserts on iOS rather than calling isAvailableAsync,
+  // so a build with no native module now shows the button and fails on tap
+  // instead of hiding it. This is the sentence that makes that trade pay.
+  it('names a missing native module as a build problem', () => {
+    expect(friendlyOAuthError('apple', "Cannot find native module 'ExpoAppleAuthentication'")).toBe(
+      'Apple sign-in is missing from this build. Rebuild the app rather than retrying.'
+    );
+  });
+
   it('still falls back to something plain for anything else', () => {
     expect(friendlyOAuthError('apple', 'something nobody predicted')).toBe(
       'Could not sign you in with Apple.'

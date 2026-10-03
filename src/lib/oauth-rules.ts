@@ -172,6 +172,15 @@ export function friendlyOAuthError(provider: OAuthProvider, message: string): st
     return `${PROVIDER_LABEL[provider]} sign-in is not finished: the app's bundle ID is missing from the provider's allowed client IDs.`;
   }
 
+  // The build is missing the native module, which is the one thing the button
+  // can no longer hide by disappearing — `appleSignInAvailable` deliberately
+  // asserts on iOS rather than asking, so this is where that shows up instead.
+  // Worth naming, because it is a build problem and nothing the person holding
+  // the phone can do differently.
+  if (lower.includes('native module') || lower.includes('not available')) {
+    return `${PROVIDER_LABEL[provider]} sign-in is missing from this build. Rebuild the app rather than retrying.`;
+  }
+
   if (lower.includes('network') || lower.includes('fetch')) {
     return 'No connection. Check your signal and try again.';
   }
