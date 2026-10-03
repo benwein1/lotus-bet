@@ -62,6 +62,18 @@ module.exports = {
           ink: color('brand-ink'),
         },
 
+        /**
+         * The label that sits on the mark's green-to-blue ramp.
+         *
+         * The ramp itself is not a Tailwind colour — it is drawn with a real
+         * `LinearGradient` from `markFrom`/`markTo`, the same two stops the mark
+         * is built from — but the text over it is, and it is the same value in
+         * both schemes for the reason `on-media` is: the ramp does not change
+         * between light and dark, so a label that followed the scheme would go
+         * white on green on a light phone.
+         */
+        'mark-ink': color('mark-ink'),
+
         positive: { DEFAULT: color('positive'), soft: color('positive-soft') },
         negative: { DEFAULT: color('negative'), soft: color('negative-soft') },
 

@@ -167,6 +167,7 @@ export default function SignInScreen() {
       <View className="mt-6">
         <Button
           title="Sign in"
+          variant="brand"
           size="lg"
           onPress={() => void submit()}
           loading={busy}

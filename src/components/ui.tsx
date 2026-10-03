@@ -1,11 +1,13 @@
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { forwardRef, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
   Platform,
   Pressable,
+  StyleSheet,
   Text,
   TextInput,
   View,
@@ -403,7 +405,7 @@ export function Money({
 
 // --- Buttons ----------------------------------------------------------------
 
-type ButtonVariant = 'primary' | 'secondary' | 'tinted' | 'plain' | 'destructive';
+type ButtonVariant = 'primary' | 'brand' | 'secondary' | 'tinted' | 'plain' | 'destructive';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 // The accent is the app's only decisive colour, so the primary action is a
@@ -417,6 +419,20 @@ type ButtonSize = 'sm' | 'md' | 'lg';
 // something you can press.
 const BUTTON_VARIANT: Record<ButtonVariant, { container: string; label: string }> = {
   primary: { container: 'bg-accent', label: 'text-accent-ink' },
+  /**
+   * The mark's own green-to-blue ramp, for the one action that is the whole
+   * point of the screen it is on — signing in, creating the account.
+   *
+   * It carries no background class: the gradient is a real `LinearGradient`
+   * behind the label, because a ramp cannot be a Tailwind colour. `markFrom`
+   * and `markTo` are the same two stops `assets/logo/mark.svg` is drawn from,
+   * so the button and the mark above it are painted from one source.
+   *
+   * `markInk` is deliberately identical in both schemes, like `on-media`: the
+   * ramp does not change between light and dark, so a label that followed the
+   * scheme would go white on green on a light phone.
+   */
+  brand: { container: 'overflow-hidden', label: 'text-mark-ink' },
   secondary: { container: 'bg-surface border border-hairline-strong', label: 'text-primary' },
   tinted: { container: 'bg-accent-soft border border-accent-soft', label: 'text-accent' },
   plain: { container: 'bg-transparent', label: 'text-accent' },
@@ -485,9 +501,20 @@ export const Button = forwardRef<View, ButtonProps>(function Button(
       } ${className}`}
       {...props}
     >
+      {variant === 'brand' && !isDisabled ? (
+        <LinearGradient
+          colors={[colors.markFrom, colors.markTo]}
+          // 140° in the design, which is this corner pair: the ramp runs down
+          // and to the right, the way it does through the mark's petals.
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+      ) : null}
       {loading ? (
         <ActivityIndicator
-          color={variant === 'primary' ? colors.accentInk : colors.accent}
+          color={variant === 'primary' || variant === 'brand' ? colors.accentInk : colors.accent}
           size="small"
         />
       ) : (
