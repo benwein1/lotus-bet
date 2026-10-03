@@ -7,7 +7,6 @@
 import type {
   BetComment,
 } from '../database.types';
-import { demo, isDemoMode } from '../demo';
 import { prepareContent } from '../content-rules';
 import { supabase } from '../supabase';
 
@@ -27,7 +26,6 @@ export async function setBetLike(
   userId: string,
   liked: boolean
 ): Promise<void> {
-  if (isDemoMode()) return demo.setBetLike(betId, userId, liked);
 
   const { error } = liked
     ? await supabase
@@ -39,7 +37,6 @@ export async function setBetLike(
 }
 
 export async function fetchBetComments(betId: string): Promise<BetComment[]> {
-  if (isDemoMode()) return demo.fetchBetComments(betId);
 
   const { data, error } = await supabase
     .from('bet_comments')
@@ -60,16 +57,9 @@ export async function postBetComment(
   // the *cleaned* string rather than the raw one, which is the whole reason
   // `prepareContent` returns text — validating one string and writing another
   // lets every invisible character through the check it just passed.
-  //
-  // Above the demo short-circuit on purpose. Demo mode is scaffolding, and the
-  // one thing it must never do is behave *more permissively* than the real
-  // backend — that is how a rule gets tested in the demo, looks fine, and is
-  // missing in production. Same reason resolving a bet there runs the real
-  // payout maths.
   const checked = prepareContent(body);
   if (!checked.ok) throw new Error(checked.message);
 
-  if (isDemoMode()) return demo.postBetComment(betId, userId, checked.text);
 
   const { data, error } = await supabase
     .from('bet_comments')
@@ -82,7 +72,6 @@ export async function postBetComment(
 }
 
 export async function deleteBetComment(commentId: string): Promise<void> {
-  if (isDemoMode()) return demo.deleteBetComment(commentId);
   const { error } = await supabase.from('bet_comments').delete().eq('id', commentId);
   if (error) throw new Error(error.message);
 }

@@ -23,11 +23,12 @@ export function UnderlineTabs<T extends string>({
   value: T;
   onChange: (key: T) => void;
   /**
-   * `ramp` is the group's: labels at their own width, scrolling, with the
-   * mark's gradient under the current one. `even` is the profile's: three
-   * equal columns under a plain white rule. Two shapes because the group has
-   * four tabs and one of them is called "Live Bets", while the profile has
-   * three short words that divide the width cleanly.
+   * The two differ in *layout only*: `ramp` lets labels keep their own width
+   * and scrolls, because the group has four tabs and one is called "Live
+   * Bets"; `even` divides the width into equal columns, because the profile
+   * has three short words. The selected marker is the mark's ramp in both —
+   * `even` used to draw a plain white rule instead, which read as a stray
+   * line under the row rather than as an indicator attached to a label.
    */
   variant?: 'ramp' | 'even';
 }) {
@@ -59,20 +60,18 @@ export function UnderlineTabs<T extends string>({
             aria-selected={active}
             accessibilityLabel={tab.label}
             scaleTo={0.97}
+            // Three equal columns is a claim about this tab's share of the
+            // ROW, and the row sees the outer box — everything in `className`
+            // lands on the inner one. Without this the three labels bunch at
+            // the left instead of dividing the width.
+            grow={even}
             onPress={() => {
               if (active) return;
               selectionTap();
               onChange(tab.key);
             }}
-            style={
-              even && active
-                ? { borderBottomWidth: 2, borderBottomColor: colors.text }
-                : even
-                  ? { borderBottomWidth: 2, borderBottomColor: 'transparent' }
-                  : undefined
-            }
             className={`min-h-[44px] justify-center pb-[11px] ${
-              even ? 'flex-1 items-center' : ''
+              even ? 'items-center' : ''
             }`}
           >
             <Text
@@ -82,7 +81,7 @@ export function UnderlineTabs<T extends string>({
             >
               {tab.label}
             </Text>
-            {active && !even && (
+            {active && (
               // A point below the label's own box, so the ramp covers the
               // hairline rather than sitting on a shelf above it.
               <LinearGradient

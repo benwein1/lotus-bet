@@ -9,7 +9,6 @@ import type {
   ReportReason,
   ReportTargetKind,
 } from '../database.types';
-import { demo, isDemoMode } from '../demo';
 import { supabase } from '../supabase';
 
 
@@ -54,7 +53,6 @@ export async function reportContent(
   targetId: string,
   reason: ReportReason
 ): Promise<void> {
-  if (isDemoMode()) return demo.reportContent(targetKind, targetId, reason);
   const { error } = await supabase.rpc('report_content', {
     p_target_kind: targetKind,
     p_target_id: targetId,
@@ -75,20 +73,17 @@ export async function reportContent(
  * not disappear because two people stopped speaking.
  */
 export async function blockUser(userId: string): Promise<void> {
-  if (isDemoMode()) return demo.blockUser(userId);
   const { error } = await supabase.rpc('block_user', { p_user_id: userId });
   if (error) throw new Error(error.message);
 }
 
 export async function unblockUser(userId: string): Promise<void> {
-  if (isDemoMode()) return demo.unblockUser(userId);
   const { error } = await supabase.rpc('unblock_user', { p_user_id: userId });
   if (error) throw new Error(error.message);
 }
 
 /** Everyone you have blocked, so Profile can offer to undo it. */
 export async function fetchBlockedUsers(): Promise<BlockedUser[]> {
-  if (isDemoMode()) return demo.fetchBlockedUsers();
   const { data, error } = await supabase.rpc('my_blocked_users');
   if (error) throw new Error(error.message);
   return (data ?? []) as BlockedUser[];
@@ -133,7 +128,6 @@ export async function blockedIds(): Promise<Set<string>> {
  * it expires, and there is no longer an account behind it.
  */
 export async function deleteAccount(): Promise<void> {
-  if (isDemoMode()) return demo.deleteAccount();
   const { error } = await supabase.rpc('delete_account');
   if (error) throw new Error(error.message);
 }

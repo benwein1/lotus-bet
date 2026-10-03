@@ -272,6 +272,7 @@ export default function SignUpScreen() {
       <View className="mt-6">
         <Button
           title="Create account"
+          variant="brand"
           size="lg"
           onPress={() => void submit()}
           loading={busy}

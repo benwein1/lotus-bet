@@ -8,13 +8,11 @@ import type {
   GroupBalanceRow,
   SettlementConfirmationRow,
 } from '../database.types';
-import { demo, isDemoMode } from '../demo';
 import { supabase } from '../supabase';
 
 // --- Settlement ------------------------------------------------------------
 
 export async function fetchGroupBalances(groupId: string): Promise<GroupBalanceRow[]> {
-  if (isDemoMode()) return demo.fetchGroupBalances(groupId);
   const { data, error } = await supabase.rpc('group_balances', { p_group_id: groupId });
   if (error) throw new Error(error.message);
   return (data ?? []) as GroupBalanceRow[];
@@ -23,7 +21,6 @@ export async function fetchGroupBalances(groupId: string): Promise<GroupBalanceR
 export async function fetchSettlementConfirmations(
   groupId: string
 ): Promise<SettlementConfirmationRow[]> {
-  if (isDemoMode()) return demo.fetchSettlementConfirmations(groupId);
   const { data, error } = await supabase
     .from('settlement_confirmations')
     .select('*')
@@ -40,7 +37,6 @@ export async function confirmSettlement(input: {
   amountAgorot: number;
   confirmedBy: string;
 }): Promise<void> {
-  if (isDemoMode()) return demo.confirmSettlement(input);
 
   const { error } = await supabase.from('settlement_confirmations').insert({
     group_id: input.groupId,
@@ -54,7 +50,6 @@ export async function confirmSettlement(input: {
 }
 
 export async function undoSettlement(confirmationId: string): Promise<void> {
-  if (isDemoMode()) return demo.undoSettlement(confirmationId);
   const { error } = await supabase
     .from('settlement_confirmations')
     .delete()

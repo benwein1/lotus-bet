@@ -9,8 +9,7 @@ import Animated, {
   withSpring,
 } from '@/components/animated';
 
-import { DemoEntry } from '@/components/demo-entry';
-import { AppMark } from '@/components/app-mark';
+import { AppMark, WordmarkGlow } from '@/components/app-mark';
 import { ContentWidth, Screen } from '@/components/screen';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { motion } from '@/theme';
@@ -32,6 +31,15 @@ import { motion } from '@/theme';
  * in the terms. Repeating it on the way in made the first thing the app says
  * about itself a denial. Do not add it back here; add to the Settings block.
  */
+/**
+ * The bloom's box, drawn around the 84pt mark.
+ *
+ * Wider than tall because the light reads as coming from the petals' spread
+ * rather than from a point, and both numbers are a little over twice the mark
+ * so the fade has finished well before the headline underneath.
+ */
+const HALO = { width: 230, height: 190 } as const;
+
 export function AuthShell({
   title,
   subtitle,
@@ -42,15 +50,12 @@ export function AuthShell({
    * avatar, because by then the thing being introduced is them, not the app.
    */
   hero,
-  /** Shown under the disclaimer in development only. */
-  showDemoEntry = false,
 }: {
   title: string;
   subtitle: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
   hero?: React.ReactNode;
-  showDemoEntry?: boolean;
 }) {
   const reduced = useReducedMotion();
 
@@ -105,9 +110,29 @@ export function AuthShell({
           >
             <ContentWidth>
               <Animated.View entering={entering(0)} className="mb-9 items-center">
-                <Animated.View style={markStyle} className="mb-6">
-                  {hero ?? <AppMark size={84} />}
-                </Animated.View>
+                {/* The bloom behind the mark.
+                    `WordmarkGlow` already draws exactly this for the feed
+                    header, so the entrance borrows it rather than growing a
+                    second one: a radial fade to nothing, drawn rather than
+                    faked with a tinted pill, which at low opacity has a hard
+                    edge that reads as a chip behind the logo.
+
+                    It is absolutely positioned and centred so it adds no
+                    height — the mark stays exactly where the splash hands it
+                    over, which is the whole reason this shell exists. It also
+                    sits outside `markStyle`, so the keyboard shrinking the mark
+                    does not shrink the light around it. */}
+                <View className="mb-6">
+                  <Animated.View style={markStyle}>
+                    <View
+                      pointerEvents="none"
+                      className="absolute inset-0 items-center justify-center"
+                    >
+                      <WordmarkGlow width={HALO.width} height={HALO.height} />
+                    </View>
+                    {hero ?? <AppMark size={84} />}
+                  </Animated.View>
+                </View>
 
                 {/* Large Title, centred, with the tight tracking the scale
                     already applies at this size. One statement, not a slogan
@@ -125,7 +150,6 @@ export function AuthShell({
 
               <View className="mt-10 items-center gap-5">
                 {footer}
-                {showDemoEntry && <DemoEntry />}
               </View>
             </ContentWidth>
           </ScrollView>

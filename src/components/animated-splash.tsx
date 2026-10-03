@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Defs, RadialGradient, Stop, Circle } from 'react-native-svg';
 import Animated, {
   runOnJS,
@@ -168,10 +168,7 @@ export function AnimatedSplash({ children }: { children: React.ReactNode }) {
             style={[StyleSheet.absoluteFill, groundStyle, { backgroundColor: colors.canvas }]}
           />
 
-          <Animated.View
-            style={[StyleSheet.absoluteFill, logoStyle]}
-            className="items-center justify-center"
-          >
+          <Animated.View style={[StyleSheet.absoluteFill, styles.centre, logoStyle]}>
             <View className="items-center justify-center">
               {/*
                 The glow, as an SVG radial gradient rather than a shadow or a
@@ -222,13 +219,14 @@ export function AnimatedSplash({ children }: { children: React.ReactNode }) {
               text-3xl is Apple's Large Title and its tracking arrives with the
               size, so nothing here sets letter-spacing by hand.
             */}
-            <Animated.Text
-              style={[wordmark, styles.wordmark]}
-              className="text-3xl font-semibold text-primary"
-              accessibilityRole="header"
-            >
-              {APP_NAME}
-            </Animated.Text>
+            <Animated.View style={[wordmark, styles.wordmark]}>
+              <Text
+                className="text-center text-3xl font-semibold text-primary"
+                accessibilityRole="header"
+              >
+                {APP_NAME}
+              </Text>
+            </Animated.View>
           </Animated.View>
         </View>
       )}
@@ -237,6 +235,12 @@ export function AnimatedSplash({ children }: { children: React.ReactNode }) {
 }
 
 const styles = StyleSheet.create({
+  // Folded in rather than written as a className: a Reanimated style and a
+  // `className` on one component do not both survive the merge on native.
+  centre: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   wordmark: {
     position: 'absolute',
     top: '50%',

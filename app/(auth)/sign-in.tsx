@@ -8,7 +8,6 @@ import { AuthNotice, AuthShell, AuthSwitch } from '@/components/auth-shell';
 import { EyeIcon } from '@/components/icons';
 import { AuthDivider, SocialAuthButtons } from '@/components/social-auth';
 import { Button, ErrorNotice, FieldGroup, PressableScale, TextField } from '@/components/ui';
-import { DEMO_AVAILABLE } from '@/lib/demo';
 import { isValidEmail } from '@/lib/format';
 import type { OAuthProvider } from '@/lib/oauth-rules';
 import { useAuth } from '@/providers/auth-provider';
@@ -81,7 +80,6 @@ export default function SignInScreen() {
       // friends, not a sportsbook, and the first sentence is where that has to
       // be unmistakable.
       subtitle="Bet your friends on anything. Betta keeps score and remembers who owes whom."
-      showDemoEntry={DEMO_AVAILABLE}
       footer={
         <View className="w-full gap-4">
           <AuthSwitch prompt="New here?">
@@ -167,6 +165,7 @@ export default function SignInScreen() {
       <View className="mt-6">
         <Button
           title="Sign in"
+          variant="brand"
           size="lg"
           onPress={() => void submit()}
           loading={busy}

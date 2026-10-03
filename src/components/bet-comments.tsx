@@ -310,6 +310,10 @@ function SheetBody({
     });
 
   const dragStyle = useAnimatedStyle(() => ({
+    height: sheetHeight,
+    flexShrink: 1,
+    maxHeight: '100%',
+    ...elevation.floating,
     transform: [{ translateY: dragY.value }],
   }));
 
@@ -336,13 +340,15 @@ function SheetBody({
               ? FadeIn.duration(motion.duration.fast)
               : SlideInDown.springify().damping(22).stiffness(190)
           }
-          style={[
-            { height: sheetHeight, flexShrink: 1, maxHeight: '100%' },
-            elevation.floating,
-            dragStyle,
-          ]}
-          className="overflow-hidden rounded-t-4xl border-t border-hairline-strong bg-canvas"
+          // The sheet's own height travels INSIDE the animated style rather
+          // than beside it, and every class moves to the wrapper below. This
+          // view is cssInterop-registered, so NativeWind writes `style` here
+          // too, and the two writers do not both survive on native — whichever
+          // half loses is simply gone, which cost the sheet first its size and
+          // then its ground.
+          style={dragStyle}
         >
+          <View className="flex-1 overflow-hidden rounded-t-4xl border-t border-hairline-strong bg-canvas">
           <GestureDetector gesture={drag}>
             <View className="px-gutter pb-3 pt-2.5">
               <View className="mb-3 h-1 w-9 self-center rounded-full bg-hairline-strong" />
@@ -426,6 +432,7 @@ function SheetBody({
               />
             </View>
           </SafeAreaView>
+          </View>
         </Animated.View>
       </View>
 

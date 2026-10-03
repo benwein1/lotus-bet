@@ -589,7 +589,7 @@ EXPO_PUBLIC_WEB_ORIGIN=https://<your domain>
 EXPO_PUBLIC_EAS_PROJECT_ID=<from eas init>
 ```
 
-and must **not** have `EXPO_PUBLIC_ENABLE_DEMO`. See §7.
+There is no demo flag to leave out any more — see §7.
 
 ### 4.4 Crash reporting and analytics
 
@@ -733,21 +733,27 @@ which is also the only way to check the picker's permission prompt.
 
 | Item | Where | Risk | Pri |
 | --- | --- | --- | --- |
-| **Demo mode** | `src/lib/demo.ts`, `src/components/demo-entry.tsx` | **Has reached a deployable build before.** Metro inlines and *caches* `EXPO_PUBLIC_*`, so an export after a demo export inherits `"1"` and ships the "Skip sign-in" button — with the variable name nowhere in the output | **P0** |
+| ~~**Demo mode**~~ | deleted | **Was the one P0 here, and it had reached a deployable build before.** Removed outright rather than re-gated: `src/lib/demo.ts`, `src/components/demo-entry.tsx` and every `isDemoMode` guard are gone, so there is no flag left to leak and nothing to check for | ✅ |
 | Placeholder Supabase project | `.env` | Pointing release at `demo.supabase.co` | P0 |
 | `.env` committed | gitignored ✅ | — | ✅ |
 | Seed data | `supabase/seed/test_members.sql` | Only applied by the test harness; never run it against production | P0 |
-| Debug UI | `DemoBadge` | Gated by `DEMO_AVAILABLE` | ✅ |
+| Debug UI | none | `DemoBadge` went with demo mode | ✅ |
 | Service-role key | not present ✅ | Would bypass all RLS | ✅ |
 
-### The only honest demo-mode check
+### Why demo mode was deleted rather than gated harder
 
-Grepping the bundle for `EXPO_PUBLIC_ENABLE_DEMO` **finds nothing even when the
-flag is on**, because Metro folds in the value, not the name. Grepping for the
-button text always finds it, because the component is imported either way.
+It was gated on `DEMO_AVAILABLE` — `__DEV__` or an explicit
+`EXPO_PUBLIC_ENABLE_DEMO=1` — and it still reached a deployable build once.
+Metro inlines `process.env.EXPO_PUBLIC_*` as literals and *caches* them, so an
+export run after a demo export inherited `"1"` and shipped the "Skip sign-in"
+button, with the variable name nowhere in the output because the value was
+folded in rather than the name. Grepping the bundle for the flag found nothing;
+the only honest check was to load the built page and look for the button.
 
-**Load the built app and look for "Skip sign-in".** That is the check.
-`build:web` passes `--clear` for this reason; any deploy path must too.
+A gate that has already failed once, whose failure is invisible to grep, and
+whose only check is a human looking at a screen is not a gate. The code is gone
+instead, which is the one state that cannot regress. `build:web` still passes
+`--clear`, which is good hygiene for the remaining `EXPO_PUBLIC_*` values.
 
 ---
 

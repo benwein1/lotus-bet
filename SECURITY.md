@@ -556,13 +556,17 @@ app. There is no such thing as a secret `EXPO_PUBLIC_` variable. Today that is
 only the Supabase URL, the anon key, the web origin and the EAS project id — all
 fine.
 
-The trap CLAUDE.md §8 already documents is worth repeating here because it is a
-*security* trap and not just a build one: **Metro caches those inlined values**,
-so an export run after a demo export inherits `EXPO_PUBLIC_ENABLE_DEMO="1"` and
-ships the demo entry point — with the variable name nowhere in the output,
-because the value was folded in. Grepping the bundle for the flag finds nothing.
-The only honest check is to load the built page and look for the button.
-`build:web` passes `--clear`; any deploy path must keep doing so.
+**Metro also caches those inlined values**, which used to be a security trap
+and not just a build one: an export run after a demo export inherited
+`EXPO_PUBLIC_ENABLE_DEMO="1"` and shipped the offline demo entry point, with the
+variable name nowhere in the output because the value was folded in rather than
+the name. Grepping the bundle for the flag found nothing, so the only honest
+check was to load the built page and look for the button.
+
+**Demo mode has since been deleted outright**, so that particular leak has no
+code left to leak. The caching behaviour is unchanged and still applies to the
+`EXPO_PUBLIC_*` values that remain, so `build:web` keeps passing `--clear` and
+any deploy path must too.
 
 **Never** put the service-role key in the client. It bypasses RLS entirely. It
 belongs only in Edge Function environment variables.
@@ -610,8 +614,6 @@ The harness is at **55 asserted refusals**, exit 0.
 
 ### Manual, once per release
 
-- Confirm the demo entry point is absent from the production bundle by loading
-  the deployed page and looking for "Skip sign-in".
 - Confirm no `service_role` string appears in the built bundle.
 
 ---

@@ -8,7 +8,6 @@ import type {
   GroupRow,
   UserLookup,
 } from '../database.types';
-import { demo, isDemoMode } from '../demo';
 import { supabase } from '../supabase';
 
 // --- Challenges ------------------------------------------------------------
@@ -26,7 +25,6 @@ import { supabase } from '../supabase';
  * yours to see.
  */
 export async function findUserByUsername(username: string): Promise<UserLookup | null> {
-  if (isDemoMode()) return demo.findUserByUsername(username);
 
   const handle = username.trim().replace(/^@/, '');
   if (!handle) return null;
@@ -56,7 +54,6 @@ export async function searchUsersByUsername(query: string): Promise<UserLookup[]
   const handle = query.trim().replace(/^@/, '');
   if (handle.length < 2) return [];
 
-  if (isDemoMode()) return demo.searchUsersByUsername(handle);
 
   const { data, error } = await supabase.rpc('search_users_by_username', { p_query: handle });
 
@@ -72,7 +69,6 @@ export async function searchUsersByUsername(query: string): Promise<UserLookup[]
  * a dozen identical groups and the Profile ledger would stop meaning anything.
  */
 export async function createDuel(username: string): Promise<GroupRow> {
-  if (isDemoMode()) return demo.createDuel(username);
 
   const handle = username.trim().replace(/^@/, '');
   const { data, error } = await supabase

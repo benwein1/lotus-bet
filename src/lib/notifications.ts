@@ -3,7 +3,6 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-import { isDemoMode } from './demo';
 import { supabase } from './supabase';
 
 // Show a banner even when the app is in the foreground — a bet resolving is
@@ -32,7 +31,7 @@ Notifications.setNotificationHandler({
  * Settings. That is why the priming sheet exists — see `promptBeforeAsking`.
  */
 export async function pushPermissionIsUndetermined(): Promise<boolean> {
-  if (Platform.OS === 'web' || !Device.isDevice || isDemoMode()) return false;
+  if (Platform.OS === 'web' || !Device.isDevice) return false;
   try {
     const existing = await Notifications.getPermissionsAsync();
     return existing.status === 'undetermined' || existing.canAskAgain === true
@@ -61,7 +60,7 @@ export async function pushPermissionIsUndetermined(): Promise<boolean> {
 export async function registerForPushNotifications(
   options: { promptBeforeAsking?: boolean } = {}
 ): Promise<string | null> {
-  if (Platform.OS === 'web' || !Device.isDevice || isDemoMode()) return null;
+  if (Platform.OS === 'web' || !Device.isDevice) return null;
   const mayPrompt = options.promptBeforeAsking ?? false;
 
   try {
@@ -118,7 +117,6 @@ export async function registerForPushNotifications(
  * was still registered would make the switch a lie.
  */
 export async function clearPushToken(): Promise<void> {
-  if (isDemoMode()) return;
   await supabase.rpc('set_push_token', { p_token: '', p_platform: null });
 }
 
@@ -132,7 +130,6 @@ export async function clearPushToken(): Promise<void> {
  * not go out. When the function is not deployed this is simply a no-op.
  */
 async function announce(kind: string, payload: Record<string, unknown>): Promise<void> {
-  if (isDemoMode()) return;
   try {
     await supabase.functions.invoke('notify', { body: { kind, ...payload } });
   } catch (err) {
