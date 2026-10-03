@@ -10,14 +10,14 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.betta.app",
+      "bundleIdentifier": "app.betta.mobile",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
       "usesAppleSignIn": true
     },
     "android": {
-      "package": "com.betta.app",
+      "package": "app.betta.mobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",

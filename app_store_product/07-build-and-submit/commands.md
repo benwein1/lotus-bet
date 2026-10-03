@@ -25,8 +25,28 @@ Commit the changed `app.json` afterwards.
 
 ## 3 · Confirm the bundle ID is free — t08
 
-`com.betta.app`, in App Store Connect. **It cannot be changed after the first
-build is uploaded**, so check before you build, not after.
+`app.betta.mobile`. **It cannot be changed after the first build is uploaded**,
+so this is checked before building, not after.
+
+### Why it is not `com.betta.app`
+
+It was, until Apple refused to register it:
+
+> An App ID with Identifier 'com.betta.app' is not available. Please enter a
+> different string.
+
+**Bundle IDs are unique across every Apple Developer account in the world**, not
+just within yours, and short generic ones are long gone. Somebody else holds
+`com.betta.app`.
+
+Caught at registration, which is the only cheap moment to catch it: the same
+collision discovered after a build is uploaded means a new app record and a new
+App ID, because the identifier is what App Store Connect keys the app on.
+
+Changed in `app.json` (`ios.bundleIdentifier` and `android.package`) and
+everywhere in this folder. **The deep-link scheme `betta://` is unaffected** —
+that is `expo.scheme` and a separate namespace, so invite links and the
+password-reset link keep working unchanged.
 
 ## 4 · Build — t15
 

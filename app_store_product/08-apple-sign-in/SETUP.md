@@ -31,8 +31,8 @@ flow, which this app does not use.
 
 1. Go to **[Identifiers](https://developer.apple.com/account/resources/identifiers/list/bundleId)**.
    Set the filter in the top right to **App IDs**.
-2. Find **`com.betta.app`**, or create it: **+** → **App IDs** → **App** →
-   Description `Betta`, Bundle ID **Explicit** = `com.betta.app`.
+2. Find **`app.betta.mobile`**, or create it: **+** → **App IDs** → **App** →
+   Description `Betta`, Bundle ID **Explicit** = `app.betta.mobile`.
 3. Open it, scroll the **Capabilities** list, tick **Sign In with Apple**.
    Leave it on the default "Enable as a primary App ID".
 4. **Save**, and confirm the prompt.
@@ -43,7 +43,7 @@ That is the whole Apple side. No Services ID, no key, no `.p8` download.
 
 1. **Authentication → Sign In / Providers → Apple**.
 2. Toggle **Enable Sign in with Apple**.
-3. **Client IDs**: `com.betta.app`
+3. **Client IDs**: `app.betta.mobile`
    — exactly the bundle identifier, no spaces, nothing else in the field.
 4. **Secret Key (for OAuth)**: leave **empty**. Native does not use it.
 5. **Save**.
