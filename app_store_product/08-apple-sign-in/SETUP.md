@@ -100,3 +100,78 @@ So if you test, delete the account, and test again, the second run arrives with
 no name and routes you to profile setup. **That is correct behaviour, not a
 bug.** To get a first-authorisation again: iPhone **Settings → your name → Sign
 in with Apple → Betta → Stop using Apple ID**.
+
+---
+
+# Testing it — task t19
+
+## There is no shortcut around a real device
+
+Sign in with Apple needs a real Apple ID on real hardware. **A simulator cannot
+do it** — the sheet will not authenticate. Neither can the web build: the button
+is iOS-only by design.
+
+So the test is: get a build onto your iPhone.
+
+## The fast loop — `preview`, about 25 minutes
+
+```bash
+git pull                       # the bundle ID changed; build the old one and nothing matches
+eas device:create              # once — opens a link, install the profile on the iPhone
+eas build --platform ios --profile preview
+```
+
+`eas device:create` prints a URL. Open it **on the iPhone**, install the
+registration profile, and the device is registered for ad-hoc builds. When the
+build finishes, EAS gives a QR code — scan it on the phone and the app installs.
+
+This needs no App Store Connect record, so it does not wait on anything else.
+
+### Why `preview` and not `development`
+
+The `development` profile is a **simulator** build (`ios.simulator: true`), and a
+simulator cannot do Sign in with Apple. Use `device` instead if you want a dev
+client with hot reload on hardware; `preview` if you just want the app.
+
+### One thing that would have wasted a build
+
+`preview` and `development` carried **no `env` block** — only `production` did.
+A build from either would have shipped with no `EXPO_PUBLIC_SUPABASE_URL` and no
+anon key, so `isSupabaseConfigured` would be false and the app would open on the
+"finish setting up" screen. **You would never have reached the sign-in screen at
+all**, let alone the Apple button.
+
+All four profiles now extend a `base` profile that holds the env once.
+
+## What to do on the phone
+
+1. Open the app. You should see **Continue with Apple** above Continue with
+   Google. *(If it is missing, you are not on iOS or the build is stale.)*
+2. Tap it. Apple's sheet appears.
+3. Choose **Share My Email** or **Hide My Email** — both are fine, and Hide My
+   Email is worth trying since it is what a privacy-minded reviewer will pick.
+4. Confirm with Face ID.
+5. You should land in the app, signed in.
+
+## How we know it really worked
+
+Not by the screen — by the database. Say the word and this runs:
+
+```sql
+select provider, count(*) from auth.identities group by provider;
+```
+
+**As of now:** `google 14 · email 10 · phone 2` — **no `apple` row at all.**
+
+An `apple` row appearing is the proof, and it is a strong one: it means Apple
+signed a token, Supabase accepted its audience and nonce, and a real account
+exists. **t10 and t19 both close on it.**
+
+## If it fails
+
+The app names which step you missed — see the table above. The two most likely:
+
+- *"not switched on for this project yet"* → the Supabase toggle
+- *"bundle ID is missing from the provider's allowed client IDs"* → the Client
+  IDs field. **It must now read `app.betta.mobile`**, not the old
+  `com.betta.app`. If you pasted the old value, this is the error you will get.
