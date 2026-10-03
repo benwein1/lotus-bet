@@ -367,6 +367,7 @@ function GroupRow({
         className="flex-1"
       >
         <PressableScale
+          grow
           accessibilityRole="button"
           accessibilityLabel={`Group: ${group.name}`}
           className="flex-1 flex-row items-center gap-3"

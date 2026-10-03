@@ -1,20 +1,20 @@
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { cssInterop } from 'nativewind';
-import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   View,
   type PressableProps,
+  type StyleProp,
   type TextInputProps,
   type TextProps,
   type ViewProps,
+  type ViewStyle,
 } from 'react-native';
 import Animated, {
   Easing,
@@ -49,9 +49,25 @@ import { avatarColors, elevation, motion, tabular } from '@/theme';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-// Same trap as `Animated.View`: NativeWind does not know this component, so
-// its `className` would be dropped silently. See src/components/animated.ts.
-cssInterop(AnimatedPressable, { className: 'style' });
+/**
+ * **This component is deliberately NOT registered with `cssInterop`**, and it
+ * never receives a `className`.
+ *
+ * It used to be, and that is what made two rounds of native-only bugs. With the
+ * registration, NativeWind writes this component's `style` and so does
+ * Reanimated, and on native exactly one of them survived — which one depending
+ * on the shape of what was passed. An array lost the caller's style (the Profile
+ * tiles had no size and collapsed into bars); a single animated object lost the
+ * className (the auth buttons had a background but no radius, no padding and no
+ * centring). Neither ordering produced both, and on the web neither showed,
+ * because there NativeWind emits real CSS classes and the two never meet.
+ *
+ * Rather than keep guessing at that merge, `PressableScale` now keeps the two
+ * apart: this component is pure Reanimated and takes only the press transform,
+ * and a plain `View` inside it takes the className and the caller's style. A
+ * `View` with a `className` is the most ordinary thing NativeWind does, and a
+ * `View` with a style object is plain React Native. Nothing contested is left.
+ */
 
 export function tap(style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) {
   if (Platform.OS === 'web') return;
@@ -63,12 +79,20 @@ export function selectionTap() {
   void Haptics.selectionAsync();
 }
 
-interface PressableScaleProps extends PressableProps {
+interface PressableScaleProps extends Omit<PressableProps, 'style'> {
+  /**
+   * Narrower than `PressableProps['style']`, which also allows a function of
+   * the press state. That form has no meaning here: the style goes on the
+   * inner view, and the press state is already expressed by the spring.
+   */
+  style?: StyleProp<ViewStyle>;
   /** How far to scale down. Small targets want less travel than big ones. */
   scaleTo?: number;
   /** Dim as well as shrink — right for rows and plain text buttons. */
   dim?: boolean;
   haptic?: boolean;
+  /** Grow inside the parent's row or column. See `GROW`. */
+  grow?: boolean;
   className?: string;
   children?: React.ReactNode;
 }
@@ -79,7 +103,19 @@ interface PressableScaleProps extends PressableProps {
  * feels rendered.
  */
 export const PressableScale = forwardRef<View, PressableScaleProps>(function PressableScale(
-  { scaleTo = 0.97, dim = false, haptic = false, style, onPressIn, onPressOut, disabled, ...props },
+  {
+    scaleTo = 0.97,
+    dim = false,
+    haptic = false,
+    grow = false,
+    style,
+    className,
+    children,
+    onPressIn,
+    onPressOut,
+    disabled,
+    ...props
+  },
   ref
 ) {
   const scale = useSharedValue(1);
@@ -101,42 +137,17 @@ export const PressableScale = forwardRef<View, PressableScaleProps>(function Pre
    * "control that looks live but is not" this codebase argues against
    * everywhere else. Measured at `opacity: 1` on a disabled primary button.
    */
-  /**
-   * The caller's own style is folded INTO the animated style rather than
-   * sitting beside it in an array, and that is not tidiness.
-   *
-   * `cssInterop` maps this component's `className` onto its `style` prop, so
-   * NativeWind and this component both write `style`. When what it found there
-   * was `[animatedStyle, callerStyle]` — an array whose first entry is a
-   * Reanimated shared-value object rather than a plain one — the merge did not
-   * survive on native, and the caller's half was the half that went missing.
-   * On the web it never showed, because there NativeWind emits real CSS classes
-   * and the two never meet in the same prop.
-   *
-   * What that cost: `BetGrid`'s tiles carry their size ONLY as a style
-   * (`{ width, height }` — a measured number, so it cannot be a class), and
-   * they collapsed into full-height bars on a device while looking right in
-   * every web screenshot. The social buttons lost their background the same
-   * way. Anything styled only by `className` was unaffected, which is why the
-   * back button and the option squares looked fine and hid the pattern.
-   *
-   * Flattened once outside the worklet: `useAnimatedStyle` re-runs on every
-   * frame of a press, and `StyleSheet.flatten` on each would be work per frame
-   * for a value that cannot change between renders.
-   */
-  const flat = useMemo(() => StyleSheet.flatten(style) ?? {}, [style]);
-
   const animated = useAnimatedStyle(() =>
     dims
-      ? { ...flat, transform: [{ scale: scale.value }], opacity: opacity.value }
-      : { ...flat, transform: [{ scale: scale.value }] }
+      ? { transform: [{ scale: scale.value }], opacity: opacity.value }
+      : { transform: [{ scale: scale.value }] }
   );
 
   return (
     <AnimatedPressable
       ref={ref as never}
       disabled={disabled}
-      style={animated}
+      style={grow ? [animated, GROW] : animated}
       onPressIn={(e) => {
         // Feedback is never removed under reduced motion — an unresponsive
         // press reads as a broken app. Only the travel goes; the dim stays.
@@ -151,9 +162,26 @@ export const PressableScale = forwardRef<View, PressableScaleProps>(function Pre
         onPressOut?.(e);
       }}
       {...props}
-    />
+    >
+      <View className={className} style={style}>
+        {children}
+      </View>
+    </AnimatedPressable>
   );
 });
+
+/**
+ * The outer box's share of the layout, for the handful of callers that need it.
+ *
+ * Everything a caller writes in `className` lands on the inner `View`, which is
+ * right for the box's own look and for how its children sit — `flex-row` and
+ * padding belong there. It is wrong for `flex-1`, which is a statement about
+ * this control's place in its PARENT, and the parent sees the outer box.
+ *
+ * Two call sites need it, so it is a named prop rather than a className the
+ * component would have to parse.
+ */
+const GROW = { flexGrow: 1, flexBasis: 0, minWidth: 0 } as const;
 
 // --- Surfaces ---------------------------------------------------------------
 

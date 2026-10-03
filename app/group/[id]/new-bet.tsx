@@ -527,16 +527,21 @@ function MediaPicker({
               <VideoIcon size={12} color="#FFFFFF" />
             </View>
           )}
-          <PressableScale
-            onPress={() => onRemove(index)}
-            scaleTo={0.88}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Remove attachment"
-            className="absolute -right-1.5 -top-1.5 h-6 w-6 items-center justify-center rounded-full bg-scrim"
-          >
-            <CloseIcon size={13} color="#FFFFFF" />
-          </PressableScale>
+          {/* Positioned on a wrapper rather than on the control: `absolute` and
+              the offsets place the OUTER box, and everything a PressableScale
+              is given in `className` lands on its inner view. */}
+          <View className="absolute -right-1.5 -top-1.5">
+            <PressableScale
+              onPress={() => onRemove(index)}
+              scaleTo={0.88}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Remove attachment"
+              className="h-6 w-6 items-center justify-center rounded-full bg-scrim"
+            >
+              <CloseIcon size={13} color="#FFFFFF" />
+            </PressableScale>
+          </View>
         </View>
       ))}
 
